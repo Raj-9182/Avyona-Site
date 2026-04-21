@@ -1,0 +1,1331 @@
+body.product-page {
+  background:
+    radial-gradient(circle at top left, rgba(93, 180, 103, 0.12), transparent 24%),
+    linear-gradient(180deg, #f7fcf7 0%, #ffffff 22%, #f2f8f3 100%);
+}
+
+body.product-page.product-zoom-active {
+  overflow: hidden;
+  touch-action: none;
+  overscroll-behavior: none;
+}
+
+.product-page-main {
+  padding-bottom: 7rem;
+}
+
+.product-breadcrumb {
+  margin-bottom: 1.5rem;
+  color: #5b6473;
+}
+
+.product-breadcrumb a:hover {
+  color: var(--brand);
+}
+
+.avy-product-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(360px, 0.92fr);
+  gap: 2rem;
+  align-items: start;
+}
+
+.avy-product-gallery-card,
+.avy-summary-card,
+.avy-surface-card {
+  border: 1px solid rgba(20, 36, 84, 0.08);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 24px 60px rgba(17, 24, 39, 0.07);
+}
+
+.avy-product-gallery-card {
+  padding: 1.1rem;
+}
+
+.avy-gallery-meta,
+.avy-brand-row,
+.avy-review-row,
+.avy-price-line,
+.avy-section-minihead,
+.avy-quantity-row,
+.avy-cta-stack,
+.avy-quick-assurance,
+.avy-meta-strip,
+.avy-review-card-head,
+.avy-review-meta {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.avy-gallery-meta {
+  justify-content: space-between;
+  margin-bottom: 0.9rem;
+}
+
+.avy-gallery-count,
+.avy-gallery-badge,
+.avy-discount-badge,
+.avy-verified-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.9rem;
+  padding: 0 0.8rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.avy-gallery-count {
+  background: rgba(93, 180, 103, 0.14);
+  color: var(--brand);
+}
+
+.avy-zoom-button,
+.avy-inline-button,
+.avy-text-action,
+.avy-pincode-form button,
+.avy-lightbox-close,
+.avy-lightbox-nav,
+.avy-quantity-stepper button {
+  font: inherit;
+  cursor: pointer;
+}
+
+.avy-zoom-button,
+.avy-inline-button,
+.avy-text-action {
+  border: 0;
+  background: transparent;
+  color: var(--brand);
+  font-weight: 700;
+}
+
+.avy-gallery-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 36rem;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top left, rgba(255, 177, 66, 0.14), transparent 28%),
+    linear-gradient(180deg, #f4fbf5 0%, #ffffff 100%);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.avy-gallery-stage-shell {
+  position: relative;
+}
+
+.avy-gallery-stage.is-image-stage {
+  cursor: crosshair;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.avy-gallery-stage.is-zoom-active {
+  cursor: crosshair;
+}
+
+.avy-gallery-stage.is-mobile-zoom-active {
+  touch-action: none;
+}
+
+.avy-gallery-stage img,
+.avy-gallery-stage video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  object-position: center;
+}
+
+.avy-lightbox-stage img,
+.avy-lightbox-stage video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+
+.avy-gallery-main-image {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  transition: transform 180ms ease;
+  will-change: transform;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.avy-gallery-stage.is-zoom-active .avy-gallery-main-image {
+  transform: scale(1.02);
+}
+
+.avy-gallery-zoom-lens {
+  position: absolute;
+  z-index: 2;
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.06)),
+    rgba(93, 180, 103, 0.12);
+  box-shadow: 0 0 0 1px rgba(93, 180, 103, 0.18), 0 16px 32px rgba(17, 24, 39, 0.12);
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.96);
+  transition: opacity 140ms ease, transform 140ms ease;
+  pointer-events: none;
+  backdrop-filter: blur(2px);
+}
+
+.avy-gallery-zoom-lens.is-visible {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.avy-gallery-zoom-hint {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  min-height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.8rem;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.76);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  backdrop-filter: blur(10px);
+}
+
+.avy-gallery-zoom-panel {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 1rem);
+  width: min(26rem, 42vw);
+  height: 100%;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-0.35rem);
+  transition: opacity 180ms ease, transform 180ms ease, visibility 180ms ease;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.avy-gallery-zoom-panel.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0);
+}
+
+.avy-gallery-zoom-preview {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  border-radius: 24px;
+  border: 1px solid rgba(20, 36, 84, 0.1);
+  background-color: #fff;
+  box-shadow: 0 24px 54px rgba(17, 24, 39, 0.14);
+}
+
+.avy-gallery-zoom-preview-image {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  max-width: none;
+  will-change: transform;
+  pointer-events: none;
+}
+
+.avy-gallery-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 0.85rem;
+  margin-top: 1rem;
+}
+
+.avy-gallery-thumb {
+  position: relative;
+  border: 1px solid rgba(93, 180, 103, 0.24);
+  border-radius: 18px;
+  background: #fff;
+  padding: 0.55rem;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.avy-gallery-thumb img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+  display: block;
+}
+
+.avy-gallery-thumb.is-active,
+.avy-gallery-thumb:hover {
+  border-color: var(--brand);
+  box-shadow: 0 12px 24px rgba(93, 180, 103, 0.18);
+  transform: translateY(-1px);
+}
+
+.avy-gallery-badge {
+  position: absolute;
+  right: 0.5rem;
+  bottom: 0.5rem;
+  min-height: 1.4rem;
+  padding: 0 0.45rem;
+  background: rgba(17, 24, 39, 0.82);
+  color: #fff;
+}
+
+.avy-summary-card {
+  display: grid;
+  gap: 1.2rem;
+  padding: 1.6rem;
+  position: sticky;
+  top: 7rem;
+}
+
+.avy-brand-row {
+  justify-content: space-between;
+}
+
+.avy-brand-link {
+  color: var(--brand);
+  font-weight: 700;
+}
+
+.avy-brand-actions {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.avy-text-action.is-active {
+  color: #b97815;
+}
+
+.avy-product-title {
+  margin: 0;
+  color: #10182b;
+  font-size: clamp(1.9rem, 3vw, 2.7rem);
+  line-height: 1.16;
+}
+
+.avy-review-row {
+  color: #4d5667;
+}
+
+.avy-review-row a {
+  color: var(--brand);
+  text-decoration: none;
+}
+
+.avy-review-stars {
+  color: #f2a402;
+  letter-spacing: 0.08em;
+  font-weight: 800;
+}
+
+.avy-review-stars.large {
+  font-size: 1.15rem;
+}
+
+.avy-price-block p,
+.avy-helper-note,
+.avy-delivery-lines p,
+.avy-review-summary p,
+.avy-copy-card p,
+.avy-accordion-body p,
+.avy-quantity-note,
+.avy-meta-strip {
+  margin: 0;
+  color: #5f6878;
+}
+
+.avy-price-line strong {
+  color: var(--brand-dark);
+  font-size: clamp(2rem, 3vw, 2.8rem);
+  font-weight: 800;
+}
+
+.avy-mrp {
+  color: #c83b3b;
+  text-decoration: line-through;
+  font-weight: 700;
+}
+
+.avy-discount-badge {
+  background: rgba(255, 183, 53, 0.16);
+  color: #9e5a00;
+}
+
+.avy-stock-chip {
+  display: grid;
+  gap: 0.18rem;
+  padding: 0.72rem 0.95rem;
+  border-radius: 16px;
+  border: 1px solid rgba(93, 180, 103, 0.24);
+}
+
+.avy-stock-chip span {
+  line-height: 1.2;
+  font-weight: 800;
+}
+
+.avy-stock-chip small {
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.avy-stock-chip.in {
+  background: #f2f8f5;
+  color: #187a3d;
+}
+
+.avy-stock-chip.low {
+  background: #fff7ef;
+  color: #ba6a10;
+}
+
+.avy-stock-chip.out {
+  background: #fff2f2;
+  color: #c53d3d;
+}
+
+.avy-block {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.avy-block-title {
+  margin: 0;
+  color: var(--brand);
+  font-size: 1rem;
+}
+
+.avy-section-minihead {
+  justify-content: space-between;
+  color: #5c6576;
+}
+
+.avy-section-minihead strong {
+  color: var(--brand-dark);
+}
+
+.avy-variant-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.8rem;
+}
+
+.avy-variant-chip {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 3.4rem minmax(0, 1fr);
+  gap: 0.8rem;
+  align-items: center;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid rgba(93, 180, 103, 0.24);
+  border-radius: 18px;
+  background: #fff;
+  color: #10182b;
+  text-align: left;
+  cursor: pointer;
+}
+
+.avy-variant-media {
+  width: 3.4rem;
+  height: 3.4rem;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #f8fcf8 0%, #eef6ef 100%);
+  overflow: hidden;
+}
+
+.avy-variant-media img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  padding: 0.35rem;
+}
+
+.avy-variant-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.18rem;
+}
+
+.avy-variant-copy span {
+  color: #273142;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.avy-variant-chip strong {
+  color: var(--brand);
+}
+
+.avy-variant-chip.is-active {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(93, 180, 103, 0.16);
+}
+
+.avy-quantity-row {
+  justify-content: space-between;
+}
+
+.avy-quantity-stepper {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--brand);
+  border-radius: 999px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.avy-quantity-stepper button {
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 0;
+  background: rgba(93, 180, 103, 0.08);
+  color: var(--brand);
+  font-size: 1.35rem;
+}
+
+.avy-quantity-stepper span {
+  min-width: 2.9rem;
+  text-align: center;
+  font-weight: 800;
+}
+
+.avy-bullet-list {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.avy-bullet-list li {
+  position: relative;
+  padding-left: 1.8rem;
+  color: #273142;
+}
+
+.avy-bullet-list li::before,
+.avy-trust-strip span::before,
+.avy-quick-assurance span::before {
+  content: "\2714";
+  position: absolute;
+  left: 0;
+  top: 0.1rem;
+  color: var(--brand);
+  font-size: 0.95rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.avy-accordion {
+  border: 1px solid rgba(93, 180, 103, 0.24);
+  border-radius: 22px;
+  background: #fff;
+}
+
+.avy-accordion summary {
+  position: relative;
+  list-style: none;
+  cursor: pointer;
+  padding: 0.9rem 1.1rem;
+  color: #111827;
+  font-weight: 800;
+}
+
+.avy-accordion summary::-webkit-details-marker {
+  display: none;
+}
+
+.avy-accordion summary::after {
+  content: "+";
+  position: absolute;
+  right: 1.1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #111827;
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.avy-accordion[open] summary::after {
+  content: "−";
+}
+
+.avy-accordion-body {
+  padding: 0 1.1rem 0.95rem;
+}
+
+.avy-delivery-lines {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.avy-delivery-check {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(93, 180, 103, 0.2);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fbfefa 0%, #f4faf4 100%);
+}
+
+.avy-delivery-check-copy {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.avy-delivery-check-copy strong {
+  color: #1e293b;
+  font-size: 0.95rem;
+}
+
+.avy-delivery-check-copy span {
+  color: #5f6878;
+  font-size: 0.86rem;
+}
+
+.avy-pincode-form {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.avy-pincode-form.compact {
+  margin-top: 0;
+  align-items: center;
+}
+
+.avy-pincode-form input,
+.avy-review-form input,
+.avy-review-form textarea,
+.avy-review-form select {
+  width: 100%;
+  border: 1px solid rgba(93, 180, 103, 0.24);
+  border-radius: 16px;
+  padding: 0.9rem 1rem;
+  font: inherit;
+  background: #fff;
+  color: #10182b;
+}
+
+.avy-pincode-form.compact input {
+  min-height: 2.85rem;
+  padding: 0 0.9rem;
+  border-radius: 12px;
+}
+
+.avy-review-form textarea {
+  resize: vertical;
+}
+
+.avy-pincode-form button,
+.avy-button-primary,
+.avy-button-secondary {
+  border-radius: 16px;
+  min-height: 3.2rem;
+  padding: 0.85rem 1.2rem;
+  font-weight: 800;
+  transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease, border-color 160ms ease;
+}
+
+.avy-pincode-form button,
+.avy-button-primary {
+  border: 0;
+  background: var(--brand);
+  color: #fff;
+  box-shadow: 0 14px 28px rgba(93, 180, 103, 0.22);
+}
+
+.avy-pincode-form.compact button {
+  min-height: 2.85rem;
+  padding: 0.7rem 1rem;
+  border-radius: 12px;
+  box-shadow: none;
+  white-space: nowrap;
+}
+
+.avy-button-secondary {
+  border: 1px solid var(--brand);
+  background: #fff;
+  color: var(--brand);
+}
+
+.avy-button-primary:disabled,
+.avy-button-secondary:disabled,
+.avy-pincode-form button:disabled,
+.avy-quantity-stepper button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.avy-cta-stack {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.avy-quick-assurance,
+.avy-meta-strip {
+  row-gap: 0.45rem;
+}
+
+.avy-quick-assurance span,
+.avy-trust-strip span {
+  position: relative;
+  padding-left: 1rem;
+  color: #5c6576;
+}
+
+.avy-delivery-message {
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.avy-payment-card {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1.1rem 1.2rem;
+  border-radius: 22px;
+  border: 1px solid rgba(93, 180, 103, 0.2);
+  background: linear-gradient(180deg, #fbfefa 0%, #f1f8f1 100%);
+}
+
+.avy-payment-card h2,
+.avy-section-heading h2,
+.avy-section-heading h3 {
+  margin: 0;
+  color: var(--brand);
+}
+
+.avy-payment-grid {
+  display: flex;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
+.avy-payment-icon {
+  width: 4.4rem;
+  height: 3rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4rem 0.6rem;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid rgba(20, 36, 84, 0.08);
+  box-shadow: 0 8px 18px rgba(17, 24, 39, 0.06);
+}
+
+.avy-payment-icon img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+
+.avy-trust-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.avy-product-section {
+  margin-top: 2rem;
+}
+
+.avy-product-section-narrow {
+  width: min(100%, 52rem);
+}
+
+.avy-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.avy-section-heading.compact {
+  margin-bottom: 0.8rem;
+}
+
+.avy-section-heading-centered {
+  justify-content: center;
+  text-align: center;
+}
+
+.avy-copy-card,
+.avy-review-summary,
+.avy-review-form,
+.avy-review-card {
+  padding: 1.4rem;
+}
+
+#customer-media.avy-surface-card {
+  padding: 1.75rem;
+}
+
+.avy-copy-card {
+  line-height: 1.8;
+}
+
+.avy-spec-stack {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.avy-spec-grid {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.avy-spec-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid #edf1f8;
+}
+
+.avy-spec-row:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.avy-spec-row span {
+  color: #5f6878;
+}
+
+.avy-spec-row strong {
+  color: #10182b;
+  text-align: right;
+}
+
+.avy-reviews-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  gap: 1.2rem;
+  align-items: start;
+}
+
+.avy-review-summary {
+  position: sticky;
+  top: 7rem;
+  text-align: center;
+}
+
+.avy-review-average {
+  display: block;
+  color: var(--brand-dark);
+  font-size: 3rem;
+  font-weight: 800;
+}
+
+.avy-rating-bars,
+.avy-review-content,
+.avy-review-list,
+.avy-review-form,
+.avy-review-form label {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.avy-rating-bar-row {
+  display: grid;
+  grid-template-columns: 2.2rem minmax(0, 1fr) 3rem;
+  gap: 0.7rem;
+  align-items: center;
+  color: #4e5767;
+}
+
+.avy-rating-bar-track {
+  height: 0.55rem;
+  border-radius: 999px;
+  background: #edf4ee;
+  overflow: hidden;
+}
+
+.avy-rating-bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--brand) 0%, #ffb54e 100%);
+}
+
+.avy-media-strip {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(180px, 220px);
+  gap: 0.9rem;
+  overflow-x: auto;
+  padding-bottom: 0.4rem;
+}
+
+.avy-media-strip.inline {
+  grid-auto-columns: minmax(120px, 160px);
+}
+
+.avy-media-card {
+  overflow: hidden;
+  border-radius: 20px;
+  background: #f4fbf5;
+}
+
+.avy-media-card img,
+.avy-media-card video {
+  width: 100%;
+  height: 180px;
+  display: block;
+  object-fit: cover;
+}
+
+.avy-media-card.small img,
+.avy-media-card.small video,
+.avy-review-upload-preview {
+  height: 140px;
+}
+
+.avy-review-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.avy-review-form label span {
+  color: #273142;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.avy-review-upload-preview {
+  width: 10rem;
+  border-radius: 16px;
+  object-fit: cover;
+}
+
+.avy-review-card h3 {
+  margin: 0.3rem 0 0;
+  color: #10182b;
+}
+
+.avy-verified-badge {
+  background: rgba(93, 180, 103, 0.14);
+  color: var(--brand);
+}
+
+.avy-review-card p {
+  margin: 0;
+  color: #2c3647;
+  line-height: 1.75;
+}
+
+.avy-review-meta {
+  color: #5f6878;
+  font-size: 0.92rem;
+}
+
+.avy-mobile-sticky-bar {
+  display: none;
+}
+
+.avy-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  background: rgba(8, 12, 22, 0.88);
+}
+
+.avy-lightbox-stage {
+  width: min(92vw, 920px);
+  height: min(78vh, 760px);
+  padding: 1rem;
+}
+
+.avy-lightbox-close,
+.avy-lightbox-nav {
+  position: absolute;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.avy-lightbox-close {
+  top: 1.1rem;
+  right: 1.1rem;
+  min-height: 2.7rem;
+  padding: 0 1rem;
+}
+
+.avy-lightbox-nav {
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3rem;
+  height: 3rem;
+}
+
+.avy-lightbox-nav.previous {
+  left: 1rem;
+}
+
+.avy-lightbox-nav.next {
+  right: 1rem;
+}
+
+@media (max-width: 1100px) {
+  .avy-product-hero,
+  .avy-reviews-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .avy-gallery-zoom-panel:not(.is-mobile-visible) {
+    display: none;
+  }
+
+  .avy-gallery-zoom-lens {
+    display: none;
+  }
+
+  .avy-product-section-narrow {
+    width: 100%;
+  }
+
+  .avy-summary-card,
+  .avy-review-summary {
+    position: static;
+  }
+
+  .avy-trust-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .avy-gallery-zoom-panel.is-mobile-visible {
+    position: absolute;
+    inset: 0.75rem;
+    width: auto;
+    height: auto;
+    display: block;
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  .avy-gallery-zoom-panel.is-mobile-visible .avy-gallery-zoom-preview {
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: 0 18px 36px rgba(17, 24, 39, 0.16);
+  }
+
+  .avy-gallery-stage-shell.is-mobile-zoom-shell {
+    position: fixed;
+    inset: 0;
+    z-index: 125;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    background: rgba(8, 12, 22, 0.78);
+    backdrop-filter: blur(8px);
+  }
+
+  .avy-gallery-stage-shell.is-mobile-zoom-shell .avy-gallery-stage {
+    width: min(92vw, 32rem);
+    max-width: 92vw;
+    min-height: min(72vh, 32rem);
+    max-height: 72vh;
+    height: min(72vh, 32rem);
+    border-radius: 24px;
+    background:
+      radial-gradient(circle at top left, rgba(255, 177, 66, 0.14), transparent 28%),
+      linear-gradient(180deg, rgba(244, 251, 245, 0.98) 0%, rgba(255, 255, 255, 0.99) 100%);
+    box-shadow: 0 24px 54px rgba(8, 12, 22, 0.32);
+  }
+
+  .avy-gallery-stage-shell.is-mobile-zoom-shell .avy-gallery-zoom-panel.is-mobile-visible {
+    inset: 1rem;
+  }
+
+  .avy-gallery-strip.is-hidden-during-zoom {
+    visibility: hidden;
+  }
+}
+
+@media (max-width: 780px) {
+  .product-page-main {
+    padding-bottom: 8.5rem;
+  }
+
+  .avy-product-gallery-card {
+    padding: 0.85rem;
+  }
+
+  .avy-gallery-stage {
+    aspect-ratio: auto;
+    min-height: clamp(20rem, 86vw, 28rem);
+    max-height: min(68vh, 28rem);
+    height: clamp(20rem, 86vw, 28rem);
+  }
+
+  .avy-gallery-stage.is-frame-product {
+    min-height: clamp(22rem, 96vw, 31rem);
+    max-height: min(76vh, 31rem);
+    height: clamp(22rem, 96vw, 31rem);
+  }
+
+  .avy-gallery-stage img,
+  .avy-gallery-stage video {
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
+  }
+
+  .avy-gallery-zoom-hint {
+    right: 0.75rem;
+    bottom: 0.75rem;
+  }
+
+  .avy-gallery-strip {
+    grid-auto-flow: column;
+    grid-auto-columns: 5.4rem;
+    grid-template-columns: none;
+    overflow-x: auto;
+  }
+
+  .avy-cta-stack,
+  .avy-review-form-grid,
+  .avy-trust-strip,
+  .avy-spec-row {
+    grid-template-columns: 1fr;
+  }
+
+  .avy-pincode-form.compact {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .avy-spec-row {
+    display: grid;
+  }
+
+  .avy-spec-row strong {
+    text-align: left;
+  }
+
+  .avy-brand-row,
+  .avy-section-minihead,
+  .avy-quantity-row,
+  .avy-section-heading {
+    align-items: flex-start;
+  }
+
+  .avy-section-heading {
+    flex-direction: column;
+  }
+
+  .avy-trust-strip {
+    display: grid;
+  }
+
+  .avy-mobile-sticky-bar {
+    position: fixed;
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: max(0.75rem, env(safe-area-inset-bottom));
+    z-index: 95;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 0.6rem;
+    padding: 0.8rem;
+    border: 1px solid rgba(20, 36, 84, 0.08);
+    border-radius: 22px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 18px 40px rgba(17, 24, 39, 0.14);
+    backdrop-filter: blur(14px);
+  }
+
+  .avy-mobile-sticky-bar div {
+    display: grid;
+    gap: 0.15rem;
+  }
+
+  .avy-mobile-sticky-bar strong {
+    color: var(--brand-dark);
+    font-size: 1rem;
+  }
+
+  .avy-mobile-sticky-bar span {
+    color: #5f6878;
+    font-size: 0.82rem;
+  }
+
+  .avy-mobile-sticky-bar .avy-button-primary,
+  .avy-mobile-sticky-bar .avy-button-secondary {
+    min-height: 2.8rem;
+    padding: 0.7rem 0.95rem;
+    border-radius: 14px;
+  }
+
+  .avy-summary-card .avy-cta-stack {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .product-breadcrumb {
+    font-size: 0.85rem;
+  }
+
+  .avy-product-gallery-card,
+  .avy-summary-card,
+  .avy-surface-card {
+    border-radius: 22px;
+  }
+
+  .avy-product-gallery-card,
+  .avy-summary-card,
+  .avy-copy-card,
+  .avy-review-summary,
+  .avy-review-form,
+  .avy-review-card {
+    padding: 1rem;
+  }
+
+  .avy-product-title {
+    font-size: 1.55rem;
+  }
+
+  .avy-variant-list {
+    grid-template-columns: 1fr;
+  }
+
+  .avy-price-line strong {
+    font-size: 1.85rem;
+  }
+
+  .avy-pincode-form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .avy-pincode-form button,
+  .avy-button-primary,
+  .avy-button-secondary {
+    width: 100%;
+  }
+
+  .avy-gallery-stage {
+    aspect-ratio: auto;
+    min-height: clamp(19rem, 92vw, 25rem);
+    max-height: min(66vh, 25rem);
+    height: clamp(19rem, 92vw, 25rem);
+    border-radius: 20px;
+    padding: 0.75rem;
+  }
+
+  .avy-gallery-stage.is-frame-product {
+    min-height: clamp(22rem, 108vw, 30rem);
+    max-height: min(78vh, 30rem);
+    height: clamp(22rem, 108vw, 30rem);
+  }
+
+  .avy-mobile-sticky-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .avy-mobile-sticky-bar div {
+    grid-column: 1 / -1;
+  }
+
+  .avy-lightbox-nav {
+    display: none;
+  }
+}
+
+@media (max-width: 420px) {
+  .product-page-main {
+    padding-bottom: 9.5rem;
+  }
+
+  .avy-gallery-stage {
+    aspect-ratio: auto;
+    min-height: clamp(18rem, 98vw, 23rem);
+    max-height: min(64vh, 23rem);
+    height: clamp(18rem, 98vw, 23rem);
+    padding: 0.65rem;
+  }
+
+  .avy-gallery-stage.is-frame-product {
+    min-height: clamp(21rem, 118vw, 28rem);
+    max-height: min(80vh, 28rem);
+    height: clamp(21rem, 118vw, 28rem);
+  }
+
+  .avy-gallery-strip {
+    grid-auto-columns: 4.5rem;
+    gap: 0.6rem;
+  }
+
+  .avy-gallery-thumb {
+    padding: 0.4rem;
+    border-radius: 14px;
+  }
+
+  .avy-brand-actions,
+  .avy-price-line,
+  .avy-quantity-row,
+  .avy-quick-assurance,
+  .avy-meta-strip {
+    display: grid;
+  }
+
+  .avy-quantity-stepper {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .avy-mobile-sticky-bar {
+    left: 0.5rem;
+    right: 0.5rem;
+    bottom: max(0.5rem, env(safe-area-inset-bottom));
+    padding: 0.7rem;
+    border-radius: 18px;
+  }
+
+  .avy-mobile-sticky-bar .avy-button-primary,
+  .avy-mobile-sticky-bar .avy-button-secondary {
+    min-height: 2.6rem;
+    padding: 0.65rem 0.85rem;
+    font-size: 0.9rem;
+    width: 100%;
+  }
+
+  .avy-pincode-form.compact button {
+    white-space: normal;
+  }
+}

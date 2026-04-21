@@ -1,0 +1,119 @@
+.offers-main {
+  padding-top: 32px;
+  padding-bottom: 56px;
+}
+
+.offer-page-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+  gap: 28px;
+  align-items: center;
+  padding: 30px;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.18), transparent 34%),
+    linear-gradient(135deg, var(--brand-dark), var(--brand));
+  color: #fff;
+  box-shadow: var(--shadow);
+}
+
+.offer-page-copy .eyebrow,
+.offer-page-copy p,
+.offer-page-copy h1 {
+  color: inherit;
+}
+
+.offer-page-copy h1 {
+  margin: 10px 0 12px;
+  font-size: clamp(2rem, 4vw, 3.1rem);
+}
+
+.offer-page-copy p:last-of-type {
+  max-width: 52ch;
+  line-height: 1.6;
+}
+
+.offer-page-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+  flex-wrap: wrap;
+}
+
+.offer-page-code {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.offer-page-visual {
+  display: grid;
+  place-items: center;
+  min-height: 280px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.offer-page-visual img {
+  width: 100%;
+  max-width: 340px;
+  max-height: 280px;
+  object-fit: contain;
+}
+
+@media (max-width: 900px) {
+  .offer-page-hero {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  .offers-main {
+    padding-top: 20px;
+  }
+
+  .offer-page-hero {
+    padding: 22px;
+    border-radius: 22px;
+  }
+
+  .offer-page-actions {
+    align-items: stretch;
+  }
+
+  .offer-page-actions .offer-copy-button,
+  .offer-page-code {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 420px) {
+  .offer-page-hero {
+    gap: 18px;
+    padding: 16px;
+    border-radius: 18px;
+  }
+
+  .offer-page-copy h1 {
+    font-size: 1.75rem;
+  }
+
+  .offer-page-visual {
+    min-height: 180px;
+    border-radius: 18px;
+  }
+
+  .offer-page-visual img {
+    max-height: 180px;
+  }
+}

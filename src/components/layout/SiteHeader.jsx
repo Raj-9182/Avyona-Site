@@ -1,0 +1,110 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
+import { getSuggestionEntries, getSuggestionScore } from "../../utils/storefront";
+
+export default function SiteHeader({ context, allProducts }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const navigate = useNavigate();
+  const location = useLocation();
+  const suggestionEntries = useMemo(() => getSuggestionEntries(allProducts), [allProducts]);
+
+  const suggestions = useMemo(() => {
+    if (!query.trim()) return [];
+    return suggestionEntries
+      .map((entry) => ({ entry, score: getSuggestionScore(query, entry) }))
+      .filter((item) => item.score > 0)
+      .sort((left, right) => right.score - left.score || left.entry.label.localeCompare(right.entry.label))
+      .slice(0, 6);
+  }, [query, suggestionEntries]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (location.pathname === "/search") {
+      setQuery(params.get("q") || "");
+    } else {
+      setQuery("");
+    }
+  }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [location.pathname, location.search]);
+
+  const submitSearch = (value) => {
+    const safeQuery = value.trim();
+    navigate(safeQuery ? `/search?q=${encodeURIComponent(safeQuery)}` : "/search");
+    setMenuOpen(false);
+  };
+
+  return (
+    <>
+      <div className="announcement-bar">
+        <div className="container announcement-content">
+          <p>Free shipping on selected products</p>
+          <p>COD available across India</p>
+          <p>Genuine products from trusted brands</p>
+          <a href="#support">Need help? Talk to our team</a>
+        </div>
+      </div>
+      <header className="site-header">
+        <div className="container header-top">
+          <button className="menu-toggle" type="button" aria-expanded={menuOpen} onClick={() => setMenuOpen((v) => !v)}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16v2H4zM4 11h16v2H4zM4 15h16v2H4z" /></svg>
+          </button>
+          <Link className="brand-lockup" to="/" aria-label="Avyona home">
+            <img className="brand-logo" src="/images/optimized/avyona-logo.webp" alt="Avyona logo" fetchPriority="high" />
+          </Link>
+          <label className="header-search" aria-label="Search Avyona products">
+            <span className="search-icon" aria-hidden="true">&#8981;</span>
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  submitSearch(query);
+                }
+              }}
+              placeholder="Search products, brands, models, features"
+            />
+            {suggestions.length ? (
+              <div className="search-suggestion-list">
+                {suggestions.map(({ entry }) => (
+                  <button key={`${entry.type}:${entry.label}`} className="search-suggestion-item" type="button" onClick={() => submitSearch(entry.label)}>
+                    <strong>{entry.label}</strong>
+                    <span>{entry.type}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </label>
+          <div className="header-utilities">
+            <Link className="icon-link" to={context.authUser ? "/profile" : "/account"} aria-label="Account">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-3.86 0-7 2.24-7 5v1h14v-1c0-2.76-3.14-5-7-5Z" /></svg>
+            </Link>
+            <Link className="icon-link" to={context.authUser ? "/profile" : "/account"} aria-label="Wishlist">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.55 10.55 19.2C5.4 14.45 2 11.36 2 7.5A5.5 5.5 0 0 1 7.5 2 6 6 0 0 1 12 4.09 6 6 0 0 1 16.5 2 5.5 5.5 0 0 1 22 7.5c0 3.86-3.4 6.95-8.55 11.7Z" /></svg>
+            </Link>
+            <button className="cart-button" type="button" data-cart-target="true" onClick={() => context.setIsCartOpen(true)} aria-label="Open cart">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18a2 2 0 1 0 2 2 2 2 0 0 0-2-2Zm10 0a2 2 0 1 0 2 2 2 2 0 0 0-2-2ZM7.17 14h9.92a2 2 0 0 0 1.95-1.57L21 6H6.21l-.32-2H2v2h2.19l1.72 8.59A2 2 0 0 0 7.88 16H19v-2H7.88Z" /></svg>
+              <span>{context.cart.reduce((sum, item) => sum + Number(item.quantity || 0), 0)}</span>
+            </button>
+          </div>
+        </div>
+        <div className="container nav-row">
+          <nav className={`main-nav ${menuOpen ? "open" : ""}`} aria-label="Primary navigation">
+            <NavLink to="/collection/personal-audio" onClick={() => setMenuOpen(false)}>Personal Audio</NavLink>
+            <NavLink to="/collection/professional-audio" onClick={() => setMenuOpen(false)}>Professional Audio</NavLink>
+            <NavLink to="/collection/digital-camera" onClick={() => setMenuOpen(false)}>Digital Camera</NavLink>
+            <NavLink to="/collection/security-camera" onClick={() => setMenuOpen(false)}>Security Camera</NavLink>
+            <NavLink to="/collection/digital-photo-frames" onClick={() => setMenuOpen(false)}>Digital Photo Frames</NavLink>
+            <NavLink to="/collection/reading-light" onClick={() => setMenuOpen(false)}>Reading Light</NavLink>
+            <a href="#support" onClick={() => setMenuOpen(false)}>Contact Us</a>
+          </nav>
+        </div>
+      </header>
+    </>
+  );
+}
