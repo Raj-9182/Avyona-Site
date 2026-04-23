@@ -1,11 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
-import ProtectedRoute from "./components/common/ProtectedRoute";
-import StoreLayout from "./components/layout/StoreLayout";
-import { allProducts } from "./data/storefront-content";
-import { usePersistentState } from "./hooks/usePersistentState";
+import { DashboardRoutes, Login } from "../Dashboard";
 import {
   AccountPage,
+  BlogPage,
   CheckoutPage,
   CollectionPage,
   CollectionsPage,
@@ -13,8 +11,18 @@ import {
   OffersPage,
   ProductPage,
   ProfilePage,
-  SearchPage
-} from "./pages";
+  SearchPage,
+  TrackOrderPage
+} from "../Frontend/pages";
+import SeoManager from "../Frontend/components/layout/SeoManager";
+import StoreLayout from "../Frontend/components/layout/StoreLayout";
+import { fetchCategoryTree } from "../Frontend/api/categoryApi";
+import { fallbackCategoryTree } from "../Frontend/data/category-data";
+import { fetchPublicSettings } from "../Frontend/api/settingsApi";
+import { allProducts } from "../Frontend/data/storefront-content";
+import { DEFAULT_APP_SETTINGS, getPublicSettings, mergeSettings } from "../shared/appSettings";
+import ProtectedRoute from "./components/common/ProtectedRoute";
+import { usePersistentState } from "./hooks/usePersistentState";
 
 const CART_STORAGE_KEY = "avyonaCart";
 const WISHLIST_STORAGE_KEY = "avyonaWishlist";
@@ -34,6 +42,8 @@ function App() {
   const [toasts, setToasts] = useState([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [cartAnimation, setCartAnimation] = useState(null);
+  const [siteSettings, setSiteSettings] = useState(() => getPublicSettings(DEFAULT_APP_SETTINGS));
+  const [siteCategories, setSiteCategories] = useState(fallbackCategoryTree);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
@@ -54,6 +64,52 @@ function App() {
       window.clearTimeout(cleanupTimer);
     };
   }, [cartAnimation]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadPublicSettings() {
+      try {
+        const response = await fetchPublicSettings();
+
+        if (!isMounted) return;
+
+        setSiteSettings(getPublicSettings(mergeSettings(DEFAULT_APP_SETTINGS, response.data || {})));
+      } catch {
+        if (isMounted) {
+          setSiteSettings(getPublicSettings(DEFAULT_APP_SETTINGS));
+        }
+      }
+    }
+
+    loadPublicSettings();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadCategories() {
+      try {
+        const response = await fetchCategoryTree();
+        if (!isMounted) return;
+        setSiteCategories(Array.isArray(response.data) && response.data.length ? response.data : fallbackCategoryTree);
+      } catch {
+        if (isMounted) {
+          setSiteCategories(fallbackCategoryTree);
+        }
+      }
+    }
+
+    loadCategories();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const notify = (message) => {
     const id = Date.now() + Math.random();
@@ -187,17 +243,34 @@ function App() {
     setAuthUser,
     setAccounts,
     setCustomerProfile,
-    setOrders
+    setOrders,
+    siteSettings,
+    siteCategories
   };
 
   return (
     <div className="app-shell">
+      <SeoManager />
       <Routes>
-        <Route path="/" element={<StoreLayout context={context} allProducts={allProducts}><Home context={context} /></StoreLayout>} />
-        <Route path="/collections" element={<StoreLayout context={context} allProducts={allProducts}><CollectionsPage /></StoreLayout>} />
+        <Route
+          path="/"
+          element={
+            <StoreLayout context={context} allProducts={allProducts}>
+              <Home context={context} />
+            </StoreLayout>
+          }
+        />
+        <Route path="/login" element={<Login />} />
+        <Route path="/dashboard/*" element={<DashboardRoutes context={context} allProducts={allProducts} />} />
+        <Route path="/admin/*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/blog/:slug" element={<StoreLayout context={context} allProducts={allProducts}><BlogPage /></StoreLayout>} />
+        <Route path="/collections" element={<StoreLayout context={context} allProducts={allProducts}><CollectionsPage context={context} /></StoreLayout>} />
+        <Route path="/category/:slug" element={<StoreLayout context={context} allProducts={allProducts}><CollectionPage context={context} /></StoreLayout>} />
         <Route path="/collection/:slug" element={<StoreLayout context={context} allProducts={allProducts}><CollectionPage context={context} /></StoreLayout>} />
         <Route path="/search" element={<StoreLayout context={context} allProducts={allProducts}><SearchPage context={context} /></StoreLayout>} />
         <Route path="/offers" element={<StoreLayout context={context} allProducts={allProducts}><OffersPage context={context} /></StoreLayout>} />
+        <Route path="/track-order" element={<StoreLayout context={context} allProducts={allProducts}><TrackOrderPage context={context} /></StoreLayout>} />
+        <Route path="/product/:slug/:variantKey" element={<StoreLayout context={context} allProducts={allProducts}><ProductPage context={context} /></StoreLayout>} />
         <Route path="/product/:slug" element={<StoreLayout context={context} allProducts={allProducts}><ProductPage context={context} /></StoreLayout>} />
         <Route path="/account" element={<AccountPage context={context} />} />
         <Route path="/profile" element={<ProtectedRoute allow={Boolean(authUser)}><ProfilePage context={context} /></ProtectedRoute>} />
