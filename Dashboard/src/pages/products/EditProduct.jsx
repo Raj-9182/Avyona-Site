@@ -1,7 +1,7 @@
 import React from "react";
 import { Link, useParams } from "react-router-dom";
 import AddProduct, { buildProductFormDataFromStorefrontProduct } from "./AddProduct";
-import { allProducts } from "../../../../Frontend/data/storefront-content";
+import { allProducts } from "../../data/storefront-content";
 
 export default function EditProduct() {
   const { productId } = useParams();

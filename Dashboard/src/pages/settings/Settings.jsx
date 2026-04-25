@@ -1,5 +1,5 @@
 import React from "react";
-import { fetchAdminSettings, updateAdminSettings } from "../../../api/adminApi";
+import { fetchAdminSettings, updateAdminSettings } from "../../api/adminApi";
 import {
   cloneSettings,
   DEFAULT_APP_SETTINGS,

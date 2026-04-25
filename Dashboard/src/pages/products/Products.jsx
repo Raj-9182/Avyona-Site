@@ -1,7 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import products from "../../data/products";
-import { formatCurrency } from "../../../../Frontend/utils/storefront";
+import { buildStorefrontProductUrl, formatCurrency } from "../../utils/storefront";
 
 const rowsPerPageOptions = [5, 10, 20];
 
@@ -289,9 +289,9 @@ export default function Products() {
                 </td>
                 <td style={tableCellStyle}>
                   <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                    <Link to={`/product/${product.slug}`} target="_blank" rel="noreferrer" style={viewActionLinkStyle}>
+                    <a href={buildStorefrontProductUrl(product.slug)} target="_blank" rel="noreferrer" style={viewActionLinkStyle}>
                       View
-                    </Link>
+                    </a>
                     <Link to={`/dashboard/products/${product.slug}/edit`} style={editActionLinkStyle}>
                       Edit
                     </Link>

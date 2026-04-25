@@ -9,8 +9,8 @@ import {
   createInitialProductData,
   createPolicyItem
 } from "../../data/productFormData";
-import { flattenCategoryTree, fallbackCategoryTree } from "../../../../Frontend/data/category-data";
-import { allProducts, featuredProducts } from "../../../../Frontend/data/storefront-content";
+import { flattenCategoryTree, fallbackCategoryTree } from "../../data/category-data";
+import { allProducts, featuredProducts } from "../../data/storefront-content";
 
 const sectionCardStyle = {
   background: "#fff",
@@ -1688,7 +1688,7 @@ export default function AddProduct({ initialProductData = null, mode = "add" }) 
                   >
                     <div style={{ display: "grid", gap: "4px" }}>
                       <strong>{product.name}</strong>
-                      <p style={smallMutedTextStyle}>{`${product.brand} • ${product.category}`}</p>
+                      <p style={smallMutedTextStyle}>{`${product.brand} - ${product.category}`}</p>
                     </div>
                     <span
                       style={{
@@ -1719,139 +1719,6 @@ export default function AddProduct({ initialProductData = null, mode = "add" }) 
                     ? "No same-category products found yet for auto related suggestions."
                     : "Auto related suggestions are currently turned off."}
                 </p>
-              </div>
-            )}
-          </div>
-
-          <div
-            style={{
-              padding: "18px",
-              borderRadius: "12px",
-              border: "1px solid #e2e8f0",
-              background: "#f8fafc",
-              display: "grid",
-              gap: "14px"
-            }}
-          >
-            <div>
-              <strong>Manual Product Search / Add</strong>
-              <p style={{ ...smallMutedTextStyle, marginTop: "6px" }}>
-                Search any product and add it manually when you want more control than the automatic collection-based matching.
-              </p>
-            </div>
-
-            <label style={fieldStyle}>
-              <span>Search Products</span>
-              <input
-                type="text"
-                placeholder="Search by product name, slug, brand, or category"
-                style={{ ...inputStyle, background: manualRelatedEnabled ? "#fff" : "#f1f5f9" }}
-                value={relatedProducts.searchTerm}
-                disabled={!manualRelatedEnabled}
-                onChange={(event) => updateRelatedProducts("searchTerm", event.target.value)}
-              />
-            </label>
-
-            {manualRelatedProducts.length ? (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
-                {manualRelatedProducts.map((product) => (
-                  <div
-                    key={`manual-chip-${product.slug}`}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      padding: "8px 12px",
-                      borderRadius: "999px",
-                      background: "#fff",
-                      border: "1px solid #cbd5e1",
-                      color: "#334155"
-                    }}
-                  >
-                    <span>{product.name}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeManualRelatedProduct(product.slug)}
-                      style={{
-                        width: "24px",
-                        height: "24px",
-                        borderRadius: "999px",
-                        border: "none",
-                        background: "#e2e8f0",
-                        color: "#0f172a",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        cursor: "pointer"
-                      }}
-                      aria-label={`Remove ${product.name} from manual related products`}
-                    >
-                      <FaTimes aria-hidden="true" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p style={smallMutedTextStyle}>No manually selected related products yet.</p>
-            )}
-
-            {manualRelatedEnabled ? (
-              <div style={{ display: "grid", gap: "10px" }}>
-                {manualSearchResults.length ? manualSearchResults.map((product) => (
-                  <div
-                    key={`manual-option-${product.slug}`}
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "minmax(0, 1fr) auto",
-                      gap: "12px",
-                      alignItems: "center",
-                      padding: "12px 14px",
-                      borderRadius: "10px",
-                      background: "#fff",
-                      border: "1px solid #dbe2ea"
-                    }}
-                  >
-                    <div style={{ display: "grid", gap: "4px" }}>
-                      <strong>{product.name}</strong>
-                      <p style={smallMutedTextStyle}>{`${product.brand} • ${product.category} • ${product.slug}`}</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => addManualRelatedProduct(product.slug)}
-                      style={{
-                        ...actionButtonStyle,
-                        padding: "10px 14px",
-                        border: "1px solid #cbd5e1",
-                        background: "#fff",
-                        color: "#334155"
-                      }}
-                    >
-                      Add
-                    </button>
-                  </div>
-                )) : (
-                  <div
-                    style={{
-                      padding: "14px 16px",
-                      borderRadius: "10px",
-                      border: "1px dashed #cbd5e1",
-                      background: "#fff"
-                    }}
-                  >
-                    <p style={smallMutedTextStyle}>No products matched your manual search right now.</p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div
-                style={{
-                  padding: "14px 16px",
-                  borderRadius: "10px",
-                  border: "1px dashed #cbd5e1",
-                  background: "#fff"
-                }}
-              >
-                <p style={smallMutedTextStyle}>Manual related product selection is turned off in the selector above.</p>
               </div>
             )}
           </div>
@@ -1891,7 +1758,7 @@ export default function AddProduct({ initialProductData = null, mode = "add" }) 
                   >
                     <div style={{ display: "grid", gap: "4px" }}>
                       <strong>{`${index + 1}. ${product.name}`}</strong>
-                      <p style={smallMutedTextStyle}>{`${product.brand} • ${product.category}`}</p>
+                      <p style={smallMutedTextStyle}>{`${product.brand} - ${product.category}`}</p>
                     </div>
                     <span style={{ color: "#0f172a", fontWeight: 700 }}>{product.slug}</span>
                   </div>

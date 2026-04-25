@@ -1,7 +1,7 @@
 import React from "react";
 import { Link, useParams } from "react-router-dom";
-import { fetchCustomerById } from "../../../api/customerApi";
-import { formatCurrency } from "../../../../Frontend/utils/storefront";
+import { fetchCustomerById } from "../../api/customerApi";
+import { formatCurrency } from "../../utils/storefront";
 import fallbackCustomers from "../../data/customers";
 import { formatOrderStatusLabel } from "../../../../shared/orderStatusFlow";
 
@@ -209,7 +209,7 @@ export default function CustomerDetails() {
     );
   }
 
-  const customerTier = Number(customer.totalSpent || 0) >= 15000 ? "High Value" : "Standard";
+  const customerTier = Number(customer.totalSpend || 0) >= 15000 ? "High Value" : "Standard";
 
   return (
     <div style={{ display: "grid", gap: "20px" }}>
@@ -248,7 +248,7 @@ export default function CustomerDetails() {
           </div>
           <div style={detailItemStyle}>
             <span>Total Spend</span>
-            <strong>{formatCurrency(Number(customer.totalSpent || 0))}</strong>
+            <strong>{formatCurrency(Number(customer.totalSpend || 0))}</strong>
           </div>
           <div style={detailItemStyle}>
             <span>Last Order Date</span>

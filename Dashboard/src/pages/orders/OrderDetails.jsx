@@ -1,9 +1,9 @@
 import React from "react";
 import { Link, useParams } from "react-router-dom";
 import orders, { orderStatusOptions } from "../../data/orders";
-import { formatCurrency } from "../../../../Frontend/utils/storefront";
+import { formatCurrency } from "../../utils/storefront";
 import { formatOrderStatusLabel } from "../../../../shared/orderStatusFlow";
-import { updateOrderTracking } from "../../../api/adminApi";
+import { updateOrderTracking } from "../../api/adminApi";
 
 function DetailCard({ title, children }) {
   return (

@@ -5,6 +5,7 @@ import AddCategory from "../pages/categories/AddCategory";
 import Categories from "../pages/categories/Categories";
 import CustomerDetails from "../pages/customers/CustomerDetails";
 import Customers from "../pages/customers/Customers";
+import Coupons from "../pages/coupons/Coupons";
 import DashboardHome from "../pages/dashboard/DashboardHome";
 import OrderDetails from "../pages/orders/OrderDetails";
 import Orders from "../pages/orders/Orders";
@@ -13,7 +14,7 @@ import EditProduct from "../pages/products/EditProduct";
 import Products from "../pages/products/Products";
 import Settings from "../pages/settings/Settings";
 import Variations from "../pages/variations/Variations";
-import { allProducts as storefrontProducts } from "../../../Frontend/data/storefront-content";
+import { allProducts as storefrontProducts } from "../data/storefront-content";
 
 const previewContext = {
   cart: [],
@@ -48,6 +49,7 @@ export default function AppRoutes({ context, allProducts }) {
         <Route path="products/new" element={<AddProduct />} />
         <Route path="products/:productId/edit" element={<EditProduct />} />
         <Route path="variations" element={<Variations />} />
+        <Route path="coupons" element={<Coupons />} />
         <Route path="categories" element={<Categories />} />
         <Route path="categories/new" element={<AddCategory />} />
         <Route path="categories/:categoryId/edit" element={<AddCategory />} />

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { allProducts } from "../../../../Frontend/data/storefront-content";
+import { allProducts } from "../../data/storefront-content";
 
 const variantTypeOptions = ["Color", "Size", "Storage", "Material", "Bundle", "Finish"];
 

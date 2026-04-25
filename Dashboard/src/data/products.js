@@ -1,4 +1,4 @@
-import { allProducts, featuredProducts } from "../../../Frontend/data/storefront-content";
+import { allProducts, featuredProducts } from "./storefront-content";
 
 const featuredSlugs = new Set(featuredProducts.map((product) => product.slug));
 

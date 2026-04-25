@@ -1,11 +1,7 @@
 # Frontend
 
-This folder contains the customer-facing Avyona website and app frontend.
+This folder contains the standalone customer-facing Avyona React + Vite app.
 
-- `components/`: storefront UI pieces
-- `pages/`: customer-facing routes like home, collections, product, account, and checkout
-- `data/`: storefront catalog and content data
-- `styles/`: storefront CSS and related images
-- `utils/`: storefront helpers
-
-The admin backend control panel remains in the root `Dashboard/` folder.
+- `src/`: storefront source code
+- `public/`: static storefront assets
+- `package.json`: frontend app scripts and dependencies

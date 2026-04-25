@@ -1,0 +1,13 @@
+export { default as BlogPage } from "./BlogPage";
+export { default as AccountPage } from "./AccountPage";
+export { default as CheckoutPage } from "./CheckoutPage";
+export { default as CollectionPage } from "./CollectionPage";
+export { default as CollectionsPage } from "./CollectionsPage";
+export { default as Home } from "./Home";
+export { default as OrderConfirmationPage } from "./OrderConfirmationPage";
+export { default as OffersPage } from "./OffersPage";
+export { default as ProductPage } from "./ProductPage";
+export { default as ProfilePage } from "./ProfilePage";
+export { default as SearchPage } from "./SearchPage";
+export { default as TrackOrderPage } from "./TrackOrderPage";
+export { default as WishlistPage } from "./WishlistPage";

@@ -1,7 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import orders from "../../data/orders";
-import { formatCurrency } from "../../../../Frontend/utils/storefront";
+import { formatCurrency } from "../../utils/storefront";
 import { formatOrderStatusLabel } from "../../../../shared/orderStatusFlow";
 
 function formatOrderDate(value) {
@@ -249,8 +249,8 @@ export default function Orders() {
                     <Link to={`/dashboard/orders/${order.id}`} style={secondaryActionLinkStyle}>
                       Edit Status
                     </Link>
-                    <button type="button" style={mutedActionButtonStyle} disabled>
-                      Print Later
+                    <button type="button" style={mutedActionButtonStyle} disabled title="Invoice and packing slip printing is not available in this dashboard preview yet.">
+                      Print
                     </button>
                     <button
                       type="button"

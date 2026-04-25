@@ -1,7 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { fetchCustomers } from "../../../api/customerApi";
-import { formatCurrency } from "../../../../Frontend/utils/storefront";
+import { fetchCustomers } from "../../api/customerApi";
+import { formatCurrency } from "../../utils/storefront";
 import fallbackCustomers from "../../data/customers";
 
 function formatDate(value) {
@@ -116,7 +116,7 @@ export default function Customers() {
         return matchesSearch && matchesStatus;
       })
       .sort((firstCustomer, secondCustomer) => {
-        const spendDifference = Number(secondCustomer.totalSpent || 0) - Number(firstCustomer.totalSpent || 0);
+        const spendDifference = Number(secondCustomer.totalSpend || 0) - Number(firstCustomer.totalSpend || 0);
 
         if (spendSort === "lowest") {
           if (spendDifference !== 0) {
@@ -138,7 +138,7 @@ export default function Customers() {
       });
   }, [customers, latestSort, searchTerm, spendSort, statusFilter]);
 
-  const totalSpend = filteredCustomers.reduce((sum, customer) => sum + Number(customer.totalSpent || 0), 0);
+  const totalSpend = filteredCustomers.reduce((sum, customer) => sum + Number(customer.totalSpend || 0), 0);
   const totalOrders = filteredCustomers.reduce((sum, customer) => sum + Number(customer.totalOrders || 0), 0);
 
   const handleToggleBlocked = (customerId) => {
@@ -248,7 +248,7 @@ export default function Customers() {
                   <strong>{Number(customer.totalOrders || 0)}</strong>
                 </td>
                 <td style={tableCellStyle}>
-                  <strong>{formatCurrency(Number(customer.totalSpent || 0))}</strong>
+                  <strong>{formatCurrency(Number(customer.totalSpend || 0))}</strong>
                 </td>
                 <td style={tableCellStyle}>{formatDate(customer.lastOrderDate)}</td>
                 <td style={tableCellStyle}>
