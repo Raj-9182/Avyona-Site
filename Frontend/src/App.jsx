@@ -4,6 +4,7 @@ import {
   AccountPage,
   BlogPage,
   CheckoutPage,
+  ContactPage,
   OrderConfirmationPage,
   CollectionPage,
   CollectionsPage,
@@ -20,6 +21,7 @@ import StoreLayout from "./components/layout/StoreLayout";
 import { fetchCategoryTree } from "./api/categoryApi";
 import { fallbackCategoryTree } from "./data/category-data";
 import { fetchPublicSettings } from "./api/settingsApi";
+import { fetchStorefrontProducts } from "./api/productApi";
 import { allProducts } from "./data/storefront-content";
 import { DEFAULT_APP_SETTINGS, getPublicSettings, mergeSettings } from "../../shared/appSettings";
 import ProtectedRoute from "./components/common/ProtectedRoute";
@@ -45,6 +47,7 @@ function App() {
   const [cartAnimation, setCartAnimation] = useState(null);
   const [siteSettings, setSiteSettings] = useState(() => getPublicSettings(DEFAULT_APP_SETTINGS));
   const [siteCategories, setSiteCategories] = useState(fallbackCategoryTree);
+  const [storefrontProducts, setStorefrontProducts] = useState(allProducts);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
@@ -84,6 +87,66 @@ function App() {
     }
 
     loadPublicSettings();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    function normalizeBackendProduct(product) {
+      const price = Number(product.price || 0);
+      const mrp = Number(product.mrp || price || 0);
+      const stockQuantity = Number(product.stockQuantity || 0);
+      const discount = mrp > price && price > 0 ? Math.round(((mrp - price) / mrp) * 100) : 0;
+      const collectionSlug = product.categorySlug || String(product.categoryName || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+
+      return {
+        asin: product.asin,
+        sku: product.asin,
+        slug: product.slug,
+        name: product.name,
+        brand: product.brand,
+        category: product.categoryName || "Products",
+        collectionSlug,
+        price,
+        mrp,
+        discount,
+        image: product.imageUrl || "/images/optimized/frame-1.webp",
+        gallery: [product.imageUrl || "/images/optimized/frame-1.webp"],
+        highlights: [product.shortDescription || "New Avyona product"].filter(Boolean),
+        description: product.description ? String(product.description).split(/\n+/).filter(Boolean) : [product.shortDescription || "Product details will be updated soon."],
+        rating: Number(product.rating || 0),
+        reviewCount: Number(product.reviewCount || 0),
+        availableStock: stockQuantity,
+        stockTone: stockQuantity > 0 ? "in-stock" : "out-of-stock",
+        stockNote: stockQuantity > 0 ? "Available for dispatch" : "Out of stock",
+        variants: [],
+        specGroups: [],
+        reviews: [],
+        faqs: [],
+        warrantySummary: "",
+        returnSummary: ""
+      };
+    }
+
+    async function loadProducts() {
+      try {
+        const response = await fetchStorefrontProducts({ status: "active" });
+        if (!isMounted) return;
+        const rows = Array.isArray(response.data) ? response.data : [];
+        const backendProducts = rows.map(normalizeBackendProduct);
+        const staticBySlug = new Map(allProducts.map((product) => [product.slug, product]));
+        backendProducts.forEach((product) => staticBySlug.set(product.slug, product));
+        setStorefrontProducts([...staticBySlug.values()]);
+      } catch {
+        if (isMounted) setStorefrontProducts(allProducts);
+      }
+    }
+
+    loadProducts();
 
     return () => {
       isMounted = false;
@@ -247,7 +310,8 @@ function App() {
     setCustomerProfile,
     setOrders,
     siteSettings,
-    siteCategories
+    siteCategories,
+    allProducts: storefrontProducts
   };
 
   return (
@@ -257,25 +321,26 @@ function App() {
         <Route
           path="/"
           element={
-            <StoreLayout context={context} allProducts={allProducts}>
+            <StoreLayout context={context} allProducts={storefrontProducts}>
               <Home context={context} />
             </StoreLayout>
           }
         />
-        <Route path="/blog/:slug" element={<StoreLayout context={context} allProducts={allProducts}><BlogPage /></StoreLayout>} />
-        <Route path="/collections" element={<StoreLayout context={context} allProducts={allProducts}><CollectionsPage context={context} /></StoreLayout>} />
-        <Route path="/category/:slug" element={<StoreLayout context={context} allProducts={allProducts}><CollectionPage context={context} /></StoreLayout>} />
-        <Route path="/collection/:slug" element={<StoreLayout context={context} allProducts={allProducts}><CollectionPage context={context} /></StoreLayout>} />
-        <Route path="/search" element={<StoreLayout context={context} allProducts={allProducts}><SearchPage context={context} /></StoreLayout>} />
-        <Route path="/offers" element={<StoreLayout context={context} allProducts={allProducts}><OffersPage context={context} /></StoreLayout>} />
-        <Route path="/wishlist" element={<StoreLayout context={context} allProducts={allProducts}><WishlistPage context={context} /></StoreLayout>} />
-        <Route path="/track-order" element={<StoreLayout context={context} allProducts={allProducts}><TrackOrderPage context={context} /></StoreLayout>} />
-        <Route path="/product/:slug/:variantKey" element={<StoreLayout context={context} allProducts={allProducts}><ProductPage context={context} /></StoreLayout>} />
-        <Route path="/product/:slug" element={<StoreLayout context={context} allProducts={allProducts}><ProductPage context={context} /></StoreLayout>} />
+        <Route path="/blog/:slug" element={<StoreLayout context={context} allProducts={storefrontProducts}><BlogPage /></StoreLayout>} />
+        <Route path="/collections" element={<StoreLayout context={context} allProducts={storefrontProducts}><CollectionsPage context={context} /></StoreLayout>} />
+        <Route path="/category/:slug" element={<StoreLayout context={context} allProducts={storefrontProducts}><CollectionPage context={context} /></StoreLayout>} />
+        <Route path="/collection/:slug" element={<StoreLayout context={context} allProducts={storefrontProducts}><CollectionPage context={context} /></StoreLayout>} />
+        <Route path="/search" element={<StoreLayout context={context} allProducts={storefrontProducts}><SearchPage context={context} /></StoreLayout>} />
+        <Route path="/offers" element={<StoreLayout context={context} allProducts={storefrontProducts}><OffersPage context={context} /></StoreLayout>} />
+        <Route path="/contact" element={<StoreLayout context={context} allProducts={storefrontProducts}><ContactPage context={context} /></StoreLayout>} />
+        <Route path="/wishlist" element={<StoreLayout context={context} allProducts={storefrontProducts}><WishlistPage context={context} /></StoreLayout>} />
+        <Route path="/track-order" element={<StoreLayout context={context} allProducts={storefrontProducts}><TrackOrderPage context={context} /></StoreLayout>} />
+        <Route path="/product/:slug/:variantKey" element={<StoreLayout context={context} allProducts={storefrontProducts}><ProductPage context={context} /></StoreLayout>} />
+        <Route path="/product/:slug" element={<StoreLayout context={context} allProducts={storefrontProducts}><ProductPage context={context} /></StoreLayout>} />
         <Route path="/account" element={<AccountPage context={context} />} />
         <Route path="/profile" element={<ProtectedRoute allow={Boolean(authUser)}><ProfilePage context={context} /></ProtectedRoute>} />
         <Route path="/checkout" element={<CheckoutPage context={context} />} />
-        <Route path="/order-confirmation/:orderNumber" element={<StoreLayout context={context} allProducts={allProducts}><OrderConfirmationPage context={context} /></StoreLayout>} />
+        <Route path="/order-confirmation/:orderNumber" element={<StoreLayout context={context} allProducts={storefrontProducts}><OrderConfirmationPage context={context} /></StoreLayout>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <div className="toast-stack">

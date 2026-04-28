@@ -3,6 +3,7 @@ export { default as AccountPage } from "./AccountPage";
 export { default as CheckoutPage } from "./CheckoutPage";
 export { default as CollectionPage } from "./CollectionPage";
 export { default as CollectionsPage } from "./CollectionsPage";
+export { default as ContactPage } from "./ContactPage";
 export { default as Home } from "./Home";
 export { default as OrderConfirmationPage } from "./OrderConfirmationPage";
 export { default as OffersPage } from "./OffersPage";

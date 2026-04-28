@@ -7,7 +7,8 @@ import { formatCurrency, getSearchResults } from "../utils/storefront";
 export default function SearchPage({ context }) {
   const [searchParams] = useSearchParams();
   const query = searchParams.get("q") || "";
-  const rawResults = useMemo(() => getSearchResults(allProducts, query), [query]);
+  const productCatalog = context.allProducts && context.allProducts.length ? context.allProducts : allProducts;
+  const rawResults = useMemo(() => getSearchResults(productCatalog, query), [productCatalog, query]);
   const products = rawResults.map((entry) => entry.product);
   const [brandFilter, setBrandFilter] = useState([]);
   const [availability, setAvailability] = useState([]);

@@ -1,7 +1,7 @@
 const collectionData = {
   "personal-audio": {
     title: "Personal Audio",
-    eyebrow: "40 Products",
+    eyebrow: "4 Products",
     description: "Explore premium earbuds, headphones, and neckbands designed for music, travel, workouts, and everyday listening.",
     bannerImage: "images/optimized/personal-audio.webp",
     products: [
@@ -49,7 +49,7 @@ const collectionData = {
   },
   "professional-audio": {
     title: "Professional Audio",
-    eyebrow: "15 Products",
+    eyebrow: "3 Products",
     description: "Creator-ready headphones, microphones, and reference gear for studio setups, podcasting, and professional-grade sound clarity.",
     bannerImage: "images/optimized/professional-audio.webp",
     products: [
@@ -87,7 +87,7 @@ const collectionData = {
   },
   "digital-camera": {
     title: "Digital Camera",
-    eyebrow: "15 Products",
+    eyebrow: "3 Products",
     description: "Capture travel, family, and creator moments with trusted digital cameras built for sharp imaging and simple operation.",
     bannerImage: "images/optimized/digital-cameras.webp",
     products: [
@@ -125,7 +125,7 @@ const collectionData = {
   },
   "security-camera": {
     title: "Security Camera",
-    eyebrow: "5 Products",
+    eyebrow: "3 Products",
     description: "Reliable indoor and outdoor monitoring products with app access, alerts, and smarter home visibility.",
     bannerImage: "images/optimized/security-cameras.webp",
     products: [
@@ -221,7 +221,7 @@ const collectionData = {
   },
   "reading-light": {
     title: "Reading Light",
-    eyebrow: "15 Products",
+    eyebrow: "3 Products",
     description: "Comfort-focused reading lights for study corners, bedside use, travel, and long hours of relaxed reading.",
     bannerImage: "images/optimized/reading-lights.webp",
     products: [

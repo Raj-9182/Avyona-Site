@@ -28,7 +28,7 @@ export default function SiteFooter({ context }) {
         </div>
         <div>
           <h3>Support</h3>
-          <Link to="/account">Contact Us</Link>
+          <Link to="/contact">Contact Us</Link>
           <Link to="/search">FAQ</Link>
           {tracking.trackingPageEnabled ? <Link to="/track-order">Track Order</Link> : null}
           <Link to="/checkout">Shipping Policy</Link>

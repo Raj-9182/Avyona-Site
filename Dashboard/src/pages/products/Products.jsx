@@ -1,6 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import products from "../../data/products";
+import { fetchProducts } from "../../api/adminApi";
 import { buildStorefrontProductUrl, formatCurrency } from "../../utils/storefront";
 
 const rowsPerPageOptions = [5, 10, 20];
@@ -40,8 +41,31 @@ function getStockBadgeStyle(stockStatus) {
   };
 }
 
+function normalizeProductRow(product) {
+  const stock = Number(product.stockQuantity ?? product.stock ?? 0);
+  let stockStatus = "in-stock";
+  if (stock <= 0 || product.status === "out_of_stock") stockStatus = "out-of-stock";
+  else if (stock <= 5) stockStatus = "low-stock";
+
+  return {
+    id: product.id,
+    slug: product.slug,
+    image: product.imageUrl || product.image || "/images/optimized/frame-1.webp",
+    name: product.name,
+    brand: product.brand,
+    category: product.categoryName || product.category,
+    sku: product.asin || product.sku || product.slug,
+    price: Number(product.price || 0),
+    stock,
+    stockStatus,
+    status: product.status === "active" ? "active" : "inactive",
+    featured: Boolean(product.featured)
+  };
+}
+
 export default function Products() {
   const [tableProducts, setTableProducts] = React.useState(products);
+  const [sourceMessage, setSourceMessage] = React.useState("Showing local catalog preview.");
   const [searchTerm, setSearchTerm] = React.useState("");
   const [categoryFilter, setCategoryFilter] = React.useState("all");
   const [brandFilter, setBrandFilter] = React.useState("all");
@@ -94,6 +118,36 @@ export default function Products() {
     setTableProducts((current) => current.filter((product) => product.id !== productId));
   };
 
+  React.useEffect(() => {
+    let isMounted = true;
+
+    async function loadProducts() {
+      try {
+        const response = await fetchProducts();
+        if (!isMounted) return;
+
+        const rows = Array.isArray(response.data?.data) ? response.data.data : [];
+        if (rows.length) {
+          setTableProducts(rows.map(normalizeProductRow));
+          setSourceMessage("Products loaded from backend.");
+          return;
+        }
+
+        setSourceMessage("Backend returned no products, so local catalog preview is shown.");
+      } catch {
+        if (!isMounted) return;
+        setTableProducts(products);
+        setSourceMessage("Backend products are unavailable, so local catalog preview is shown.");
+      }
+    }
+
+    loadProducts();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const resetFilters = () => {
     setSearchTerm("");
     setCategoryFilter("all");
@@ -118,6 +172,9 @@ export default function Products() {
           <h2 style={{ margin: 0 }}>Products</h2>
           <p style={{ margin: "8px 0 0", color: "#64748b" }}>
             Search, filter, review, and manage your catalog from one table.
+          </p>
+          <p style={{ margin: "6px 0 0", color: "#0f766e", fontSize: "13px", fontWeight: 700 }}>
+            {sourceMessage}
           </p>
         </div>
 

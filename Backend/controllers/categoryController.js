@@ -1,5 +1,144 @@
+import fs from "fs/promises";
+import path from "path";
 import { query } from "../config/db.js";
 import { ApiError } from "../utils/apiError.js";
+
+const localCategoriesPath = path.resolve(process.cwd(), "data", "local-categories.json");
+
+const DEFAULT_LOCAL_CATEGORIES = [
+  {
+    id: 1,
+    name: "Personal Audio",
+    slug: "personal-audio",
+    parentId: null,
+    parentCategory: null,
+    categoryType: "main_category",
+    description: "Headphones, earbuds, and neckbands for daily listening.",
+    imageUrl: "/images/optimized/personal-audio.webp",
+    bannerImageUrl: "/images/optimized/personal-audio-category.webp",
+    iconUrl: null,
+    status: "active",
+    showInMenu: true,
+    featuredCategory: true,
+    categoryDiscountLabel: "",
+    dynamicRuleJson: null,
+    sortOrder: 1,
+    metaTitle: "Personal Audio Collection | Avyona",
+    metaDescription: "Shop personal audio products including headphones, earbuds, and neckbands.",
+    keywords: "personal audio, headphones, earbuds, neckbands",
+    isActive: true
+  },
+  {
+    id: 2,
+    name: "Professional Audio",
+    slug: "professional-audio",
+    parentId: null,
+    parentCategory: null,
+    categoryType: "main_category",
+    description: "Creator and studio-style audio gear.",
+    imageUrl: "/images/optimized/professional-audio.webp",
+    bannerImageUrl: "/images/optimized/professional-audio-category.webp",
+    iconUrl: null,
+    status: "active",
+    showInMenu: true,
+    featuredCategory: true,
+    categoryDiscountLabel: "",
+    dynamicRuleJson: null,
+    sortOrder: 2,
+    metaTitle: "Professional Audio Collection | Avyona",
+    metaDescription: "Discover microphones, monitors, and creator-focused professional audio gear.",
+    keywords: "professional audio, studio audio, creator gear",
+    isActive: true
+  },
+  {
+    id: 3,
+    name: "Digital Camera",
+    slug: "digital-camera",
+    parentId: null,
+    parentCategory: null,
+    categoryType: "main_category",
+    description: "Compact and creator-friendly digital cameras.",
+    imageUrl: "/images/optimized/digital-cameras.webp",
+    bannerImageUrl: "/images/optimized/digital-camera-category.webp",
+    iconUrl: null,
+    status: "active",
+    showInMenu: true,
+    featuredCategory: true,
+    categoryDiscountLabel: "",
+    dynamicRuleJson: null,
+    sortOrder: 3,
+    metaTitle: "Digital Camera Collection | Avyona",
+    metaDescription: "Browse digital cameras for travel, family, and creator use.",
+    keywords: "digital camera, compact camera, creator camera",
+    isActive: true
+  },
+  {
+    id: 4,
+    name: "Security Camera",
+    slug: "security-camera",
+    parentId: null,
+    parentCategory: null,
+    categoryType: "main_category",
+    description: "Indoor and outdoor smart camera setups.",
+    imageUrl: "/images/optimized/security-cameras.webp",
+    bannerImageUrl: "/images/optimized/security-camera-category.webp",
+    iconUrl: null,
+    status: "active",
+    showInMenu: true,
+    featuredCategory: false,
+    categoryDiscountLabel: "",
+    dynamicRuleJson: null,
+    sortOrder: 4,
+    metaTitle: "Security Camera Collection | Avyona",
+    metaDescription: "Explore indoor and outdoor security camera collections.",
+    keywords: "security camera, smart camera, surveillance",
+    isActive: true
+  },
+  {
+    id: 5,
+    name: "Avyona Digital Photo Frames",
+    slug: "digital-photo-frames",
+    parentId: null,
+    parentCategory: null,
+    categoryType: "main_category",
+    description: "Smart digital frames for gifting and family memories.",
+    imageUrl: "/images/optimized/digital-photo-frames.webp",
+    bannerImageUrl: "/images/optimized/digital-photo-frames-category.webp",
+    iconUrl: null,
+    status: "active",
+    showInMenu: true,
+    featuredCategory: true,
+    categoryDiscountLabel: "",
+    dynamicRuleJson: null,
+    sortOrder: 5,
+    metaTitle: "Digital Photo Frames Collection | Avyona",
+    metaDescription: "Shop digital photo frames for gifting, family sharing, and home display.",
+    keywords: "digital photo frame, smart frame, gifting frame",
+    isActive: true
+  },
+  {
+    id: 6,
+    name: "Reading Light",
+    slug: "reading-light",
+    parentId: null,
+    parentCategory: null,
+    categoryType: "main_category",
+    description: "Portable and bedside reading lights.",
+    imageUrl: "/images/optimized/reading-lights.webp",
+    bannerImageUrl: "/images/optimized/reading-light-category.webp",
+    iconUrl: null,
+    status: "active",
+    showInMenu: true,
+    featuredCategory: false,
+    categoryDiscountLabel: "",
+    dynamicRuleJson: null,
+    sortOrder: 6,
+    metaTitle: "Reading Light Collection | Avyona",
+    metaDescription: "Find clip-on and bedside reading lights for everyday use.",
+    keywords: "reading light, bedside lamp, clip light",
+    isActive: true
+  }
+];
 
 const CATEGORY_SELECT = `SELECT
   c.id,
@@ -40,6 +179,50 @@ const CATEGORY_SELECT = `SELECT
  FROM categories c
  LEFT JOIN categories parent ON parent.id = c.parent_id`;
 
+function isDatabaseUnavailable(error) {
+  return ["ECONNREFUSED", "ER_NO_SUCH_TABLE", "ER_BAD_DB_ERROR", "PROTOCOL_CONNECTION_LOST"].includes(error?.code);
+}
+
+async function readLocalCategories() {
+  try {
+    const raw = await fs.readFile(localCategoriesPath, "utf8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length ? parsed : DEFAULT_LOCAL_CATEGORIES;
+  } catch {
+    return DEFAULT_LOCAL_CATEGORIES;
+  }
+}
+
+async function writeLocalCategories(categories) {
+  await fs.mkdir(path.dirname(localCategoriesPath), { recursive: true });
+  await fs.writeFile(localCategoriesPath, JSON.stringify(categories, null, 2));
+}
+
+function hydrateLocalCategories(categories) {
+  const byId = new Map(categories.map((category) => [Number(category.id), category]));
+
+  return categories.map((category) => {
+    const parent = category.parentId ? byId.get(Number(category.parentId)) : null;
+    return {
+      ...category,
+      parentId: category.parentId ?? null,
+      parentCategory: parent?.name || null,
+      categoryType: category.parentId ? "subcategory" : "main_category",
+      childCount: categories.filter((item) => Number(item.parentId || 0) === Number(category.id)).length,
+      productCount: Number(category.productCount || 0),
+      showInMenu: Boolean(category.showInMenu),
+      featuredCategory: Boolean(category.featuredCategory),
+      isActive: category.status === "active"
+    };
+  }).sort((left, right) => {
+    const parentSort = Number(left.parentId ? byId.get(Number(left.parentId))?.sortOrder || left.sortOrder || 0 : left.sortOrder || 0)
+      - Number(right.parentId ? byId.get(Number(right.parentId))?.sortOrder || right.sortOrder || 0 : right.sortOrder || 0);
+    if (parentSort !== 0) return parentSort;
+    if (Boolean(left.parentId) !== Boolean(right.parentId)) return left.parentId ? 1 : -1;
+    return Number(left.sortOrder || 0) - Number(right.sortOrder || 0) || String(left.name).localeCompare(String(right.name));
+  });
+}
+
 function parseCategoryId(value, fieldName = "category id") {
   const id = Number(value);
 
@@ -73,6 +256,22 @@ function parseBoolean(value, defaultValue = false) {
   if (["false", "0", "no", "off"].includes(normalized)) return false;
 
   return defaultValue;
+}
+
+function normalizeDynamicRuleJson(value) {
+  if (!value) return null;
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  if (typeof value === "object" && !Array.isArray(value)) return value;
+  return null;
 }
 
 function normalizeCategoryPayload(payload = {}) {
@@ -112,6 +311,7 @@ function normalizeCategoryPayload(payload = {}) {
     status,
     showInMenu: parseBoolean(payload.showInMenu, true),
     featuredCategory: parseBoolean(payload.featuredCategory ?? payload.isFeatured, false),
+    dynamicRuleJson: normalizeDynamicRuleJson(payload.dynamicRuleJson),
     sortOrder: Math.max(0, Math.round(sortOrderValue)),
     metaTitle: toNullableString(payload.metaTitle),
     metaDescription: toNullableString(payload.metaDescription),
@@ -186,181 +386,309 @@ function buildCategoryTree(rows) {
 export async function createCategory(request, response) {
   const payload = normalizeCategoryPayload(request.body);
 
-  await ensureParentCategoryExists(payload.parentId);
-  await ensureUniqueSlug(payload.slug);
+  try {
+    await ensureParentCategoryExists(payload.parentId);
+    await ensureUniqueSlug(payload.slug);
 
-  const result = await query(
-    `INSERT INTO categories (
-      name,
-      slug,
-      parent_id,
-      description,
-      image_url,
-      banner_image_url,
-      status,
-      show_in_menu,
-      featured_category,
-      sort_order,
-      meta_title,
-      meta_description,
-      meta_keywords,
-      is_active
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      payload.name,
-      payload.slug,
-      payload.parentId,
-      payload.description,
-      payload.imageUrl,
-      payload.bannerImageUrl,
-      payload.status,
-      payload.showInMenu ? 1 : 0,
-      payload.featuredCategory ? 1 : 0,
-      payload.sortOrder,
-      payload.metaTitle,
-      payload.metaDescription,
-      payload.keywords,
-      payload.isActive ? 1 : 0
-    ]
-  );
+    const result = await query(
+      `INSERT INTO categories (
+        name,
+        slug,
+        parent_id,
+        description,
+        image_url,
+        banner_image_url,
+        status,
+        show_in_menu,
+        featured_category,
+        dynamic_rule_json,
+        sort_order,
+        meta_title,
+        meta_description,
+        meta_keywords,
+        is_active
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        payload.name,
+        payload.slug,
+        payload.parentId,
+        payload.description,
+        payload.imageUrl,
+        payload.bannerImageUrl,
+        payload.status,
+        payload.showInMenu ? 1 : 0,
+        payload.featuredCategory ? 1 : 0,
+        payload.dynamicRuleJson ? JSON.stringify(payload.dynamicRuleJson) : null,
+        payload.sortOrder,
+        payload.metaTitle,
+        payload.metaDescription,
+        payload.keywords,
+        payload.isActive ? 1 : 0
+      ]
+    );
 
-  const category = await getCategoryRowById(result.insertId);
+    const category = await getCategoryRowById(result.insertId);
 
-  response.status(201).json({
-    success: true,
-    message: "Category created successfully",
-    data: category
-  });
+    response.status(201).json({
+      success: true,
+      message: "Category created successfully",
+      data: category
+    });
+  } catch (error) {
+    if (!isDatabaseUnavailable(error)) throw error;
+
+    const categories = hydrateLocalCategories(await readLocalCategories());
+    if (categories.some((category) => category.slug === payload.slug)) {
+      throw new ApiError(409, "Category slug already exists");
+    }
+    if (payload.parentId && !categories.some((category) => Number(category.id) === Number(payload.parentId))) {
+      throw new ApiError(404, "Parent category not found");
+    }
+
+    const now = new Date().toISOString();
+    const created = {
+      id: Date.now(),
+      ...payload,
+      childCount: 0,
+      productCount: 0,
+      parentCategory: null,
+      categoryType: payload.parentId ? "subcategory" : "main_category",
+      createdAt: now,
+      updatedAt: now
+    };
+    const nextCategories = hydrateLocalCategories([...categories, created]);
+    await writeLocalCategories(nextCategories);
+
+    response.status(201).json({
+      success: true,
+      message: "Category created successfully",
+      data: hydrateLocalCategories(nextCategories).find((category) => category.id === created.id),
+      source: "local-file"
+    });
+  }
 }
 
 export async function listCategories(_request, response) {
-  const rows = await query(
-    `${CATEGORY_SELECT}
-     ORDER BY COALESCE(parent.sort_order, c.sort_order) ASC, c.parent_id IS NOT NULL ASC, c.sort_order ASC, c.name ASC`
-  );
+  try {
+    const rows = await query(
+      `${CATEGORY_SELECT}
+       ORDER BY COALESCE(parent.sort_order, c.sort_order) ASC, c.parent_id IS NOT NULL ASC, c.sort_order ASC, c.name ASC`
+    );
 
-  response.json({
-    success: true,
-    count: rows.length,
-    data: rows
-  });
+    response.json({
+      success: true,
+      count: rows.length,
+      data: rows
+    });
+  } catch (error) {
+    if (!isDatabaseUnavailable(error)) throw error;
+    const rows = hydrateLocalCategories(await readLocalCategories());
+    response.json({
+      success: true,
+      count: rows.length,
+      data: rows,
+      source: "local-file"
+    });
+  }
 }
 
 export async function getCategoryTree(_request, response) {
-  const rows = await query(
-    `${CATEGORY_SELECT}
-     ORDER BY COALESCE(parent.sort_order, c.sort_order) ASC, c.parent_id IS NOT NULL ASC, c.sort_order ASC, c.name ASC`
-  );
+  try {
+    const rows = await query(
+      `${CATEGORY_SELECT}
+       ORDER BY COALESCE(parent.sort_order, c.sort_order) ASC, c.parent_id IS NOT NULL ASC, c.sort_order ASC, c.name ASC`
+    );
 
-  response.json({
-    success: true,
-    count: rows.length,
-    data: buildCategoryTree(rows)
-  });
+    response.json({
+      success: true,
+      count: rows.length,
+      data: buildCategoryTree(rows)
+    });
+  } catch (error) {
+    if (!isDatabaseUnavailable(error)) throw error;
+    const rows = hydrateLocalCategories(await readLocalCategories()).filter((category) => category.status === "active");
+    response.json({
+      success: true,
+      count: rows.length,
+      data: buildCategoryTree(rows),
+      source: "local-file"
+    });
+  }
 }
 
 export async function getCategoryById(request, response) {
-  const categoryId = parseCategoryId(request.params.id);
-  const category = await getCategoryRowById(categoryId);
+  let categoryId;
+  try {
+    categoryId = parseCategoryId(request.params.id);
+    const category = await getCategoryRowById(categoryId);
 
-  if (!category) {
-    throw new ApiError(404, "Category not found");
+    if (!category) {
+      throw new ApiError(404, "Category not found");
+    }
+
+    response.json({
+      success: true,
+      data: category
+    });
+  } catch (error) {
+    if (!isDatabaseUnavailable(error)) throw error;
+    const rows = hydrateLocalCategories(await readLocalCategories());
+    const category = rows.find((item) => String(item.id) === String(request.params.id) || item.slug === request.params.id);
+    if (!category) throw new ApiError(404, "Category not found");
+    response.json({ success: true, data: category, source: "local-file" });
   }
-
-  response.json({
-    success: true,
-    data: category
-  });
 }
 
 export async function updateCategory(request, response) {
-  const categoryId = parseCategoryId(request.params.id);
-  const existingCategory = await getCategoryRowById(categoryId);
+  let categoryId;
+  try {
+    categoryId = parseCategoryId(request.params.id);
+    const existingCategory = await getCategoryRowById(categoryId);
 
-  if (!existingCategory) {
-    throw new ApiError(404, "Category not found");
+    if (!existingCategory) {
+      throw new ApiError(404, "Category not found");
+    }
+
+    const payload = normalizeCategoryPayload(request.body);
+
+    await ensureParentCategoryExists(payload.parentId, categoryId);
+    await ensureUniqueSlug(payload.slug, categoryId);
+
+    await query(
+      `UPDATE categories
+       SET
+         name = ?,
+         slug = ?,
+         parent_id = ?,
+         description = ?,
+         image_url = ?,
+         banner_image_url = ?,
+         status = ?,
+         show_in_menu = ?,
+         featured_category = ?,
+         dynamic_rule_json = ?,
+         sort_order = ?,
+         meta_title = ?,
+         meta_description = ?,
+         meta_keywords = ?,
+         is_active = ?
+       WHERE id = ?`,
+      [
+        payload.name,
+        payload.slug,
+        payload.parentId,
+        payload.description,
+        payload.imageUrl,
+        payload.bannerImageUrl,
+        payload.status,
+        payload.showInMenu ? 1 : 0,
+        payload.featuredCategory ? 1 : 0,
+        payload.dynamicRuleJson ? JSON.stringify(payload.dynamicRuleJson) : null,
+        payload.sortOrder,
+        payload.metaTitle,
+        payload.metaDescription,
+        payload.keywords,
+        payload.isActive ? 1 : 0,
+        categoryId
+      ]
+    );
+
+    const category = await getCategoryRowById(categoryId);
+
+    response.json({
+      success: true,
+      message: "Category updated successfully",
+      data: category
+    });
+  } catch (error) {
+    if (!isDatabaseUnavailable(error)) throw error;
+
+    const payload = normalizeCategoryPayload(request.body);
+    const categories = hydrateLocalCategories(await readLocalCategories());
+    const index = categories.findIndex((category) => String(category.id) === String(request.params.id) || category.slug === request.params.id);
+    if (index === -1) throw new ApiError(404, "Category not found");
+
+    const currentId = categories[index].id;
+    if (payload.parentId && Number(payload.parentId) === Number(currentId)) {
+      throw new ApiError(400, "A category cannot be its own parent");
+    }
+    if (payload.parentId && !categories.some((category) => Number(category.id) === Number(payload.parentId))) {
+      throw new ApiError(404, "Parent category not found");
+    }
+    if (categories.some((category) => category.slug === payload.slug && Number(category.id) !== Number(currentId))) {
+      throw new ApiError(409, "Category slug already exists");
+    }
+
+    const updated = {
+      ...categories[index],
+      ...payload,
+      id: currentId,
+      updatedAt: new Date().toISOString()
+    };
+    const nextCategories = [...categories];
+    nextCategories[index] = updated;
+    const hydrated = hydrateLocalCategories(nextCategories);
+    await writeLocalCategories(hydrated);
+
+    response.json({
+      success: true,
+      message: "Category updated successfully",
+      data: hydrated.find((category) => Number(category.id) === Number(currentId)),
+      source: "local-file"
+    });
   }
-
-  const payload = normalizeCategoryPayload(request.body);
-
-  await ensureParentCategoryExists(payload.parentId, categoryId);
-  await ensureUniqueSlug(payload.slug, categoryId);
-
-  await query(
-    `UPDATE categories
-     SET
-       name = ?,
-       slug = ?,
-       parent_id = ?,
-       description = ?,
-       image_url = ?,
-       banner_image_url = ?,
-       status = ?,
-       show_in_menu = ?,
-       featured_category = ?,
-       sort_order = ?,
-       meta_title = ?,
-       meta_description = ?,
-       meta_keywords = ?,
-       is_active = ?
-     WHERE id = ?`,
-    [
-      payload.name,
-      payload.slug,
-      payload.parentId,
-      payload.description,
-      payload.imageUrl,
-      payload.bannerImageUrl,
-      payload.status,
-      payload.showInMenu ? 1 : 0,
-      payload.featuredCategory ? 1 : 0,
-      payload.sortOrder,
-      payload.metaTitle,
-      payload.metaDescription,
-      payload.keywords,
-      payload.isActive ? 1 : 0,
-      categoryId
-    ]
-  );
-
-  const category = await getCategoryRowById(categoryId);
-
-  response.json({
-    success: true,
-    message: "Category updated successfully",
-    data: category
-  });
 }
 
 export async function deleteCategory(request, response) {
-  const categoryId = parseCategoryId(request.params.id);
-  const existingCategory = await getCategoryRowById(categoryId);
+  let categoryId;
+  try {
+    categoryId = parseCategoryId(request.params.id);
+    const existingCategory = await getCategoryRowById(categoryId);
 
-  if (!existingCategory) {
-    throw new ApiError(404, "Category not found");
+    if (!existingCategory) {
+      throw new ApiError(404, "Category not found");
+    }
+
+    const childRows = await query(
+      "SELECT COUNT(*) AS totalChildren FROM categories WHERE parent_id = ?",
+      [categoryId]
+    );
+    const productRows = await query(
+      "SELECT COUNT(*) AS totalProducts FROM products WHERE category_id = ?",
+      [categoryId]
+    );
+
+    if (Number(childRows[0]?.totalChildren || 0) > 0) {
+      throw new ApiError(400, "Cannot delete a category that still has subcategories");
+    }
+
+    if (Number(productRows[0]?.totalProducts || 0) > 0) {
+      throw new ApiError(400, "Cannot delete a category that still has linked products");
+    }
+
+    await query("DELETE FROM categories WHERE id = ? LIMIT 1", [categoryId]);
+
+    response.json({
+      success: true,
+      message: "Category deleted successfully"
+    });
+  } catch (error) {
+    if (!isDatabaseUnavailable(error)) throw error;
+
+    const categories = hydrateLocalCategories(await readLocalCategories());
+    const target = categories.find((category) => String(category.id) === String(request.params.id) || category.slug === request.params.id);
+    if (!target) throw new ApiError(404, "Category not found");
+    if (categories.some((category) => Number(category.parentId || 0) === Number(target.id))) {
+      throw new ApiError(400, "Cannot delete a category that still has subcategories");
+    }
+
+    const nextCategories = categories.filter((category) => Number(category.id) !== Number(target.id));
+    await writeLocalCategories(hydrateLocalCategories(nextCategories));
+
+    response.json({
+      success: true,
+      message: "Category deleted successfully",
+      source: "local-file"
+    });
   }
-
-  const childRows = await query(
-    "SELECT COUNT(*) AS totalChildren FROM categories WHERE parent_id = ?",
-    [categoryId]
-  );
-  const productRows = await query(
-    "SELECT COUNT(*) AS totalProducts FROM products WHERE category_id = ?",
-    [categoryId]
-  );
-
-  if (Number(childRows[0]?.totalChildren || 0) > 0) {
-    throw new ApiError(400, "Cannot delete a category that still has subcategories");
-  }
-
-  if (Number(productRows[0]?.totalProducts || 0) > 0) {
-    throw new ApiError(400, "Cannot delete a category that still has linked products");
-  }
-
-  await query("DELETE FROM categories WHERE id = ? LIMIT 1", [categoryId]);
-
-  response.json({
-    success: true,
-    message: "Category deleted successfully"
-  });
 }

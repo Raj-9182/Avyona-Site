@@ -10,6 +10,7 @@ import {
   writeStorage
 } from "../utils/storefront";
 import { couponRules, validateCoupon } from "../../../shared/coupons";
+import { createStorefrontOrder } from "../api/orderApi";
 
 export default function CheckoutPage({ context }) {
   const navigate = useNavigate();
@@ -47,6 +48,7 @@ export default function CheckoutPage({ context }) {
   const [couponCode, setCouponCode] = useState(() => readStorage("avyonaPendingCoupon", ""));
   const [appliedCoupon, setAppliedCoupon] = useState(null);
   const [couponMessage, setCouponMessage] = useState("");
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
   const subtotal = context.cart.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 1), 0);
   const selectedShipping = shippingOptions.find((option) => option.id === form.shippingMethod) || shippingOptions[0];
   const shipping = Number(selectedShipping?.price || 0);
@@ -126,12 +128,55 @@ export default function CheckoutPage({ context }) {
     setCouponMessage("Coupon removed.");
   };
 
-  const submitOrder = (event) => {
+  const submitOrder = async (event) => {
     event.preventDefault();
-    if (!context.cart.length || !hasRequiredAddress) return;
+    if (!context.cart.length || !hasRequiredAddress || isSubmittingOrder) return;
+
+    setIsSubmittingOrder(true);
     const createdAt = new Date().toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
-    const orderNumber = `AVY-${Date.now().toString().slice(-6)}`;
     const deliveryAddress = `${form.address1}${form.address2 ? `, ${form.address2}` : ""}, ${form.city}, ${form.state} - ${form.pinCode}`;
+    let orderNumber = `AVY-${Date.now().toString().slice(-6)}`;
+
+    try {
+      const response = await createStorefrontOrder({
+        customer: {
+          firstName: form.firstName,
+          lastName: form.lastName,
+          contact: form.contact,
+          email: form.contact.includes("@") ? form.contact : "",
+          phone: form.phone
+        },
+        address: {
+          line1: form.address1,
+          line2: form.address2,
+          city: form.city,
+          state: form.state,
+          pincode: form.pinCode
+        },
+        items: context.cart.map((item) => ({
+          asin: item.asin || item.slug,
+          slug: item.slug,
+          name: item.name,
+          price: Number(item.price || 0),
+          quantity: Number(item.quantity || 1),
+          variantLabel: item.variantLabel || ""
+        })),
+        pricing: {
+          subtotal,
+          discount,
+          shipping,
+          total
+        },
+        paymentMethod: form.paymentMethod,
+        shippingMethod: form.shippingMethod,
+        couponCode: appliedCoupon?.code || ""
+      });
+
+      orderNumber = response.data?.orderNumber || orderNumber;
+    } catch {
+      context.notify("Backend order save is unavailable, so this order is saved locally for preview.");
+    }
+
     const newOrders = context.cart.map((item) => ({
       orderNumber,
       slug: item.slug,
@@ -161,6 +206,7 @@ export default function CheckoutPage({ context }) {
     });
     context.setCart([]);
     context.notify("Order placed successfully");
+    setIsSubmittingOrder(false);
     navigate(`/order-confirmation/${orderNumber}`, {
       state: {
         orderNumber,
@@ -286,7 +332,7 @@ export default function CheckoutPage({ context }) {
                 </label>
               </div>
             </div>
-            <div className="checkout-cta-wrap"><button className="checkout-pay-button" type="submit" disabled={!context.cart.length}>{context.cart.length ? "Pay Now" : "Cart Empty"}</button><p className="checkout-cta-note">Secure Checkout. You will not be charged until you confirm.</p></div>
+            <div className="checkout-cta-wrap"><button className="checkout-pay-button" type="submit" disabled={!context.cart.length || isSubmittingOrder}>{isSubmittingOrder ? "Placing Order..." : context.cart.length ? "Pay Now" : "Cart Empty"}</button><p className="checkout-cta-note">Secure Checkout. You will not be charged until you confirm.</p></div>
           </section>
           <aside className="checkout-summary-panel">
             <details className="mobile-summary-toggle" open>

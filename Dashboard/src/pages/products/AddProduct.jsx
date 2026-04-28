@@ -1,6 +1,7 @@
 import React from "react";
 import { FaPlus, FaTimes } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
+import { createProduct, fetchCategories, updateProduct, uploadAdminImage } from "../../api/adminApi";
 import {
   createEmptySpecGroup,
   createEmptySpecItem,
@@ -337,6 +338,10 @@ export default function AddProduct({ initialProductData = null, mode = "add" }) 
   const videoInputRef = React.useRef(null);
   const mediaRef = React.useRef({ images: [], videos: [] });
   const [productData, setProductData] = React.useState(() => initialProductData || createInitialProductData());
+  const [isSavingProduct, setIsSavingProduct] = React.useState(false);
+  const [saveMessage, setSaveMessage] = React.useState("");
+  const [saveTone, setSaveTone] = React.useState("success");
+  const [backendCategories, setBackendCategories] = React.useState([]);
   const {
     basicInfo,
     pricingInventory,
@@ -603,6 +608,98 @@ export default function AddProduct({ initialProductData = null, mode = "add" }) 
     updateSection("seo", { [key]: value });
   };
 
+  React.useEffect(() => {
+    let isMounted = true;
+
+    async function loadBackendCategories() {
+      try {
+        const response = await fetchCategories();
+        if (!isMounted) return;
+        const rows = Array.isArray(response.data?.data) ? response.data.data : [];
+        setBackendCategories(rows);
+      } catch {
+        if (isMounted) setBackendCategories([]);
+      }
+    }
+
+    loadBackendCategories();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const uploadPrimaryImage = async () => {
+    const firstImage = media.images?.[0];
+    if (!firstImage) return "";
+    if (firstImage.file) {
+      try {
+        const response = await uploadAdminImage(firstImage.file);
+        const uploadedUrl = response.data?.data?.url || "";
+        return uploadedUrl.startsWith("/uploads/") ? `http://localhost:4000${uploadedUrl}` : uploadedUrl;
+      } catch {
+        return "/images/optimized/frame-1.webp";
+      }
+    }
+    return firstImage.url || "";
+  };
+
+  const buildProductPayload = async (publishStatus) => {
+    const categoryRecord = backendCategories.find((category) => category.slug === basicInfo.category);
+    const primaryImageUrl = await uploadPrimaryImage();
+    const cleanedHighlights = highlights.map((item) => String(item || "").trim()).filter(Boolean);
+    const descriptionText = String(descriptionData.content || "").trim();
+    const shortDescription = cleanedHighlights[0] || descriptionText.split(/\n+/)[0] || "";
+
+    return {
+      categoryId: categoryRecord?.id || undefined,
+      categorySlug: basicInfo.category,
+      asin: basicInfo.sku || basicInfo.slug || `AVY-${Date.now()}`,
+      name: basicInfo.productName,
+      slug: basicInfo.slug,
+      brand: basicInfo.brand,
+      shortDescription,
+      description: descriptionText,
+      price: Number(pricingInventory.sellingPrice || 0),
+      mrp: Number(pricingInventory.mrp || pricingInventory.sellingPrice || 0),
+      stockQuantity: Number(pricingInventory.stockQuantity || 0),
+      rating: 0,
+      reviewCount: 0,
+      imageUrl: primaryImageUrl,
+      status: publishStatus
+    };
+  };
+
+  const handleSaveProduct = async (publishStatus) => {
+    if (!basicInfo.productName.trim() || !basicInfo.brand.trim() || !basicInfo.category || !pricingInventory.sellingPrice) {
+      setSaveTone("error");
+      setSaveMessage("Product name, brand, category, and selling price are required before saving.");
+      return;
+    }
+
+    setIsSavingProduct(true);
+    setSaveMessage("");
+
+    try {
+      const payload = await buildProductPayload(publishStatus);
+
+      if (mode === "edit" && initialProductData?.id) {
+        await updateProduct(initialProductData.id, payload);
+      } else {
+        await createProduct(payload);
+      }
+
+      setSaveTone("success");
+      setSaveMessage(publishStatus === "active" ? "Product published successfully. It will appear on the storefront after refresh." : "Product draft saved successfully.");
+      window.setTimeout(() => navigate("/dashboard/products"), 700);
+    } catch (error) {
+      setSaveTone("error");
+      setSaveMessage(error.response?.data?.message || "Unable to save product. Check backend login, database connection, and required fields.");
+    } finally {
+      setIsSavingProduct(false);
+    }
+  };
+
   const sellingPrice = Number(pricingInventory.sellingPrice || 0);
   const mrp = Number(pricingInventory.mrp || 0);
   const discountPercentage = mrp > 0 && sellingPrice > 0 && mrp > sellingPrice
@@ -695,6 +792,8 @@ export default function AddProduct({ initialProductData = null, mode = "add" }) 
       </button>
       <button
         type="button"
+        disabled={isSavingProduct}
+        onClick={() => handleSaveProduct("draft")}
         style={{
           ...actionButtonStyle,
           border: "1px solid #cbd5e1",
@@ -702,10 +801,12 @@ export default function AddProduct({ initialProductData = null, mode = "add" }) 
           color: "#334155"
         }}
       >
-        Save Draft
+        {isSavingProduct ? "Saving..." : "Save Draft"}
       </button>
       <button
         type="button"
+        disabled={isSavingProduct}
+        onClick={() => handleSaveProduct("active")}
         style={{
           ...actionButtonStyle,
           border: "none",
@@ -713,7 +814,7 @@ export default function AddProduct({ initialProductData = null, mode = "add" }) 
           color: "#fff"
         }}
       >
-        {isEditMode ? "Update Product" : "Publish Product"}
+        {isSavingProduct ? "Publishing..." : isEditMode ? "Update Product" : "Publish Product"}
       </button>
     </div>
   );
@@ -1900,10 +2001,22 @@ export default function AddProduct({ initialProductData = null, mode = "add" }) 
       >
         <div>
           <h3 style={{ margin: 0 }}>Save / Publish</h3>
-          <p style={{ ...sectionCopyStyle, marginTop: "8px" }}>
-            Save the product as a draft or publish it once all sections are completed.
+        <p style={{ ...sectionCopyStyle, marginTop: "8px" }}>
+          Save the product as a draft or publish it once all sections are completed.
+        </p>
+        {saveMessage ? (
+          <p style={{
+            margin: "10px 0 0",
+            padding: "10px 12px",
+            borderRadius: "10px",
+            background: saveTone === "error" ? "#fef2f2" : "#ecfdf5",
+            color: saveTone === "error" ? "#b91c1c" : "#166534",
+            fontWeight: 700
+          }}>
+            {saveMessage}
           </p>
-        </div>
+        ) : null}
+      </div>
         {actionBar}
       </section>
     </div>

@@ -3,6 +3,8 @@ import { NavLink, useNavigate } from "react-router-dom";
 import {
   FaBox,
   FaCog,
+  FaHome,
+  FaImages,
   FaPercent,
   FaList,
   FaShoppingCart,
@@ -15,10 +17,12 @@ import { clearAdminToken } from "../../api/adminApi";
 
 const navItems = [
   { label: "Dashboard", to: "/dashboard", icon: FaTachometerAlt },
+  { label: "Homepage", to: "/dashboard/homepage", icon: FaHome },
   { label: "Products", to: "/dashboard/products", icon: FaBox },
   { label: "Variations", to: "/dashboard/variations", icon: FaTags },
   { label: "Coupons", to: "/dashboard/coupons", icon: FaPercent },
   { label: "Categories", to: "/dashboard/categories", icon: FaList },
+  { label: "Website Images", to: "/dashboard/website-images", icon: FaImages },
   { label: "Orders", to: "/dashboard/orders", icon: FaShoppingCart },
   { label: "Customers", to: "/dashboard/customers", icon: FaUsers },
   { label: "Settings", to: "/dashboard/settings", icon: FaCog }

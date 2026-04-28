@@ -1,6 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import orders from "../../data/orders";
+import { fetchOrders } from "../../api/adminApi";
 import { formatCurrency } from "../../utils/storefront";
 import { formatOrderStatusLabel } from "../../../../shared/orderStatusFlow";
 
@@ -44,12 +45,38 @@ function getPaymentBadgeLabel(status) {
   if (status === "paid" || status === "authorized") return "Paid";
   if (status === "partially-refunded") return "Partial";
   if (status === "refunded") return "Refunded";
-  if (status === "pending" || status === "failed" || status === "cod-pending") return "Unpaid";
+  if (status === "pending" || status === "failed" || status === "cod-pending" || status === "cod_pending") return "Unpaid";
   return status;
+}
+
+function normalizeOrderRow(order) {
+  const placedAt = order.createdAt || order.placedAt || new Date().toISOString();
+  const totalAmount = Number(order.totalAmount ?? order.pricing?.grandTotal ?? 0);
+
+  return {
+    id: order.id,
+    orderNumber: order.orderNumber,
+    placedAt,
+    orderStatus: order.status || order.orderStatus || "pending",
+    paymentStatus: order.paymentStatus || "pending",
+    customer: {
+      fullName: order.customerName || order.customer?.fullName || "Guest Customer",
+      email: order.customerEmail || order.customer?.email || "",
+      phone: order.customerPhone || order.customer?.phone || ""
+    },
+    pricing: {
+      grandTotal: totalAmount
+    },
+    payment: {
+      method: order.paymentMethod || order.payment?.method || "Not selected"
+    },
+    products: Array.from({ length: Math.max(1, Number(order.itemCount || order.products?.length || 1)) }, (_, index) => ({ id: index }))
+  };
 }
 
 export default function Orders() {
   const [orderRows, setOrderRows] = React.useState(() => orders);
+  const [sourceMessage, setSourceMessage] = React.useState("Showing local order preview.");
   const [searchTerm, setSearchTerm] = React.useState("");
   const [orderStatusFilter, setOrderStatusFilter] = React.useState("all");
   const [paymentStatusFilter, setPaymentStatusFilter] = React.useState("all");
@@ -97,6 +124,36 @@ export default function Orders() {
     setOrderRows((currentOrders) => currentOrders.filter((order) => order.id !== orderId));
   };
 
+  React.useEffect(() => {
+    let isMounted = true;
+
+    async function loadOrders() {
+      try {
+        const response = await fetchOrders();
+        if (!isMounted) return;
+
+        const rows = Array.isArray(response.data?.data) ? response.data.data : [];
+        if (rows.length) {
+          setOrderRows(rows.map(normalizeOrderRow));
+          setSourceMessage("Orders loaded from backend.");
+          return;
+        }
+
+        setSourceMessage("Backend returned no orders, so local order preview is shown.");
+      } catch {
+        if (!isMounted) return;
+        setOrderRows(orders);
+        setSourceMessage("Backend orders require admin login and database access, so local order preview is shown.");
+      }
+    }
+
+    loadOrders();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const resetFilters = () => {
     setSearchTerm("");
     setOrderStatusFilter("all");
@@ -120,6 +177,9 @@ export default function Orders() {
           <h2 style={{ margin: 0 }}>Orders</h2>
           <p style={{ margin: "8px 0 0", color: "#698096" }}>
             See all orders in one management table with customer, payment, status, and date visibility.
+          </p>
+          <p style={{ margin: "6px 0 0", color: "#0f766e", fontSize: "13px", fontWeight: 700 }}>
+            {sourceMessage}
           </p>
         </div>
         <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>

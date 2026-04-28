@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import ProductCard from "../components/product/ProductCard";
-import { allProducts, categoryRouteMap, getProductByIdentifier, getProductsByVariantGroup } from "../data/storefront-content";
+import { allProducts, categoryRouteMap } from "../data/storefront-content";
 import {
   buildProductPath,
   compressImageFile,
@@ -136,7 +136,8 @@ function getCustomerMedia(product, reviews, galleryItems) {
 export default function ProductPage({ context }) {
   const { slug: productKey, variantKey } = useParams();
   const navigate = useNavigate();
-  const product = getProductByIdentifier(productKey);
+  const productCatalog = context.allProducts && context.allProducts.length ? context.allProducts : allProducts;
+  const product = productCatalog.find((item) => item.slug === productKey || String(item.asin || "") === String(productKey || "")) || null;
   const stageRef = useRef(null);
   const imageRef = useRef(null);
   const previewRef = useRef(null);
@@ -181,13 +182,13 @@ export default function ProductPage({ context }) {
   const groupedVariantProducts = useMemo(() => {
     if (!product?.variantGroupId) return [];
 
-    const groupProducts = getProductsByVariantGroup(product.variantGroupId);
+    const groupProducts = productCatalog.filter((item) => String(item.variantGroupId || "") === String(product.variantGroupId || ""));
     return [...groupProducts].sort((left, right) => {
       if (left.asin === product.asin) return -1;
       if (right.asin === product.asin) return 1;
       return String(left.variantValue || left.name).localeCompare(String(right.variantValue || right.name));
     });
-  }, [product]);
+  }, [product, productCatalog]);
 
   useEffect(() => {
     if (!product) return;
@@ -293,7 +294,7 @@ export default function ProductPage({ context }) {
   const galleryItems = getGalleryItems(product, selectedVariant);
   const safeGalleryIndex = ((galleryIndex % galleryItems.length) + galleryItems.length) % galleryItems.length;
   const activeMedia = galleryItems[safeGalleryIndex];
-  const availableStock = Number(selectedVariant?.availableStock ?? 0);
+  const availableStock = Number(selectedVariant?.availableStock ?? product.availableStock ?? 0);
   const safeQuantity = Math.max(1, Math.min(quantity, Math.max(1, availableStock || 1)));
   const salePrice = Number(selectedVariant?.price ?? product.price);
   const mrp = Number(selectedVariant?.mrp ?? product.mrp);
@@ -304,7 +305,7 @@ export default function ProductPage({ context }) {
   const isLowStock = availableStock > 0 && availableStock <= 5;
   const stockTone = availableStock === 0 ? "out" : isLowStock ? "low" : "in";
   const stockLabel = availableStock === 0 ? "Out of Stock" : isLowStock ? `Only ${availableStock} left in stock` : "In Stock";
-  const related = allProducts
+  const related = productCatalog
     .filter((item) => item.slug !== product.slug && (item.brand === product.brand || item.collectionSlug === product.collectionSlug))
     .slice(0, 4);
   const combinedReviews = [...storedReviews, ...(product.reviews || [])];

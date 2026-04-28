@@ -676,7 +676,21 @@ body.collection-page {
   }
 
   .collection-results-content .product-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .collection-results-content .product-card {
+    border-radius: 14px;
+  }
+
+  .collection-results-content .product-art {
+    min-height: 150px;
+    border-radius: 10px;
+  }
+
+  .collection-results-content .product-art img {
+    transform: scale(1.18);
   }
 
   .collection-page .filter-panel.is-open {

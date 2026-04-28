@@ -51,6 +51,35 @@ function createAsinFromSlug(slug) {
   return `B0${hash.toString(36).toUpperCase().padStart(8, "0").slice(-8)}`;
 }
 
+function createSkuFromSlug(slug) {
+  const parts = String(slug || "")
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4))
+    .filter(Boolean);
+
+  return `AVY-${parts.join("-").slice(0, 28)}`;
+}
+
+function uniqueProductTags(config) {
+  return [...new Set([
+    config.brand,
+    config.category,
+    config.collectionSlug,
+    config.name,
+    ...(config.highlights || []).slice(0, 3),
+    ...(config.tags || [])
+  ].filter(Boolean))];
+}
+
+function createProductMetaDescription(config) {
+  return String([
+    config.description?.[0],
+    config.highlights?.[0],
+    `${config.brand} ${config.category} at Avyona.`
+  ].filter(Boolean).join(" ")).replace(/\s+/g, " ").trim().slice(0, 160);
+}
+
 function rotateGallery(gallery, startIndex) {
   if (!Array.isArray(gallery) || !gallery.length) return [];
   const safeIndex = ((startIndex % gallery.length) + gallery.length) % gallery.length;
@@ -101,6 +130,8 @@ function buildVariants(config, isOutOfStock) {
 function createProduct(config) {
   const discount = Math.round(((config.mrp - config.price) / config.mrp) * 100);
   const isOutOfStock = config.availability === "out-of-stock";
+  const sku = config.sku || createSkuFromSlug(config.slug);
+  const tags = uniqueProductTags(config);
 
   return {
     stockLabel: isOutOfStock ? "Out of Stock" : "In Stock",
@@ -109,8 +140,13 @@ function createProduct(config) {
     reviewCount: 120,
     video: "images/Store video.mp4",
     videoPoster: config.image,
-    sku: `AVY-${config.slug.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10)}`,
+    sku,
+    mpn: sku,
     asin: config.asin || createAsinFromSlug(config.slug),
+    tags,
+    metaTitle: config.metaTitle || `${config.name} | ${config.brand} ${config.category} | Avyona`,
+    metaDescription: config.metaDescription || createProductMetaDescription(config),
+    metaKeywords: config.metaKeywords || tags.join(", "),
     deliveryText: "Estimated Delivery: 3-7 business days",
     dispatchText: "Dispatch: Within 24-48 hours",
     codText: "COD: Available for eligible locations",

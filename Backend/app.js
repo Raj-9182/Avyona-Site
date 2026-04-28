@@ -8,8 +8,22 @@ import v1Routes from "./routes/v1/index.js";
 
 const app = express();
 const uploadDirectory = path.resolve(process.cwd(), "uploads");
+const allowedOrigins = new Set([
+  env.frontendOrigin,
+  "http://localhost:5173",
+  "http://localhost:5174"
+]);
 
-app.use(cors({ origin: env.frontendOrigin }));
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.has(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error("Not allowed by CORS"));
+  }
+}));
 app.use(morgan(env.nodeEnv === "production" ? "combined" : "dev"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

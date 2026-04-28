@@ -5,26 +5,30 @@ import { flattenCategoryTree, fallbackCategoryTree } from "../data/category-data
 import { allProducts } from "../data/storefront-content";
 import { formatCurrency } from "../utils/storefront";
 
-function collectCategoryProducts(category, categoryLookup) {
+function collectCategoryProducts(category, categoryLookup, productCatalog) {
   const directSlugs = new Set(category.productSlugs || []);
   const childCategories = [...(category.children || [])];
+  const collectionSlugs = new Set([category.slug]);
 
   childCategories.forEach((child) => {
     (child.productSlugs || []).forEach((slug) => directSlugs.add(slug));
+    collectionSlugs.add(child.slug);
   });
 
-  const matched = allProducts.filter((product) => directSlugs.has(product.slug));
+  const matched = productCatalog.filter((product) =>
+    directSlugs.has(product.slug) || collectionSlugs.has(product.collectionSlug)
+  );
 
   if (matched.length) {
     return matched;
   }
 
   if (!category.parentId) {
-    return allProducts.filter((product) => product.collectionSlug === category.slug);
+    return productCatalog.filter((product) => product.collectionSlug === category.slug);
   }
 
   const parent = categoryLookup.get(category.parentId);
-  return parent ? allProducts.filter((product) => (category.productSlugs || []).includes(product.slug)) : [];
+  return parent ? productCatalog.filter((product) => (category.productSlugs || []).includes(product.slug)) : [];
 }
 
 function getCategoryTreeFromContext(context) {
@@ -35,6 +39,7 @@ export default function CollectionPage({ context }) {
   const { slug } = useParams();
   const pageRef = useRef(null);
   const categoryTree = getCategoryTreeFromContext(context);
+  const productCatalog = context.allProducts && context.allProducts.length ? context.allProducts : allProducts;
   const flatCategories = useMemo(() => flattenCategoryTree(categoryTree), [categoryTree]);
   const categoryLookup = useMemo(() => new Map(flatCategories.map((category) => [category.id, category])), [flatCategories]);
   const currentCategory = flatCategories.find((category) => category.slug === slug);
@@ -49,8 +54,8 @@ export default function CollectionPage({ context }) {
 
   const baseProducts = useMemo(() => {
     if (!currentCategory) return [];
-    return collectCategoryProducts(currentCategory, categoryLookup);
-  }, [currentCategory, categoryLookup]);
+    return collectCategoryProducts(currentCategory, categoryLookup, productCatalog);
+  }, [currentCategory, categoryLookup, productCatalog]);
 
   const productsWithSubcategory = useMemo(() => {
     if (!currentCategory) return [];

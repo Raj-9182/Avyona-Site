@@ -62,6 +62,93 @@ export const DEFAULT_APP_SETTINGS = {
     settingsAccess: "Restricted to Super Admin",
     passwordRules: "Strong password policy required",
     sessionTimeout: "30 minutes of inactivity"
+  },
+  homepage: {
+    heroBanners: [
+      {
+        id: "hero-1",
+        mediaType: "image",
+        desktopImage: "/images/optimized/banner-1.webp",
+        mobileImage: "/images/optimized/banner-1.webp",
+        desktopVideo: "",
+        mobileVideo: "",
+        altText: "Avyona featured electronics collection",
+        title: "Shop Avyona Favorites",
+        subtitle: "Discover audio, cameras, frames, and smart essentials selected for everyday use.",
+        textEnabled: true,
+        titleFontSize: 56,
+        subtitleFontSize: 17,
+        fontFamily: "Montserrat",
+        fontStyle: "normal",
+        fontWeight: "800",
+        ctaEnabled: true,
+        buttonText: "View All Collections",
+        buttonLink: "/collections",
+        status: "active",
+        sortOrder: 1
+      },
+      {
+        id: "hero-2",
+        mediaType: "image",
+        desktopImage: "/images/optimized/banner-2.webp",
+        mobileImage: "/images/optimized/banner-2.webp",
+        desktopVideo: "",
+        mobileVideo: "",
+        altText: "Avyona setup upgrade banner",
+        title: "Upgrade Your Setup",
+        subtitle: "Explore trusted electronics for work, travel, gifting, and home.",
+        textEnabled: true,
+        titleFontSize: 56,
+        subtitleFontSize: 17,
+        fontFamily: "Montserrat",
+        fontStyle: "normal",
+        fontWeight: "800",
+        ctaEnabled: true,
+        buttonText: "Shop Now",
+        buttonLink: "/collections",
+        status: "active",
+        sortOrder: 2
+      },
+      {
+        id: "hero-3",
+        mediaType: "image",
+        desktopImage: "/images/optimized/banner-3.webp",
+        mobileImage: "/images/optimized/banner-3.webp",
+        desktopVideo: "",
+        mobileVideo: "",
+        altText: "Fresh Avyona product picks",
+        title: "Fresh Picks Are Here",
+        subtitle: "Find new arrivals and popular products in one easy storefront.",
+        textEnabled: true,
+        titleFontSize: 56,
+        subtitleFontSize: 17,
+        fontFamily: "Montserrat",
+        fontStyle: "normal",
+        fontWeight: "800",
+        ctaEnabled: true,
+        buttonText: "Explore Products",
+        buttonLink: "/collections",
+        status: "active",
+        sortOrder: 3
+      }
+    ],
+    globalHeroCta: {
+      enabled: false,
+      buttonText: "Shop Now",
+      buttonLink: "/collections"
+    },
+    ourProducts: [],
+    bestSellerCategories: [
+      "personal-audio",
+      "professional-audio",
+      "digital-camera",
+      "security-camera",
+      "digital-photo-frames",
+      "reading-light"
+    ],
+    bestSellerProducts: [],
+    newArrivalProducts: [],
+    featuredBrands: []
   }
 };
 
@@ -386,6 +473,27 @@ export function getPublicSettings(settings = DEFAULT_APP_SETTINGS) {
       orderDeliveredEmailEnabled: settings.notifications.orderDeliveredEmailEnabled,
       whatsappNotificationsEnabled: settings.notifications.whatsappNotificationsEnabled,
       smsNotificationsEnabled: settings.notifications.smsNotificationsEnabled
+    },
+    homepage: {
+      heroBanners: Array.isArray(settings.homepage?.heroBanners)
+        ? settings.homepage.heroBanners
+        : DEFAULT_APP_SETTINGS.homepage.heroBanners,
+      globalHeroCta: settings.homepage?.globalHeroCta || DEFAULT_APP_SETTINGS.homepage.globalHeroCta,
+      ourProducts: Array.isArray(settings.homepage?.ourProducts)
+        ? settings.homepage.ourProducts
+        : DEFAULT_APP_SETTINGS.homepage.ourProducts,
+      bestSellerProducts: Array.isArray(settings.homepage?.bestSellerProducts)
+        ? settings.homepage.bestSellerProducts
+        : DEFAULT_APP_SETTINGS.homepage.bestSellerProducts,
+      bestSellerCategories: Array.isArray(settings.homepage?.bestSellerCategories)
+        ? settings.homepage.bestSellerCategories
+        : DEFAULT_APP_SETTINGS.homepage.bestSellerCategories,
+      newArrivalProducts: Array.isArray(settings.homepage?.newArrivalProducts)
+        ? settings.homepage.newArrivalProducts
+        : DEFAULT_APP_SETTINGS.homepage.newArrivalProducts,
+      featuredBrands: Array.isArray(settings.homepage?.featuredBrands)
+        ? settings.homepage.featuredBrands
+        : DEFAULT_APP_SETTINGS.homepage.featuredBrands
     }
   };
 }

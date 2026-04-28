@@ -60,7 +60,7 @@ export default function SiteHeader({ context, allProducts }) {
           <p>{shipping.freeShippingThreshold ? `Free shipping above ${shipping.freeShippingThreshold}` : "Free shipping on selected products"}</p>
           <p>{payment.codEnabled ? "COD available across India" : "Secure prepaid checkout available"}</p>
           <p>{general.brandTagline || "Genuine products from trusted brands"}</p>
-          <a href="#support">Need help? Talk to our team</a>
+          <Link to="/contact">Need help? Talk to our team</Link>
         </div>
       </div>
       <header className="site-header">
@@ -120,7 +120,7 @@ export default function SiteHeader({ context, allProducts }) {
                 {category.name}
               </NavLink>
             ))}
-            <a href="#support" onClick={() => setMenuOpen(false)}>Contact Us</a>
+            <NavLink to="/contact" onClick={() => setMenuOpen(false)}>Contact Us</NavLink>
             {tracking.trackingPageEnabled ? (
               <NavLink to="/track-order" onClick={() => setMenuOpen(false)}>Track Your Order</NavLink>
             ) : null}

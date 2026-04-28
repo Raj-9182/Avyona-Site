@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { createVariantGroup, fetchVariantGroups } from "../../api/adminApi";
 import { allProducts } from "../../data/storefront-content";
 
 const variantTypeOptions = ["Color", "Size", "Storage", "Material", "Bundle", "Finish"];
@@ -54,23 +55,67 @@ export default function Variations() {
   };
 
   const buildGroupPayload = (status) => ({
-    groupId: `GRP${String(savedGroups.length + 1001).padStart(4, "0")}`,
     groupName: autoGroupName || "Untitled Group",
     variantType,
     status,
     products: selectedProductRecords.map((product) => product.asin)
   });
 
-  const handleSave = (status) => {
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadVariantGroups() {
+      try {
+        const response = await fetchVariantGroups();
+        if (!isMounted) return;
+        const rows = Array.isArray(response.data?.data) ? response.data.data : [];
+        setSavedGroups(rows);
+        setFeedback({
+          type: "success",
+          message: rows.length ? "Variant groups loaded from backend." : "No backend variant groups yet."
+        });
+      } catch {
+        if (!isMounted) return;
+        setFeedback({
+          type: "error",
+          message: "Backend variant groups are unavailable. You can still preview groups locally after login/database setup."
+        });
+      }
+    }
+
+    loadVariantGroups();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleSave = async (status) => {
     if (selectedProductRecords.length < 2 || !autoGroupName) {
       return;
     }
 
-    setSavedGroups((current) => [buildGroupPayload(status), ...current]);
-    setFeedback({
-      type: "success",
-      message: status === "draft" ? "Variant group draft saved locally." : "Variant group saved locally."
-    });
+    const payload = buildGroupPayload(status);
+
+    try {
+      const response = await createVariantGroup(payload);
+      const createdGroup = response.data?.data || {
+        ...payload,
+        groupId: `LOCAL-${Date.now()}`
+      };
+      setSavedGroups((current) => [createdGroup, ...current]);
+      setFeedback({
+        type: "success",
+        message: status === "draft" ? "Variant group draft saved to backend." : "Variant group saved to backend."
+      });
+    } catch {
+      setSavedGroups((current) => [{ ...payload, groupId: `LOCAL-${Date.now()}` }, ...current]);
+      setFeedback({
+        type: "error",
+        message: "Backend save is unavailable, so this variant group was added locally for preview."
+      });
+    }
+
     resetForm();
     setFormOpen(false);
   };

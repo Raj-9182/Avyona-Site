@@ -20,6 +20,28 @@ copy .env.example .env
 
 Update `.env` with your MySQL credentials and JWT secret.
 
+## Database setup
+
+The project includes a repeatable database setup script that runs the schema and seed files using `mysql2`, so you do not need the MySQL CLI installed.
+
+```bash
+cd Backend
+npm run db:setup
+```
+
+The script creates and seeds:
+
+- admin login
+- app settings and homepage settings
+- categories and products
+- customers and demo orders
+- product media, variants, specs, related products, coupons, newsletter, upload assets, and audit log tables
+
+Default seeded admin:
+
+- Email: `sourab@thedoveberry.com`
+- Password: `Sourab@1234#Avyona`
+
 ## Run
 
 ```bash
@@ -36,11 +58,11 @@ API base:
 
 ## Important starter flow
 
-1. Create the MySQL database.
-2. Run `sql/schema.sql`
-3. Start the backend.
-4. Create the first admin using `POST /api/v1/admin/auth/bootstrap`
-5. Login using `POST /api/v1/admin/auth/login`
+1. Start MySQL.
+2. Update `.env` if your MySQL credentials are not the local defaults.
+3. Run `npm run db:setup`.
+4. Start the backend.
+5. Login using `POST /api/v1/admin/auth/login` or the dashboard login page.
 
 ## Main routes
 
@@ -53,8 +75,11 @@ API base:
 - `POST /api/v1/products`
 - `PATCH /api/v1/products/:id`
 - `DELETE /api/v1/products/:id`
+- `GET /api/v1/variant-groups`
+- `POST /api/v1/variant-groups`
 - `GET /api/v1/categories`
 - `GET /api/v1/orders`
+- `POST /api/v1/orders`
 - `PATCH /api/v1/orders/:id/status`
 - `GET /api/v1/customers`
 - `POST /api/v1/uploads/image`

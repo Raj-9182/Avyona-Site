@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "db:setup": "node scripts/setup-database.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

@@ -51,15 +51,27 @@ function plainText(value) {
 function truncate(value, max = 160) {
   const normalized = plainText(value);
   if (normalized.length <= max) return normalized;
-  return `${normalized.slice(0, max - 1).trim()}…`;
+  return `${normalized.slice(0, max - 1).trim()}...`;
 }
 
 function productDescription(product) {
-  return truncate([
+  return truncate(product.metaDescription || [
     product.description?.[0],
     product.highlights?.[0],
     `${product.brand} ${product.category} available at Avyona.`
   ].filter(Boolean).join(" "));
+}
+
+function productKeywords(product, variant) {
+  return [
+    DEFAULT_KEYWORDS,
+    product.metaKeywords,
+    ...(product.tags || []),
+    product.name,
+    product.brand,
+    product.category,
+    variant?.label
+  ].filter(Boolean).join(", ");
 }
 
 function breadcrumbSchema(items) {
@@ -147,6 +159,7 @@ function productSchema(product, variant) {
     image: [ensureImage(variant?.image || product.image)],
     description: productDescription(product),
     sku: product.sku,
+    mpn: product.mpn || product.sku,
     brand: {
       "@type": "Brand",
       name: product.brand
@@ -168,6 +181,24 @@ function productSchema(product, variant) {
         ratingValue,
         reviewCount
       }
+    } : {}),
+    ...(Array.isArray(product.reviews) && product.reviews.length ? {
+      review: product.reviews.slice(0, 3).map((review) => ({
+        "@type": "Review",
+        author: {
+          "@type": "Person",
+          name: review.name
+        },
+        name: review.title,
+        reviewBody: review.body,
+        datePublished: review.date,
+        reviewRating: {
+          "@type": "Rating",
+          ratingValue: Number(review.rating || 0),
+          bestRating: 5,
+          worstRating: 1
+        }
+      }))
     } : {})
   };
 }
@@ -368,12 +399,12 @@ function getSeoData(location) {
       const variant = getProductVariantByKey(product, pathSegments[2]);
       const path = buildProductPath(product, variant);
       const description = productDescription(product);
-      const title = variant ? `Avyona | ${product.name} - ${variant.label}` : `Avyona | ${product.name}`;
+      const title = variant ? `Avyona | ${product.name} - ${variant.label}` : (product.metaTitle || `Avyona | ${product.name}`);
       return {
         ...base,
         title,
         description,
-        keywords: `${DEFAULT_KEYWORDS}, ${product.name}, ${product.brand}, ${product.category}${variant ? `, ${variant.label}` : ""}`,
+        keywords: productKeywords(product, variant),
         canonical: toAbsoluteUrl(path),
         image: ensureImage(variant?.image || product.image),
         type: "product",

@@ -1,5 +1,61 @@
 USE avyona_admin;
 
+INSERT INTO admins (full_name, email, password_hash, role, is_active)
+VALUES (
+  'Sourab Kumar',
+  'sourab@thedoveberry.com',
+  '$2a$10$emBRVSUen../oAczdWrwmuNtoBBwqX2.iCirgGZ51dW5cHU4F1V9q',
+  'super_admin',
+  1
+)
+ON DUPLICATE KEY UPDATE
+  full_name = VALUES(full_name),
+  password_hash = VALUES(password_hash),
+  role = VALUES(role),
+  is_active = VALUES(is_active);
+
+INSERT INTO roles (name, display_name, description, status) VALUES
+  ('super_admin', 'Super Admin', 'Full control over website, dashboard, products, orders, customers, settings, and reports.', 'active'),
+  ('catalog_manager', 'Catalog Manager', 'Manage products, categories, brands, media, and homepage merchandising.', 'active'),
+  ('order_manager', 'Order Manager', 'Manage orders, payments, shipping, returns, refunds, and customer support workflows.', 'active'),
+  ('marketing_manager', 'Marketing Manager', 'Manage coupons, SEO, CMS content, leads, notifications, and analytics review.', 'active')
+ON DUPLICATE KEY UPDATE
+  display_name = VALUES(display_name),
+  description = VALUES(description),
+  status = VALUES(status);
+
+INSERT INTO role_permissions
+  (role_id, module_name, can_view, can_create, can_edit, can_delete, can_export, can_approve)
+SELECT r.id, module_name, 1, 1, 1, 1, 1, 1
+FROM roles r
+JOIN (
+  SELECT 'dashboard' AS module_name UNION ALL
+  SELECT 'products' UNION ALL
+  SELECT 'categories' UNION ALL
+  SELECT 'brands' UNION ALL
+  SELECT 'orders' UNION ALL
+  SELECT 'customers' UNION ALL
+  SELECT 'coupons' UNION ALL
+  SELECT 'homepage' UNION ALL
+  SELECT 'settings' UNION ALL
+  SELECT 'reports'
+) modules
+WHERE r.name = 'super_admin'
+ON DUPLICATE KEY UPDATE
+  can_view = VALUES(can_view),
+  can_create = VALUES(can_create),
+  can_edit = VALUES(can_edit),
+  can_delete = VALUES(can_delete),
+  can_export = VALUES(can_export),
+  can_approve = VALUES(can_approve);
+
+INSERT INTO admin_roles (admin_id, role_id)
+SELECT a.id, r.id
+FROM admins a
+JOIN roles r ON r.name = 'super_admin'
+WHERE a.email = 'sourab@thedoveberry.com'
+ON DUPLICATE KEY UPDATE admin_id = VALUES(admin_id);
+
 INSERT INTO app_settings (id, settings_json, updated_by)
 VALUES (
   1,
@@ -244,6 +300,23 @@ ON DUPLICATE KEY UPDATE
   meta_keywords = VALUES(meta_keywords),
   is_active = IF(VALUES(status) = 'active', 1, 0);
 
+INSERT INTO brands (name, slug, logo_url, description, country, is_authorized, status, sort_order) VALUES
+  ('Avyona', 'avyona', '/images/optimized/avyona-logo.webp', 'Avyona owned and curated electronics products.', 'India', 1, 'active', 1),
+  ('Sony', 'sony', '/images/optimized/sony.webp', 'Audio and creator electronics from Sony.', 'Japan', 1, 'active', 2),
+  ('Kodak', 'kodak', '/images/optimized/kodak.webp', 'Camera and imaging products from Kodak.', 'United States', 1, 'active', 3),
+  ('JBL', 'jbl', '/images/optimized/jbl.webp', 'Consumer audio products from JBL.', 'United States', 1, 'active', 4),
+  ('AKG', 'akg', '/images/optimized/akg.webp', 'Professional and studio audio products from AKG.', 'Austria', 1, 'active', 5),
+  ('Wyze', 'wyze', '/images/optimized/wyze.webp', 'Smart home and security camera products from Wyze.', 'United States', 1, 'active', 6),
+  ('Glocusent', 'glocusent', '/images/optimized/glocuent.webp', 'Reading lights and personal utility electronics.', 'United States', 1, 'active', 7)
+ON DUPLICATE KEY UPDATE
+  name = VALUES(name),
+  logo_url = VALUES(logo_url),
+  description = VALUES(description),
+  country = VALUES(country),
+  is_authorized = VALUES(is_authorized),
+  status = VALUES(status),
+  sort_order = VALUES(sort_order);
+
 INSERT INTO products
   (category_id, asin, name, slug, brand, short_description, description, price, mrp, stock_quantity, rating, review_count, image_url, status)
 SELECT c.id, 'B0000AURA10', 'Avyona Aura 10 Frame', 'avyona-aura-10-frame', 'Avyona',
@@ -275,6 +348,11 @@ ON DUPLICATE KEY UPDATE
   mrp = VALUES(mrp),
   stock_quantity = VALUES(stock_quantity),
   status = VALUES(status);
+
+UPDATE products p
+JOIN brands b ON LOWER(b.name) = LOWER(p.brand)
+SET p.brand_id = b.id
+WHERE p.brand_id IS NULL;
 
 INSERT INTO customers (full_name, email, phone, city, state, total_orders, total_spent) VALUES
 ('Rahul Mehta', 'rahul@example.com', '9876543210', 'Hyderabad', 'Telangana', 2, 16498),
@@ -424,3 +502,34 @@ WHERE o.order_number = 'AVY-1002'
       AND t.title = 'Order verified'
       AND t.event_time = '2026-04-19 16:55:00'
   );
+
+INSERT INTO coupons (
+  code,
+  title,
+  description,
+  discount_type,
+  discount_value,
+  minimum_order_amount,
+  maximum_discount_amount,
+  usage_limit,
+  used_count,
+  starts_at,
+  ends_at,
+  status
+) VALUES
+  ('SUMMER15', 'Summer Sale', '15% off on personal audio, digital cameras, and reading lights.', 'percentage', 15, 4999, 2500, 500, 126, '2026-04-01 00:00:00', '2026-06-30 23:59:59', 'active'),
+  ('FIRST12', 'First Purchase', '12% off for new shoppers across eligible in-stock products.', 'percentage', 12, 2999, 1500, 1000, 284, '2026-01-01 00:00:00', '2026-12-31 23:59:59', 'active'),
+  ('BUNDLE20', 'Bundle Sale', '20% off selected home setup and creator products.', 'percentage', 20, 9999, 4000, 300, 91, '2026-03-01 00:00:00', '2026-08-31 23:59:59', 'active'),
+  ('AVYONA500', 'Flat Savings', 'Flat discount for carts above INR 6999.', 'fixed', 500, 6999, 500, 750, 212, '2026-01-01 00:00:00', '2026-12-31 23:59:59', 'active')
+ON DUPLICATE KEY UPDATE
+  title = VALUES(title),
+  description = VALUES(description),
+  discount_type = VALUES(discount_type),
+  discount_value = VALUES(discount_value),
+  minimum_order_amount = VALUES(minimum_order_amount),
+  maximum_discount_amount = VALUES(maximum_discount_amount),
+  usage_limit = VALUES(usage_limit),
+  used_count = VALUES(used_count),
+  starts_at = VALUES(starts_at),
+  ends_at = VALUES(ends_at),
+  status = VALUES(status);

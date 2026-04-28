@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+
+Disallow: /account
+Disallow: /profile
+Disallow: /checkout
+Disallow: /order-confirmation
+
+Sitemap: https://www.avyona.com/sitemap.xml

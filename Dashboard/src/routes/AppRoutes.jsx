@@ -1,20 +1,24 @@
 import React from "react";
 import { Route, Routes } from "react-router-dom";
 import AdminLayout from "../components/layout/AdminLayout";
-import AddCategory from "../pages/categories/AddCategory";
-import Categories from "../pages/categories/Categories";
-import CustomerDetails from "../pages/customers/CustomerDetails";
-import Customers from "../pages/customers/Customers";
-import Coupons from "../pages/coupons/Coupons";
-import DashboardHome from "../pages/dashboard/DashboardHome";
-import OrderDetails from "../pages/orders/OrderDetails";
-import Orders from "../pages/orders/Orders";
-import AddProduct from "../pages/products/AddProduct";
-import EditProduct from "../pages/products/EditProduct";
-import Products from "../pages/products/Products";
-import Settings from "../pages/settings/Settings";
-import Variations from "../pages/variations/Variations";
 import { allProducts as storefrontProducts } from "../data/storefront-content";
+
+const AddCategory = React.lazy(() => import("../pages/categories/AddCategory"));
+const Categories = React.lazy(() => import("../pages/categories/Categories"));
+const CustomerDetails = React.lazy(() => import("../pages/customers/CustomerDetails"));
+const Customers = React.lazy(() => import("../pages/customers/Customers"));
+const Coupons = React.lazy(() => import("../pages/coupons/Coupons"));
+const DashboardHome = React.lazy(() => import("../pages/dashboard/DashboardHome"));
+const Homepage = React.lazy(() => import("../pages/homepage/Homepage"));
+const HomepageConfigurePage = React.lazy(() => import("../pages/homepage/HomepageConfigurePage"));
+const OrderDetails = React.lazy(() => import("../pages/orders/OrderDetails"));
+const Orders = React.lazy(() => import("../pages/orders/Orders"));
+const AddProduct = React.lazy(() => import("../pages/products/AddProduct"));
+const EditProduct = React.lazy(() => import("../pages/products/EditProduct"));
+const Products = React.lazy(() => import("../pages/products/Products"));
+const Settings = React.lazy(() => import("../pages/settings/Settings"));
+const Variations = React.lazy(() => import("../pages/variations/Variations"));
+const WebsiteImages = React.lazy(() => import("../pages/images/WebsiteImages"));
 
 const previewContext = {
   cart: [],
@@ -42,23 +46,33 @@ export default function AppRoutes({ context, allProducts }) {
   const resolvedProducts = allProducts || storefrontProducts;
 
   return (
-    <Routes>
-      <Route element={<AdminLayout />}>
-        <Route index element={<DashboardHome context={resolvedContext} allProducts={resolvedProducts} />} />
-        <Route path="products" element={<Products />} />
-        <Route path="products/new" element={<AddProduct />} />
-        <Route path="products/:productId/edit" element={<EditProduct />} />
-        <Route path="variations" element={<Variations />} />
-        <Route path="coupons" element={<Coupons />} />
-        <Route path="categories" element={<Categories />} />
-        <Route path="categories/new" element={<AddCategory />} />
-        <Route path="categories/:categoryId/edit" element={<AddCategory />} />
-        <Route path="orders" element={<Orders />} />
-        <Route path="orders/:orderId" element={<OrderDetails />} />
-        <Route path="customers" element={<Customers />} />
-        <Route path="customers/:customerId" element={<CustomerDetails />} />
-        <Route path="settings" element={<Settings />} />
-      </Route>
-    </Routes>
+    <React.Suspense fallback={<div style={{ padding: "24px", color: "#475569", fontWeight: 700 }}>Loading dashboard...</div>}>
+      <Routes>
+        <Route element={<AdminLayout />}>
+          <Route index element={<DashboardHome context={resolvedContext} allProducts={resolvedProducts} />} />
+          <Route path="homepage" element={<Homepage />} />
+          <Route path="homepage/hero-banner" element={<HomepageConfigurePage sectionKey="hero-banner" />} />
+          <Route path="homepage/browse-categories" element={<HomepageConfigurePage sectionKey="browse-categories" />} />
+          <Route path="homepage/our-products" element={<HomepageConfigurePage sectionKey="our-products" />} />
+          <Route path="homepage/best-sellers" element={<HomepageConfigurePage sectionKey="best-sellers" />} />
+          <Route path="homepage/new-arrivals" element={<HomepageConfigurePage sectionKey="new-arrivals" />} />
+          <Route path="homepage/featured-brands" element={<HomepageConfigurePage sectionKey="featured-brands" />} />
+          <Route path="products" element={<Products />} />
+          <Route path="products/new" element={<AddProduct />} />
+          <Route path="products/:productId/edit" element={<EditProduct />} />
+          <Route path="variations" element={<Variations />} />
+          <Route path="coupons" element={<Coupons />} />
+          <Route path="categories" element={<Categories />} />
+          <Route path="categories/new" element={<AddCategory />} />
+          <Route path="categories/:categoryId/edit" element={<AddCategory />} />
+          <Route path="website-images" element={<WebsiteImages />} />
+          <Route path="orders" element={<Orders />} />
+          <Route path="orders/:orderId" element={<OrderDetails />} />
+          <Route path="customers" element={<Customers />} />
+          <Route path="customers/:customerId" element={<CustomerDetails />} />
+          <Route path="settings" element={<Settings />} />
+        </Route>
+      </Routes>
+    </React.Suspense>
   );
 }

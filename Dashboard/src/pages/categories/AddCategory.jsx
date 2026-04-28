@@ -1,60 +1,12 @@
 import React from "react";
 import { useNavigate, useParams } from "react-router-dom";
-
-const parentCategoryOptions = [
-  { value: "", label: "None (Main Category)" },
-  { value: "personal-audio", label: "Personal Audio" },
-  { value: "digital-camera", label: "Digital Camera" },
-  { value: "smart-devices", label: "Smart Devices" }
-];
-
-const categoryPreviewRecords = {
-  "CAT-001": {
-    categoryName: "Personal Audio",
-    slug: "personal-audio",
-    parentCategory: "",
-    categoryImage: "/images/optimized/personal-audio-thumb.webp",
-    bannerImage: "/images/optimized/personal-audio-banner.webp",
-    showInMenu: true,
-    featured: true,
-    sortOrder: "1",
-    status: "active",
-    shortDescription: "Headphones, earbuds, and neckbands for daily listening.",
-    metaTitle: "Personal Audio Collection | Avyona",
-    metaDescription: "Shop personal audio products including headphones, earbuds, and neckbands.",
-    keywords: "personal audio, headphones, earbuds, neckbands"
-  },
-  "CAT-002": {
-    categoryName: "Earbuds",
-    slug: "earbuds",
-    parentCategory: "personal-audio",
-    categoryImage: "/images/optimized/earbuds-thumb.webp",
-    bannerImage: "/images/optimized/earbuds-banner.webp",
-    showInMenu: true,
-    featured: false,
-    sortOrder: "11",
-    status: "active",
-    shortDescription: "Wireless and everyday earbuds under Personal Audio.",
-    metaTitle: "Earbuds Collection | Avyona",
-    metaDescription: "Browse earbuds under the Personal Audio collection.",
-    keywords: "earbuds, wireless earbuds, personal audio"
-  },
-  "CAT-003": {
-    categoryName: "Digital Camera",
-    slug: "digital-camera",
-    parentCategory: "",
-    categoryImage: "/images/optimized/digital-camera-thumb.webp",
-    bannerImage: "/images/optimized/digital-camera-banner.webp",
-    showInMenu: true,
-    featured: true,
-    sortOrder: "3",
-    status: "active",
-    shortDescription: "Compact and creator-friendly digital cameras.",
-    metaTitle: "Digital Camera Collection | Avyona",
-    metaDescription: "Browse digital cameras for travel, family, and creator use.",
-    keywords: "digital camera, compact camera, creator camera"
-  }
-};
+import {
+  createCategory,
+  fetchCategories,
+  fetchCategory,
+  updateCategory,
+  uploadAdminImage
+} from "../../api/adminApi";
 
 function createSlug(value) {
   return String(value || "")
@@ -64,28 +16,160 @@ function createSlug(value) {
     .replace(/^-+|-+$/g, "");
 }
 
+function getPreviewUrl(url) {
+  if (!url) return "";
+  if (/^(data:|blob:|https?:)/i.test(url)) return url;
+  if (url.startsWith("/uploads/")) return `http://localhost:4000${url}`;
+  return url;
+}
+
+function normalizeCategoryForm(category = {}) {
+  return {
+    categoryName: category.name || category.categoryName || "",
+    slug: category.slug || "",
+    parentId: category.parentId || "",
+    categoryImage: category.imageUrl || category.categoryImage || "",
+    bannerImage: category.bannerImageUrl || category.bannerImage || "",
+    showInMenu: category.showInMenu ?? true,
+    featuredCategory: category.featuredCategory ?? category.featured ?? false,
+    sortOrder: category.sortOrder ?? "",
+    status: category.status || "active",
+    shortDescription: category.description || category.shortDescription || "",
+    metaTitle: category.metaTitle || "",
+    metaDescription: category.metaDescription || "",
+    keywords: category.keywords || ""
+  };
+}
+
+function ImageUploadBox({ label, value, helper, isUploading, onUpload, onChange }) {
+  const inputRef = React.useRef(null);
+  const [isDragging, setIsDragging] = React.useState(false);
+
+  const handleFiles = (files) => {
+    const file = files?.[0];
+    if (file) onUpload(file);
+  };
+
+  return (
+    <div style={uploadFieldStyle}>
+      <div style={uploadHeadStyle}>
+        <span style={fieldLabelStyle}>{label}</span>
+        {value ? <span style={smallStatusStyle}>Image selected</span> : null}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        onDragEnter={(event) => {
+          event.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragOver={(event) => {
+          event.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={(event) => {
+          event.preventDefault();
+          setIsDragging(false);
+          handleFiles(event.dataTransfer.files);
+        }}
+        style={{
+          ...dropzoneStyle,
+          ...(isDragging ? dropzoneActiveStyle : null)
+        }}
+      >
+        {value ? (
+          <img src={getPreviewUrl(value)} alt={label} style={previewImageStyle} />
+        ) : (
+          <span style={dropzoneCopyStyle}>
+            <strong>{isUploading ? "Uploading..." : `Drag ${label.toLowerCase()} here`}</strong>
+            <small>or click to upload image file</small>
+          </span>
+        )}
+      </button>
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        onChange={(event) => handleFiles(event.target.files)}
+        style={{ display: "none" }}
+      />
+
+      <input
+        type="text"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="/images/optimized/category.webp"
+        style={inputStyle}
+      />
+      <small style={helperTextStyle}>{helper}</small>
+    </div>
+  );
+}
+
 export default function AddCategory() {
   const navigate = useNavigate();
   const { categoryId } = useParams();
   const isEditMode = Boolean(categoryId);
-  const existingCategory = categoryPreviewRecords[categoryId] || null;
-  const [form, setForm] = React.useState(() => ({
-    categoryName: existingCategory?.categoryName || "",
-    slug: existingCategory?.slug || "",
-    parentCategory: existingCategory?.parentCategory || "",
-    categoryImage: existingCategory?.categoryImage || "",
-    bannerImage: existingCategory?.bannerImage || "",
-    showInMenu: existingCategory?.showInMenu ?? true,
-    featured: existingCategory?.featured ?? false,
-    sortOrder: existingCategory?.sortOrder || "",
-    status: existingCategory?.status || "active",
-    shortDescription: existingCategory?.shortDescription || "",
-    metaTitle: existingCategory?.metaTitle || "",
-    metaDescription: existingCategory?.metaDescription || "",
-    keywords: existingCategory?.keywords || ""
-  }));
-  const [slugEditedManually, setSlugEditedManually] = React.useState(Boolean(existingCategory?.slug));
+  const [parentOptions, setParentOptions] = React.useState([]);
+  const [form, setForm] = React.useState(() => normalizeCategoryForm());
+  const [slugEditedManually, setSlugEditedManually] = React.useState(false);
   const [statusMessage, setStatusMessage] = React.useState("");
+  const [messageTone, setMessageTone] = React.useState("success");
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [uploadingField, setUploadingField] = React.useState("");
+
+  React.useEffect(() => {
+    let isMounted = true;
+
+    async function loadCategories() {
+      try {
+        const response = await fetchCategories();
+        if (!isMounted) return;
+        const rows = Array.isArray(response.data?.data) ? response.data.data : [];
+        setParentOptions(rows.filter((category) => String(category.id) !== String(categoryId)));
+      } catch {
+        if (isMounted) setParentOptions([]);
+      }
+    }
+
+    loadCategories();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [categoryId]);
+
+  React.useEffect(() => {
+    if (!isEditMode) return undefined;
+    let isMounted = true;
+
+    async function loadCategory() {
+      try {
+        const response = await fetchCategory(categoryId);
+        if (!isMounted) return;
+        const loadedForm = normalizeCategoryForm(response.data?.data || {});
+        setForm(loadedForm);
+        setSlugEditedManually(Boolean(loadedForm.slug));
+      } catch (error) {
+        if (!isMounted) return;
+        setMessageTone("error");
+        setStatusMessage(error.response?.data?.message || "Unable to load category details.");
+      }
+    }
+
+    loadCategory();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [categoryId, isEditMode]);
+
+  const setFormValue = (key, value) => {
+    setForm((current) => ({ ...current, [key]: value }));
+  };
 
   const handleCategoryNameChange = (value) => {
     setForm((current) => ({
@@ -97,404 +181,356 @@ export default function AddCategory() {
 
   const handleSlugChange = (value) => {
     setSlugEditedManually(true);
-    setForm((current) => ({
-      ...current,
-      slug: createSlug(value)
-    }));
+    setFormValue("slug", createSlug(value));
   };
 
-  const handleSubmit = (event) => {
+  const uploadCategoryImage = async (field, file) => {
+    setUploadingField(field);
+    setStatusMessage("");
+
+    try {
+      const response = await uploadAdminImage(file);
+      const uploadedUrl = response.data?.data?.url || "";
+      setFormValue(field, uploadedUrl.startsWith("/uploads/") ? `http://localhost:4000${uploadedUrl}` : uploadedUrl);
+    } catch (error) {
+      setMessageTone("error");
+      setStatusMessage(error.response?.data?.message || "Unable to upload image.");
+    } finally {
+      setUploadingField("");
+    }
+  };
+
+  const buildPayload = () => ({
+    name: form.categoryName,
+    slug: form.slug,
+    parentId: form.parentId || null,
+    imageUrl: form.categoryImage,
+    bannerImageUrl: form.bannerImage,
+    description: form.shortDescription,
+    status: form.status,
+    showInMenu: Boolean(form.showInMenu),
+    featuredCategory: Boolean(form.featuredCategory),
+    sortOrder: Number(form.sortOrder || 0),
+    metaTitle: form.metaTitle,
+    metaDescription: form.metaDescription,
+    keywords: form.keywords
+  });
+
+  const handleSubmit = async (event) => {
     event.preventDefault();
-    setStatusMessage(isEditMode ? "Category basic info updated locally for preview." : "New category basic info saved locally for preview.");
+
+    if (!form.categoryName.trim() || !form.slug.trim()) {
+      setMessageTone("error");
+      setStatusMessage("Category name and slug are required.");
+      return;
+    }
+
+    setIsSaving(true);
+    setStatusMessage("");
+
+    try {
+      const payload = buildPayload();
+      if (isEditMode) {
+        await updateCategory(categoryId, payload);
+      } else {
+        await createCategory(payload);
+      }
+
+      setMessageTone("success");
+      setStatusMessage(isEditMode ? "Category saved and connected to the website." : "Category created and published to the website.");
+      window.setTimeout(() => navigate("/dashboard/categories"), 800);
+    } catch (error) {
+      setMessageTone("error");
+      setStatusMessage(error.response?.data?.message || "Unable to save category.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
-    <div style={{ display: "grid", gap: "20px" }}>
+    <div style={pageStyle}>
       <section style={heroStyle}>
         <div>
           <span style={eyebrowStyle}>Category Form</span>
-          <h2 style={{ margin: "8px 0 0", fontSize: "40px", color: "#0f172a" }}>
-            {isEditMode ? "Edit Category" : "Add Category"}
-          </h2>
-          <p style={{ margin: "12px 0 0", color: "#526377", maxWidth: "720px" }}>
-            Start with the core category identity. This section defines the category name, editable slug, and
-            parent-child placement in the collection hierarchy.
+          <h2 style={heroTitleStyle}>{isEditMode ? "Edit Category" : "Add Category"}</h2>
+          <p style={heroCopyStyle}>
+            Add category details, upload card and banner images, control storefront visibility, and publish the category to the website.
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-          <button type="button" style={secondaryButtonStyle} onClick={() => navigate("/dashboard/categories")}>
-            Back to Categories
-          </button>
-        </div>
+        <button type="button" style={secondaryButtonStyle} onClick={() => navigate("/dashboard/categories")}>
+          Back to Categories
+        </button>
       </section>
 
-      {statusMessage ? <section style={feedbackStyle}>{statusMessage}</section> : null}
+      {statusMessage ? (
+        <section style={{ ...feedbackStyle, ...(messageTone === "error" ? errorFeedbackStyle : null) }}>{statusMessage}</section>
+      ) : null}
 
-      <form onSubmit={handleSubmit} style={{ display: "grid", gap: "20px" }}>
+      <form onSubmit={handleSubmit} style={formStyle}>
         <section style={sectionCardStyle}>
-          <div style={{ display: "grid", gap: "8px" }}>
+          <div style={sectionHeaderStyle}>
             <span style={eyebrowStyle}>Section 1</span>
-            <h3 style={{ margin: 0, color: "#0f172a", fontSize: "24px" }}>Basic Info</h3>
-            <p style={{ margin: 0, color: "#64748b" }}>
-              Add the category name, editable URL slug, and parent category for hierarchy support.
-            </p>
+            <h3 style={sectionTitleStyle}>Basic Info</h3>
           </div>
 
           <div style={fieldGridStyle}>
             <label style={fieldStyle}>
-              <span>Category Name</span>
-              <input
-                type="text"
-                value={form.categoryName}
-                onChange={(event) => handleCategoryNameChange(event.target.value)}
-                placeholder="Example: Personal Audio"
-                style={inputStyle}
-              />
+              <span style={fieldLabelStyle}>Category Name</span>
+              <input value={form.categoryName} onChange={(event) => handleCategoryNameChange(event.target.value)} placeholder="Example: Personal Audio" style={inputStyle} />
             </label>
 
             <label style={fieldStyle}>
-              <span>Slug</span>
-              <input
-                type="text"
-                value={form.slug}
-                onChange={(event) => handleSlugChange(event.target.value)}
-                placeholder="personal-audio"
-                style={inputStyle}
-              />
-              <small style={helperTextStyle}>Auto-generated from category name, but still editable.</small>
+              <span style={fieldLabelStyle}>Slug</span>
+              <input value={form.slug} onChange={(event) => handleSlugChange(event.target.value)} placeholder="personal-audio" style={inputStyle} />
+            </label>
+
+            <label style={fieldStyle}>
+              <span style={fieldLabelStyle}>Parent Category</span>
+              <select value={form.parentId} onChange={(event) => setFormValue("parentId", event.target.value)} style={inputStyle}>
+                <option value="">None (Main Category)</option>
+                {parentOptions.map((category) => (
+                  <option key={category.id} value={category.id}>{category.name}</option>
+                ))}
+              </select>
+            </label>
+
+            <label style={fieldStyle}>
+              <span style={fieldLabelStyle}>Sort Order</span>
+              <input type="number" value={form.sortOrder} onChange={(event) => setFormValue("sortOrder", event.target.value)} placeholder="1" style={inputStyle} />
             </label>
           </div>
-
-          <label style={fieldStyle}>
-            <span>Parent Category</span>
-            <select
-              value={form.parentCategory}
-              onChange={(event) => setForm((current) => ({ ...current, parentCategory: event.target.value }))}
-              style={inputStyle}
-            >
-              {parentCategoryOptions.map((option) => (
-                <option key={option.value || "none"} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-            <small style={helperTextStyle}>Choose `None` for a main category, or select a parent to make this a subcategory.</small>
-          </label>
         </section>
 
         <section style={sectionCardStyle}>
-          <div style={{ display: "grid", gap: "8px" }}>
+          <div style={sectionHeaderStyle}>
             <span style={eyebrowStyle}>Section 2</span>
-            <h3 style={{ margin: 0, color: "#0f172a", fontSize: "24px" }}>Images</h3>
-            <p style={{ margin: 0, color: "#64748b" }}>
-              Add the main category image for cards and the banner image for the collection landing page.
-            </p>
+            <h3 style={sectionTitleStyle}>Category Images</h3>
+            <p style={sectionCopyStyle}>Use drag and drop or click to upload. Category image is used in cards; banner image is used on the website category page.</p>
           </div>
 
           <div style={fieldGridStyle}>
-            <label style={fieldStyle}>
-              <span>Category Image</span>
-              <input
-                type="text"
-                value={form.categoryImage}
-                onChange={(event) => setForm((current) => ({ ...current, categoryImage: event.target.value }))}
-                placeholder="/images/optimized/category-thumb.webp"
-                style={inputStyle}
-              />
-              <small style={helperTextStyle}>Used on cards, admin list rows, and category previews.</small>
-            </label>
-
-            <label style={fieldStyle}>
-              <span>Banner Image</span>
-              <input
-                type="text"
-                value={form.bannerImage}
-                onChange={(event) => setForm((current) => ({ ...current, bannerImage: event.target.value }))}
-                placeholder="/images/optimized/category-banner.webp"
-                style={inputStyle}
-              />
-              <small style={helperTextStyle}>Used on the storefront collection page header.</small>
-            </label>
+            <ImageUploadBox
+              label="Category Image"
+              value={form.categoryImage}
+              helper="Used on homepage/category cards and dashboard list rows."
+              isUploading={uploadingField === "categoryImage"}
+              onUpload={(file) => uploadCategoryImage("categoryImage", file)}
+              onChange={(value) => setFormValue("categoryImage", value)}
+            />
+            <ImageUploadBox
+              label="Banner Image"
+              value={form.bannerImage}
+              helper="Used on the frontend website category landing page."
+              isUploading={uploadingField === "bannerImage"}
+              onUpload={(file) => uploadCategoryImage("bannerImage", file)}
+              onChange={(value) => setFormValue("bannerImage", value)}
+            />
           </div>
         </section>
 
-        <section style={sectionCardStyle}>
-          <div style={{ display: "grid", gap: "8px" }}>
-            <span style={eyebrowStyle}>Section 3</span>
-            <h3 style={{ margin: 0, color: "#0f172a", fontSize: "24px" }}>Display Settings</h3>
-            <p style={{ margin: 0, color: "#64748b" }}>
-              Control menu visibility, featured placement, and sort priority across the storefront.
-            </p>
-          </div>
-
-          <div style={fieldGridStyle}>
+        <section style={twoColumnSectionStyle}>
+          <div style={sectionCardStyle}>
+            <div style={sectionHeaderStyle}>
+              <span style={eyebrowStyle}>Section 3</span>
+              <h3 style={sectionTitleStyle}>Display Settings</h3>
+            </div>
             <label style={toggleFieldStyle}>
               <span>Show in Menu</span>
-              <input
-                type="checkbox"
-                checked={Boolean(form.showInMenu)}
-                onChange={(event) => setForm((current) => ({ ...current, showInMenu: event.target.checked }))}
-              />
+              <input type="checkbox" checked={Boolean(form.showInMenu)} onChange={(event) => setFormValue("showInMenu", event.target.checked)} />
             </label>
-
             <label style={toggleFieldStyle}>
-              <span>Featured</span>
-              <input
-                type="checkbox"
-                checked={Boolean(form.featured)}
-                onChange={(event) => setForm((current) => ({ ...current, featured: event.target.checked }))}
-              />
+              <span>Featured on Homepage</span>
+              <input type="checkbox" checked={Boolean(form.featuredCategory)} onChange={(event) => setFormValue("featuredCategory", event.target.checked)} />
+            </label>
+            <label style={fieldStyle}>
+              <span style={fieldLabelStyle}>Status</span>
+              <select value={form.status} onChange={(event) => setFormValue("status", event.target.value)} style={inputStyle}>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
             </label>
           </div>
 
-          <label style={fieldStyle}>
-            <span>Sort Order</span>
-            <input
-              type="number"
-              value={form.sortOrder}
-              onChange={(event) => setForm((current) => ({ ...current, sortOrder: event.target.value }))}
-              placeholder="1"
-              style={inputStyle}
-            />
-          </label>
+          <div style={sectionCardStyle}>
+            <div style={sectionHeaderStyle}>
+              <span style={eyebrowStyle}>Section 4</span>
+              <h3 style={sectionTitleStyle}>Description</h3>
+            </div>
+            <label style={fieldStyle}>
+              <span style={fieldLabelStyle}>Short Description</span>
+              <textarea value={form.shortDescription} onChange={(event) => setFormValue("shortDescription", event.target.value)} placeholder="Write a short category description" style={textareaStyle} />
+            </label>
+          </div>
         </section>
 
         <section style={sectionCardStyle}>
-          <div style={{ display: "grid", gap: "8px" }}>
-            <span style={eyebrowStyle}>Section 4</span>
-            <h3 style={{ margin: 0, color: "#0f172a", fontSize: "24px" }}>Status</h3>
-            <p style={{ margin: 0, color: "#64748b" }}>
-              Decide whether this category should be active in the dashboard and storefront.
-            </p>
+          <div style={sectionHeaderStyle}>
+            <span style={eyebrowStyle}>Section 5</span>
+            <h3 style={sectionTitleStyle}>SEO</h3>
           </div>
 
           <div style={fieldGridStyle}>
-            <label style={statusOptionStyle}>
-              <input
-                type="radio"
-                name="categoryStatus"
-                checked={form.status === "active"}
-                onChange={() => setForm((current) => ({ ...current, status: "active" }))}
-              />
-              <span>Active</span>
+            <label style={fieldStyle}>
+              <span style={fieldLabelStyle}>Meta Title</span>
+              <input value={form.metaTitle} onChange={(event) => setFormValue("metaTitle", event.target.value)} placeholder="Category Collection | Avyona" style={inputStyle} />
             </label>
-
-            <label style={statusOptionStyle}>
-              <input
-                type="radio"
-                name="categoryStatus"
-                checked={form.status === "inactive"}
-                onChange={() => setForm((current) => ({ ...current, status: "inactive" }))}
-              />
-              <span>Inactive</span>
+            <label style={fieldStyle}>
+              <span style={fieldLabelStyle}>Keywords</span>
+              <input value={form.keywords} onChange={(event) => setFormValue("keywords", event.target.value)} placeholder="keyword 1, keyword 2" style={inputStyle} />
             </label>
-          </div>
-        </section>
-
-        <section style={sectionCardStyle}>
-          <div style={{ display: "grid", gap: "8px" }}>
-            <span style={eyebrowStyle}>Section 5</span>
-            <h3 style={{ margin: 0, color: "#0f172a", fontSize: "24px" }}>Description</h3>
-            <p style={{ margin: 0, color: "#64748b" }}>
-              Add a short collection summary for cards, collection pages, and admin previews.
-            </p>
           </div>
 
           <label style={fieldStyle}>
-            <span>Short Description</span>
-            <textarea
-              value={form.shortDescription}
-              onChange={(event) => setForm((current) => ({ ...current, shortDescription: event.target.value }))}
-              placeholder="Write a short category description"
-              style={textareaStyle}
-            />
+            <span style={fieldLabelStyle}>Meta Description</span>
+            <textarea value={form.metaDescription} onChange={(event) => setFormValue("metaDescription", event.target.value)} placeholder="Short SEO description for the category page" style={textareaStyle} />
           </label>
-        </section>
-
-        <section style={sectionCardStyle}>
-          <div style={{ display: "grid", gap: "8px" }}>
-            <span style={eyebrowStyle}>Section 6</span>
-            <h3 style={{ margin: 0, color: "#0f172a", fontSize: "24px" }}>SEO</h3>
-            <p style={{ margin: 0, color: "#64748b" }}>
-              Configure collection landing page metadata for search visibility and click-through quality.
-            </p>
-          </div>
-
-          <div style={{ display: "grid", gap: "16px" }}>
-            <label style={fieldStyle}>
-              <span>Meta Title</span>
-              <input
-                type="text"
-                value={form.metaTitle}
-                onChange={(event) => setForm((current) => ({ ...current, metaTitle: event.target.value }))}
-                placeholder="Personal Audio Collection | Avyona"
-                style={inputStyle}
-              />
-            </label>
-
-            <label style={fieldStyle}>
-              <span>Meta Description</span>
-              <textarea
-                value={form.metaDescription}
-                onChange={(event) => setForm((current) => ({ ...current, metaDescription: event.target.value }))}
-                placeholder="Short SEO description for the collection page"
-                style={textareaStyle}
-              />
-            </label>
-
-            <label style={fieldStyle}>
-              <span>Keywords</span>
-              <input
-                type="text"
-                value={form.keywords}
-                onChange={(event) => setForm((current) => ({ ...current, keywords: event.target.value }))}
-                placeholder="keyword 1, keyword 2, keyword 3"
-                style={inputStyle}
-              />
-            </label>
-          </div>
         </section>
 
         <div style={actionsRowStyle}>
-          <button type="button" style={secondaryButtonStyle} onClick={() => navigate("/dashboard/categories")}>
-            Cancel
-          </button>
-          <button type="submit" style={primaryButtonStyle}>
-            {isEditMode ? "Save Category" : "Create Category"}
-          </button>
+          <button type="button" style={secondaryButtonStyle} onClick={() => navigate("/dashboard/categories")}>Cancel</button>
+          <button type="submit" style={primaryButtonStyle} disabled={isSaving}>{isSaving ? "Saving..." : isEditMode ? "Save Category" : "Create & Publish Category"}</button>
         </div>
       </form>
     </div>
   );
 }
 
+const pageStyle = { display: "grid", gap: "16px" };
+const formStyle = { display: "grid", gap: "15px" };
+
 const heroStyle = {
   background: "linear-gradient(135deg, #ffffff 0%, #f4fbf6 55%, #edf7ff 100%)",
-  borderRadius: "22px",
+  borderRadius: "16px",
   border: "1px solid rgba(203, 213, 225, 0.7)",
-  boxShadow: "0 14px 34px rgba(174, 203, 190, 0.18)",
-  padding: "24px",
+  boxShadow: "0 10px 26px rgba(174, 203, 190, 0.14)",
+  padding: "22px",
   display: "flex",
   justifyContent: "space-between",
   alignItems: "flex-start",
-  gap: "20px",
+  gap: "16px",
   flexWrap: "wrap"
 };
 
+const heroTitleStyle = { margin: "8px 0 0", fontSize: "38px", color: "#0f172a" };
+const heroCopyStyle = { margin: "10px 0 0", color: "#526377", maxWidth: "760px" };
+
 const sectionCardStyle = {
   background: "#ffffff",
-  borderRadius: "18px",
-  border: "1px solid rgba(203, 213, 225, 0.7)",
-  boxShadow: "0 14px 34px rgba(174, 203, 190, 0.12)",
-  padding: "22px",
+  borderRadius: "12px",
+  border: "1px solid rgba(203, 213, 225, 0.75)",
+  boxShadow: "0 8px 22px rgba(174, 203, 190, 0.08)",
+  padding: "16px",
   display: "grid",
-  gap: "18px"
+  gap: "14px"
+};
+
+const sectionHeaderStyle = { display: "grid", gap: "5px" };
+const sectionTitleStyle = { margin: 0, color: "#0f172a", fontSize: "20px" };
+const sectionCopyStyle = { margin: 0, color: "#64748b", lineHeight: 1.5 };
+
+const twoColumnSectionStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: "15px",
+  alignItems: "stretch"
 };
 
 const fieldGridStyle = {
   display: "grid",
   gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  gap: "16px"
+  gap: "14px"
 };
 
-const fieldStyle = {
-  display: "grid",
-  gap: "8px",
-  color: "#334155",
-  fontWeight: 600
-};
+const fieldStyle = { display: "grid", gap: "7px" };
+const fieldLabelStyle = { color: "#334155", fontWeight: 800, fontSize: "13px" };
 
 const inputStyle = {
   width: "100%",
-  minHeight: "44px",
+  minHeight: "42px",
   padding: "0 12px",
-  borderRadius: "10px",
+  borderRadius: "8px",
   border: "1px solid #cbd5e1",
   boxSizing: "border-box",
   background: "#fff",
   color: "#0f172a"
 };
 
-const textareaStyle = {
-  ...inputStyle,
-  minHeight: "110px",
-  padding: "12px"
+const textareaStyle = { ...inputStyle, minHeight: "96px", padding: "11px 12px", resize: "vertical" };
+const helperTextStyle = { color: "#64748b", fontSize: "12px", fontWeight: 500 };
+
+const uploadFieldStyle = { display: "grid", gap: "9px" };
+const uploadHeadStyle = { display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center" };
+const smallStatusStyle = { color: "#166534", fontSize: "12px", fontWeight: 800 };
+
+const dropzoneStyle = {
+  minHeight: "210px",
+  border: "1px dashed #94a3b8",
+  borderRadius: "12px",
+  background: "#f8fafc",
+  cursor: "pointer",
+  overflow: "hidden",
+  padding: 0
 };
 
-const helperTextStyle = {
-  color: "#64748b",
-  fontSize: "12px",
-  fontWeight: 500
-};
+const dropzoneActiveStyle = { borderColor: "#16a34a", background: "#f0fdf4" };
+const dropzoneCopyStyle = { display: "grid", placeItems: "center", gap: "8px", minHeight: "210px", color: "#334155" };
+const previewImageStyle = { width: "100%", height: "210px", objectFit: "cover", display: "block" };
 
 const toggleFieldStyle = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
   gap: "12px",
-  minHeight: "52px",
-  padding: "0 14px",
-  borderRadius: "12px",
+  minHeight: "48px",
+  padding: "0 12px",
+  borderRadius: "9px",
   border: "1px solid #cbd5e1",
   background: "#ffffff",
   color: "#0f172a",
-  fontWeight: 700
+  fontWeight: 800
 };
 
-const statusOptionStyle = {
-  display: "flex",
-  alignItems: "center",
-  gap: "10px",
-  minHeight: "52px",
-  padding: "0 14px",
-  borderRadius: "12px",
-  border: "1px solid #cbd5e1",
-  background: "#ffffff",
-  color: "#0f172a",
-  fontWeight: 700
-};
-
-const actionsRowStyle = {
-  display: "flex",
-  justifyContent: "flex-end",
-  gap: "12px",
-  flexWrap: "wrap"
-};
+const actionsRowStyle = { display: "flex", justifyContent: "flex-end", gap: "12px", flexWrap: "wrap" };
 
 const primaryButtonStyle = {
   minHeight: "42px",
   padding: "0 18px",
-  borderRadius: "999px",
+  borderRadius: "9px",
   border: "1px solid rgba(15, 23, 42, 0.1)",
-  background: "linear-gradient(135deg, #0f172a 0%, #1f4336 100%)",
+  background: "#16a34a",
   color: "#ffffff",
-  fontWeight: 700,
+  fontWeight: 800,
   cursor: "pointer"
 };
 
 const secondaryButtonStyle = {
   minHeight: "42px",
   padding: "0 18px",
-  borderRadius: "999px",
+  borderRadius: "9px",
   border: "1px solid #cbd5e1",
   background: "#ffffff",
   color: "#0f172a",
-  fontWeight: 700,
+  fontWeight: 800,
   cursor: "pointer"
 };
 
 const feedbackStyle = {
-  borderRadius: "16px",
-  padding: "14px 16px",
+  borderRadius: "12px",
+  padding: "12px 14px",
   background: "#f0fdf4",
   color: "#166534",
   border: "1px solid #bbf7d0",
-  fontWeight: 600
+  fontWeight: 800
 };
+
+const errorFeedbackStyle = { background: "#fef2f2", color: "#b91c1c", borderColor: "#fecaca" };
 
 const eyebrowStyle = {
   color: "#0f766e",
   fontSize: "12px",
   fontWeight: 800,
-  letterSpacing: "0.12em",
+  letterSpacing: "0.08em",
   textTransform: "uppercase"
 };
+

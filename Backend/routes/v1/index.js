@@ -8,6 +8,7 @@ import orderRoutes from "./orderRoutes.js";
 import productRoutes from "./productRoutes.js";
 import settingsRoutes from "./settingsRoutes.js";
 import uploadRoutes from "./uploadRoutes.js";
+import variantGroupRoutes from "./variantGroupRoutes.js";
 
 const router = Router();
 
@@ -33,6 +34,7 @@ router.get("/health", async (_request, response) => {
 router.use("/admin/auth", adminAuthRoutes);
 router.use("/categories", categoryRoutes);
 router.use("/products", productRoutes);
+router.use("/variant-groups", variantGroupRoutes);
 router.use("/customers", customerRoutes);
 router.use("/orders", orderRoutes);
 router.use("/dashboard", dashboardRoutes);

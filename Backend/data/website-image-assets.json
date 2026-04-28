@@ -1,0 +1,16 @@
+{
+  "/images/AKG.png": {
+    "altText": "",
+    "sectionPath": "frontend/public/images",
+    "status": "active",
+    "isDeleted": false,
+    "updatedAt": "2026-04-28T11:28:54.688Z"
+  },
+  "/uploads/1777374998267-testing-product-name-2-.jpg": {
+    "altText": "",
+    "sectionPath": "Uploaded asset",
+    "status": "active",
+    "isDeleted": false,
+    "updatedAt": "2026-04-28T11:34:52.518Z"
+  }
+}
