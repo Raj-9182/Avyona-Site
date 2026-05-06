@@ -159,6 +159,11 @@ const CATEGORY_SELECT = `SELECT
     SELECT COUNT(*)
     FROM products product
     WHERE product.category_id = c.id
+      OR product.category_id IN (
+        SELECT child.id
+        FROM categories child
+        WHERE child.parent_id = c.id
+      )
   ) AS productCount,
   c.description,
   c.image_url AS imageUrl,
@@ -180,6 +185,7 @@ const CATEGORY_SELECT = `SELECT
  LEFT JOIN categories parent ON parent.id = c.parent_id`;
 
 function isDatabaseUnavailable(error) {
+  if (process.env.REQUIRE_MYSQL === "true") return false;
   return ["ECONNREFUSED", "ER_NO_SUCH_TABLE", "ER_BAD_DB_ERROR", "PROTOCOL_CONNECTION_LOST"].includes(error?.code);
 }
 
@@ -496,6 +502,8 @@ export async function getCategoryTree(_request, response) {
   try {
     const rows = await query(
       `${CATEGORY_SELECT}
+       WHERE c.status = 'active'
+         AND (c.parent_id IS NULL OR parent.status = 'active')
        ORDER BY COALESCE(parent.sort_order, c.sort_order) ASC, c.parent_id IS NOT NULL ASC, c.sort_order ASC, c.name ASC`
     );
 

@@ -8,6 +8,15 @@ import {
   SETTINGS_SECTIONS,
   setSettingValue
 } from "../../../../shared/appSettings";
+import { ManageAccessPanel } from "./ManageAccess";
+
+const MANAGE_ACCESS_SECTION = {
+  id: "manage-access",
+  label: "Manage Access",
+  description: "Manage dashboard users, roles, permissions, activity logs, and security rules."
+};
+
+const SETTINGS_NAV_SECTIONS = [...SETTINGS_SECTIONS, MANAGE_ACCESS_SECTION];
 
 function formatFieldValue(field, value) {
   if (field.type === "boolean") {
@@ -75,9 +84,10 @@ export default function Settings() {
   const [usingFallback, setUsingFallback] = React.useState(false);
 
   const currentSection = React.useMemo(
-    () => SETTINGS_SECTIONS.find((section) => section.id === activeSection) || SETTINGS_SECTIONS[0],
+    () => SETTINGS_NAV_SECTIONS.find((section) => section.id === activeSection) || SETTINGS_SECTIONS[0],
     [activeSection]
   );
+  const isManageAccessSection = activeSection === MANAGE_ACCESS_SECTION.id;
 
   const currentStatusMessage = statusMessage
     ? {
@@ -147,7 +157,7 @@ export default function Settings() {
           </p>
         </div>
         <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-          <span style={summaryPillStyle}>{`Modules: ${SETTINGS_SECTIONS.length}`}</span>
+          <span style={summaryPillStyle}>{`Modules: ${SETTINGS_NAV_SECTIONS.length}`}</span>
           <span style={summaryPillStyle}>{usingFallback ? "Local Preview Mode" : "Backend Connected"}</span>
         </div>
       </div>
@@ -158,7 +168,7 @@ export default function Settings() {
             <span style={eyebrowStyle}>Sidebar</span>
             <strong style={{ color: "#0f172a", fontSize: "18px" }}>Settings</strong>
           </div>
-          {SETTINGS_SECTIONS.map((section) => (
+          {SETTINGS_NAV_SECTIONS.map((section) => (
             <button
               key={section.id}
               type="button"
@@ -175,67 +185,73 @@ export default function Settings() {
         </aside>
 
         <div style={settingsContentStyle}>
-          <section style={heroCardStyle}>
-            <span style={eyebrowStyle}>Admin Settings Module</span>
-            <h3 style={{ margin: 0, fontSize: "32px", color: "#0f172a" }}>{currentSection.label}</h3>
-            <p style={{ margin: 0, color: "#526377", maxWidth: "760px" }}>{currentSection.description}</p>
-          </section>
+          {isManageAccessSection ? (
+            <ManageAccessPanel />
+          ) : (
+            <>
+              <section style={heroCardStyle}>
+                <span style={eyebrowStyle}>Admin Settings Module</span>
+                <h3 style={{ margin: 0, fontSize: "32px", color: "#0f172a" }}>{currentSection.label}</h3>
+                <p style={{ margin: 0, color: "#526377", maxWidth: "760px" }}>{currentSection.description}</p>
+              </section>
 
-          <section style={sectionActionBarStyle}>
-            <div style={{ display: "grid", gap: "4px" }}>
-              <span style={eyebrowStyle}>Active Tab</span>
-              <strong style={{ color: "#0f172a", fontSize: "18px" }}>{getTabLabel(currentSection.id, currentSection.label)}</strong>
-            </div>
-            <button type="button" onClick={handleSave} disabled={isSaving || isLoading} style={saveButtonStyle}>
-              {isSaving ? `Saving ${getTabLabel(currentSection.id, currentSection.label)}...` : `Save ${getTabLabel(currentSection.id, currentSection.label)}`}
-            </button>
-          </section>
-
-          {currentStatusMessage ? (
-            <section style={{ ...feedbackStyle, ...currentStatusMessage.style }}>
-              {currentStatusMessage.text}
-            </section>
-          ) : null}
-
-          <section style={impactCardStyle}>
-            <div style={{ display: "grid", gap: "8px" }}>
-              <span style={eyebrowStyle}>{currentSection.impact.eyebrow}</span>
-              <h4 style={{ margin: 0, fontSize: "22px", color: "#0f172a" }}>{currentSection.impact.title}</h4>
-              <p style={{ margin: 0, color: "#526377", maxWidth: "760px" }}>{currentSection.impact.description}</p>
-            </div>
-
-            <div style={impactGridStyle}>
-              {currentSection.impact.items.map((item) => (
-                <div key={item} style={impactItemStyle}>
-                  <span style={impactDotStyle} />
-                  <strong style={{ color: "#0f172a" }}>{item}</strong>
+              <section style={sectionActionBarStyle}>
+                <div style={{ display: "grid", gap: "4px" }}>
+                  <span style={eyebrowStyle}>Active Tab</span>
+                  <strong style={{ color: "#0f172a", fontSize: "18px" }}>{getTabLabel(currentSection.id, currentSection.label)}</strong>
                 </div>
-              ))}
-            </div>
-          </section>
+                <button type="button" onClick={handleSave} disabled={isSaving || isLoading} style={saveButtonStyle}>
+                  {isSaving ? `Saving ${getTabLabel(currentSection.id, currentSection.label)}...` : `Save ${getTabLabel(currentSection.id, currentSection.label)}`}
+                </button>
+              </section>
 
-          <div style={contentGridStyle}>
-            {currentSection.groups.map((group) => (
-              <article key={group.title} style={panelStyle}>
-                <div>
-                  <h4 style={{ margin: 0, color: "#0f172a", fontSize: "20px" }}>{group.title}</h4>
-                </div>
-                <div style={{ display: "grid", gap: "14px" }}>
-                  {group.fields.map((field) => {
-                    const value = getSettingValue(settings, field.key);
+              {currentStatusMessage ? (
+                <section style={{ ...feedbackStyle, ...currentStatusMessage.style }}>
+                  {currentStatusMessage.text}
+                </section>
+              ) : null}
 
-                    return (
-                      <label key={field.key} style={settingRowStyle}>
-                        <span style={settingLabelStyle}>{field.label}</span>
-                        {renderFieldControl(field, value, (nextValue) => handleFieldChange(field.key, nextValue))}
-                        <small style={settingValueStyle}>{formatFieldValue(field, value)}</small>
-                      </label>
-                    );
-                  })}
+              <section style={impactCardStyle}>
+                <div style={{ display: "grid", gap: "8px" }}>
+                  <span style={eyebrowStyle}>{currentSection.impact.eyebrow}</span>
+                  <h4 style={{ margin: 0, fontSize: "22px", color: "#0f172a" }}>{currentSection.impact.title}</h4>
+                  <p style={{ margin: 0, color: "#526377", maxWidth: "760px" }}>{currentSection.impact.description}</p>
                 </div>
-              </article>
-            ))}
-          </div>
+
+                <div style={impactGridStyle}>
+                  {currentSection.impact.items.map((item) => (
+                    <div key={item} style={impactItemStyle}>
+                      <span style={impactDotStyle} />
+                      <strong style={{ color: "#0f172a" }}>{item}</strong>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <div style={contentGridStyle}>
+                {currentSection.groups.map((group) => (
+                  <article key={group.title} style={panelStyle}>
+                    <div>
+                      <h4 style={{ margin: 0, color: "#0f172a", fontSize: "20px" }}>{group.title}</h4>
+                    </div>
+                    <div style={{ display: "grid", gap: "14px" }}>
+                      {group.fields.map((field) => {
+                        const value = getSettingValue(settings, field.key);
+
+                        return (
+                          <label key={field.key} style={settingRowStyle}>
+                            <span style={settingLabelStyle}>{field.label}</span>
+                            {renderFieldControl(field, value, (nextValue) => handleFieldChange(field.key, nextValue))}
+                            <small style={settingValueStyle}>{formatFieldValue(field, value)}</small>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </section>
     </div>
@@ -308,7 +324,7 @@ const sectionActionBarStyle = {
   justifyContent: "space-between",
   alignItems: "center",
   gap: "16px",
-  flexWrap: "wrap",
+  flexWrap: "nowrap",
   padding: "16px 18px",
   borderRadius: "18px",
   background: "#ffffff",

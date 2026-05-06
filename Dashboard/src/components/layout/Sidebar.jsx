@@ -14,18 +14,19 @@ import {
   FaUsers
 } from "react-icons/fa";
 import { clearAdminToken } from "../../api/adminApi";
+import { canViewModule } from "../../utils/accessControl";
 
 const navItems = [
-  { label: "Dashboard", to: "/dashboard", icon: FaTachometerAlt },
-  { label: "Homepage", to: "/dashboard/homepage", icon: FaHome },
-  { label: "Products", to: "/dashboard/products", icon: FaBox },
-  { label: "Variations", to: "/dashboard/variations", icon: FaTags },
-  { label: "Coupons", to: "/dashboard/coupons", icon: FaPercent },
-  { label: "Categories", to: "/dashboard/categories", icon: FaList },
-  { label: "Website Images", to: "/dashboard/website-images", icon: FaImages },
-  { label: "Orders", to: "/dashboard/orders", icon: FaShoppingCart },
-  { label: "Customers", to: "/dashboard/customers", icon: FaUsers },
-  { label: "Settings", to: "/dashboard/settings", icon: FaCog }
+  { label: "Dashboard", to: "/dashboard", icon: FaTachometerAlt, module: "dashboard" },
+  { label: "Homepage", to: "/dashboard/homepage", icon: FaHome, module: "homepage" },
+  { label: "Products", to: "/dashboard/products", icon: FaBox, module: "products" },
+  { label: "Variations", to: "/dashboard/variations", icon: FaTags, module: "variations" },
+  { label: "Coupons", to: "/dashboard/coupons", icon: FaPercent, module: "coupons" },
+  { label: "Categories", to: "/dashboard/categories", icon: FaList, module: "categories" },
+  { label: "Website Images", to: "/dashboard/website-images", icon: FaImages, module: "homepage" },
+  { label: "Orders", to: "/dashboard/orders", icon: FaShoppingCart, module: "orders" },
+  { label: "Customers", to: "/dashboard/customers", icon: FaUsers, module: "customers" },
+  { label: "Settings", to: "/dashboard/settings", icon: FaCog, module: "settings" }
 ];
 
 export default function Sidebar() {
@@ -33,7 +34,7 @@ export default function Sidebar() {
 
   const handleLogout = () => {
     clearAdminToken();
-    navigate("/dashboard");
+    navigate("/login", { replace: true });
   };
 
   return (
@@ -45,7 +46,7 @@ export default function Sidebar() {
       </div>
 
       <nav className="dashboard-nav" aria-label="Admin navigation">
-        {navItems.map((item) => (
+        {navItems.filter((item) => canViewModule(item.module)).map((item) => (
           <NavLink
             key={item.to}
             to={item.to}

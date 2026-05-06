@@ -2,7 +2,7 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { buildProductPath, formatCurrency } from "../../utils/storefront";
 
-export default function ProductCard({ product, context, eyebrow, actionLabel = "Add to Cart", actionMode = "cart" }) {
+export default function ProductCard({ product, context, eyebrow, actionLabel = "Add to Cart", actionMode = "cart", onProductClick }) {
   const firstVariant = product.variants?.[0];
   const ratingValue = Number(product.rating || 0);
   const ratingPercent = `${Math.max(0, Math.min(100, (ratingValue / 5) * 100))}%`;
@@ -11,7 +11,7 @@ export default function ProductCard({ product, context, eyebrow, actionLabel = "
   return (
     <article className="product-card">
       <span className="card-discount-badge">{product.discount}% OFF</span>
-      <Link className="product-card-link" to={productPath}>
+      <Link className="product-card-link" to={productPath} onClick={() => onProductClick?.(product)}>
         <div className="product-art">
           <img src={product.image} alt={product.name} loading="lazy" />
         </div>
@@ -31,7 +31,7 @@ export default function ProductCard({ product, context, eyebrow, actionLabel = "
           </span>
         </div>
         {actionMode === "link" ? (
-          <Link className="add-to-cart" to={productPath}>{actionLabel}</Link>
+          <Link className="add-to-cart" to={productPath} onClick={() => onProductClick?.(product)}>{actionLabel}</Link>
         ) : (
           <button className="add-to-cart" type="button" onClick={(event) => context.addToCart(product, firstVariant, 1, event.currentTarget)}>{actionLabel}</button>
         )}

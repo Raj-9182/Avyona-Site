@@ -137,6 +137,7 @@ export const DEFAULT_APP_SETTINGS = {
       buttonText: "Shop Now",
       buttonLink: "/collections"
     },
+    browseCategories: [],
     ourProducts: [],
     bestSellerCategories: [
       "personal-audio",
@@ -426,6 +427,20 @@ export function setSettingValue(settings, path, value) {
 }
 
 export function getPublicSettings(settings = DEFAULT_APP_SETTINGS) {
+  const now = new Date();
+  const publicHeroBanners = Array.isArray(settings.homepage?.heroBanners)
+    ? settings.homepage.heroBanners
+        .filter((banner) => {
+          if (banner.status !== "active") return false;
+          const startDate = banner.startDate ? new Date(`${String(banner.startDate).slice(0, 10)}T00:00:00`) : null;
+          const endDate = banner.endDate ? new Date(`${String(banner.endDate).slice(0, 10)}T23:59:59`) : null;
+          if (startDate && now < startDate) return false;
+          if (endDate && now > endDate) return false;
+          return true;
+        })
+        .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0))
+    : DEFAULT_APP_SETTINGS.homepage.heroBanners;
+
   return {
     general: {
       storeName: settings.general.storeName,
@@ -475,10 +490,11 @@ export function getPublicSettings(settings = DEFAULT_APP_SETTINGS) {
       smsNotificationsEnabled: settings.notifications.smsNotificationsEnabled
     },
     homepage: {
-      heroBanners: Array.isArray(settings.homepage?.heroBanners)
-        ? settings.homepage.heroBanners
-        : DEFAULT_APP_SETTINGS.homepage.heroBanners,
+      heroBanners: publicHeroBanners,
       globalHeroCta: settings.homepage?.globalHeroCta || DEFAULT_APP_SETTINGS.homepage.globalHeroCta,
+      browseCategories: Array.isArray(settings.homepage?.browseCategories)
+        ? settings.homepage.browseCategories
+        : DEFAULT_APP_SETTINGS.homepage.browseCategories,
       ourProducts: Array.isArray(settings.homepage?.ourProducts)
         ? settings.homepage.ourProducts
         : DEFAULT_APP_SETTINGS.homepage.ourProducts,

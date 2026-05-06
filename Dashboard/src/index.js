@@ -7,6 +7,7 @@ export { default as DashboardHome } from "./src/pages/dashboard/DashboardHome";
 export { default as Products } from "./src/pages/products/Products";
 export { default as AddProduct } from "./src/pages/products/AddProduct";
 export { default as EditProduct } from "./src/pages/products/EditProduct";
+export { default as InventoryManager } from "./src/pages/products/InventoryManager";
 export { default as Collections } from "./src/pages/collections/Collections";
 export { default as Orders } from "./src/pages/orders/Orders";
 export { default as OrderDetails } from "./src/pages/orders/OrderDetails";

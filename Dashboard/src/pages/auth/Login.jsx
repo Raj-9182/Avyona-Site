@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { loginAdmin, setAdminToken } from "../../api/adminApi";
 
@@ -7,7 +7,7 @@ const LOCAL_ADMIN_CREDENTIAL = {
   password: "Sourab@1234#Avyona"
 };
 
-export default function Login() {
+export default function Login({ isAuthenticated = false }) {
   const navigate = useNavigate();
   const [form, setForm] = useState({ email: "", password: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -16,6 +16,12 @@ export default function Login() {
   const updateForm = (key, value) => {
     setForm((current) => ({ ...current, [key]: value }));
   };
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [isAuthenticated, navigate]);
 
   const handleLogin = async (event) => {
     event.preventDefault();
@@ -28,7 +34,7 @@ export default function Login() {
         password: form.password
       });
       setMessage({ type: "success", text: "Login successful. Redirecting to the dashboard..." });
-      window.setTimeout(() => navigate("/dashboard"), 500);
+      window.setTimeout(() => navigate("/dashboard", { replace: true }), 500);
     } catch (error) {
       const isLocalAdmin =
         form.email.trim().toLowerCase() === LOCAL_ADMIN_CREDENTIAL.email &&
@@ -40,7 +46,7 @@ export default function Login() {
           type: "success",
           text: "Local admin login successful. Database is unavailable, so dashboard changes may run in preview mode."
         });
-        window.setTimeout(() => navigate("/dashboard"), 500);
+        window.setTimeout(() => navigate("/dashboard", { replace: true }), 500);
         return;
       }
 
@@ -65,6 +71,8 @@ export default function Login() {
       }}
     >
       <form
+        id="admin-login-form"
+        name="adminLoginForm"
         onSubmit={handleLogin}
         style={{
           width: "350px",
@@ -75,16 +83,28 @@ export default function Login() {
         }}
       >
         <h2 style={{ marginTop: 0, marginBottom: "18px" }}>Admin Login</h2>
+        <label htmlFor="admin-login-email" style={{ display: "block", fontSize: "13px", fontWeight: 700, marginBottom: "6px" }}>
+          Email
+        </label>
         <input
+          id="admin-login-email"
+          name="email"
           type="email"
+          autoComplete="username"
           value={form.email}
           onChange={(event) => updateForm("email", event.target.value)}
           placeholder="Email"
           required
           style={{ width: "100%", padding: "10px", marginBottom: "12px", boxSizing: "border-box" }}
         />
+        <label htmlFor="admin-login-password" style={{ display: "block", fontSize: "13px", fontWeight: 700, marginBottom: "6px" }}>
+          Password
+        </label>
         <input
+          id="admin-login-password"
+          name="password"
           type="password"
+          autoComplete="current-password"
           value={form.password}
           onChange={(event) => updateForm("password", event.target.value)}
           placeholder="Password"

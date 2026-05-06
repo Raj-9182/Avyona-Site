@@ -27,18 +27,121 @@ function getCategoryHomepageRule(category) {
   return typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
+const API_MEDIA_ORIGIN = (import.meta.env.VITE_API_BASE_URL || "http://localhost:4000/api/v1")
+  .replace(/\/api\/v\d+\/?$/i, "")
+  .replace(/\/$/, "");
+
+function resolveStorefrontMediaUrl(value, fallback = "/images/optimized/personal-audio-category.webp") {
+  const url = String(value || "").trim();
+  if (!url) return fallback;
+  if (/^(data|blob):/i.test(url)) return url;
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.startsWith("/uploads/")) return `${API_MEDIA_ORIGIN}${url}`;
+  return url.startsWith("/") ? url : `/${url}`;
+}
+
+function handleCategoryImageError(event) {
+  const fallback = "/images/optimized/personal-audio-category.webp";
+  if (event.currentTarget.src.endsWith(fallback)) return;
+  event.currentTarget.src = fallback;
+}
+
+function getHomepageBrowseEntryKey(entry) {
+  return String(entry.categoryId ?? entry.categorySlug ?? entry.id ?? "");
+}
+
+function getCategoryKey(category) {
+  return String(category.id ?? category.slug ?? category.name ?? "");
+}
+
+function getHomepageBrowseCategories(siteCategories, homepageSettings) {
+  const flatCategories = flattenCategoryTree(siteCategories).filter((category) => !category.parentId && category.status === "active");
+  const configured = Array.isArray(homepageSettings.browseCategories) ? homepageSettings.browseCategories : [];
+
+  if (!configured.length) {
+    return flatCategories
+      .filter((category) => Boolean(category.featuredCategory))
+      .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
+  }
+
+  return configured
+    .filter((entry) => entry.status !== "inactive")
+    .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0))
+    .map((entry) => {
+      const entryKey = getHomepageBrowseEntryKey(entry);
+      const category = flatCategories.find((item) =>
+        getCategoryKey(item) === entryKey ||
+        String(item.slug || "") === String(entry.categorySlug || "")
+      );
+
+      if (!category) return null;
+
+      const currentRule = getCategoryHomepageRule(category);
+      return {
+        ...category,
+        imageUrl: entry.imageUrl || category.imageUrl,
+        dynamicRuleJson: {
+          ...currentRule,
+          homepageButtonText: entry.buttonText || currentRule.homepageButtonText || "Explore Now",
+          homepageButtonLink: entry.buttonLink || currentRule.homepageButtonLink || `/category/${category.slug}`
+        },
+        sortOrder: Number(entry.sortOrder || category.sortOrder || 0)
+      };
+    })
+    .filter(Boolean);
+}
+
+function isBannerInDisplayWindow(banner) {
+  const now = new Date();
+  const startDate = banner.startDate ? new Date(`${String(banner.startDate).slice(0, 10)}T00:00:00`) : null;
+  const endDate = banner.endDate ? new Date(`${String(banner.endDate).slice(0, 10)}T23:59:59`) : null;
+
+  if (startDate && now < startDate) return false;
+  if (endDate && now > endDate) return false;
+  return true;
+}
+
+function isExternalLink(value) {
+  return /^https?:\/\//i.test(String(value || ""));
+}
+
+function isSafeHeroLink(value) {
+  const link = String(value || "").trim();
+  return !link || link.startsWith("/") || isExternalLink(link);
+}
+
+function isVideoHeroBanner(banner) {
+  const videoUrl = String(banner?.desktopVideo || banner?.mobileVideo || "").trim();
+  return banner?.mediaType === "video" || /\.(mp4|webm|mov)(?:\?|#|$)/i.test(videoUrl);
+}
+
+function getVideoMimeType(url) {
+  const value = String(url || "").toLowerCase();
+  if (value.includes(".webm")) return "video/webm";
+  if (value.includes(".mov")) return "video/quicktime";
+  return "video/mp4";
+}
+
 export default function Home({ context }) {
   const productCatalog = Array.isArray(context.allProducts) && context.allProducts.length ? context.allProducts : [];
   const siteCategories = context.siteCategories && context.siteCategories.length ? context.siteCategories : fallbackCategoryTree;
-  const mainCategories = flattenCategoryTree(siteCategories)
-    .filter((category) => !category.parentId && category.status === "active" && Boolean(category.featuredCategory))
-    .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
   const [activeCategory, setActiveCategory] = useState("all");
   const [bannerIndex, setBannerIndex] = useState(0);
+  const [isHeroPaused, setIsHeroPaused] = useState(false);
+  const [isMobileHeroViewport, setIsMobileHeroViewport] = useState(false);
+  const [failedBannerMedia, setFailedBannerMedia] = useState({});
   const homepageSettings = context.siteSettings?.homepage || {};
+  const mainCategories = getHomepageBrowseCategories(siteCategories, homepageSettings);
+  const activeTopCategories = flattenCategoryTree(siteCategories)
+    .filter((category) => !category.parentId && category.status === "active")
+    .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
   const globalHeroCta = homepageSettings.globalHeroCta || {};
   const heroBanners = (homepageSettings.heroBanners || [])
-    .filter((banner) => banner.status === "active" && (banner.desktopImage || banner.mobileImage || banner.desktopVideo || banner.mobileVideo))
+    .filter((banner) =>
+      banner.status === "active" &&
+      isBannerInDisplayWindow(banner) &&
+      (banner.desktopImage || banner.mobileImage || banner.desktopVideo || banner.mobileVideo)
+    )
     .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
   const activeHeroBanners = heroBanners.length
     ? heroBanners
@@ -56,13 +159,19 @@ export default function Home({ context }) {
         sortOrder: index + 1
       }));
   const currentBanner = activeHeroBanners[bannerIndex] || activeHeroBanners[0];
-  const currentIsVideo = currentBanner?.mediaType === "video" && (currentBanner.desktopVideo || currentBanner.mobileVideo);
+  const currentVideoUrl = currentBanner?.desktopVideo || currentBanner?.mobileVideo || "";
+  const currentMobileVideoUrl = currentBanner?.mobileVideo || currentBanner?.desktopVideo || "";
+  const currentIsVideo = isVideoHeroBanner(currentBanner) && Boolean(currentVideoUrl || currentMobileVideoUrl);
+  const currentVideoSrc = isMobileHeroViewport && currentMobileVideoUrl
+    ? currentMobileVideoUrl
+    : currentVideoUrl || currentMobileVideoUrl;
   const currentButtonText = globalHeroCta.enabled
     ? globalHeroCta.buttonText
     : currentBanner?.ctaEnabled === false
       ? ""
       : currentBanner?.buttonText;
   const currentButtonLink = globalHeroCta.enabled ? globalHeroCta.buttonLink : currentBanner?.buttonLink;
+  const safeButtonLink = isSafeHeroLink(currentButtonLink) ? currentButtonLink : "/collections";
   const titleStyle = {
     fontSize: currentBanner?.titleFontSize ? `clamp(28px, 5vw, ${Number(currentBanner.titleFontSize)}px)` : undefined,
     fontFamily: currentBanner?.fontFamily || undefined,
@@ -77,15 +186,26 @@ export default function Home({ context }) {
   };
 
   useEffect(() => {
+    if (isHeroPaused || activeHeroBanners.length < 2) return undefined;
+
     const id = window.setInterval(() => {
       setBannerIndex((current) => (current + 1) % activeHeroBanners.length);
     }, 3500);
     return () => window.clearInterval(id);
-  }, [activeHeroBanners.length]);
+  }, [activeHeroBanners.length, isHeroPaused]);
 
   useEffect(() => {
     setBannerIndex(0);
   }, [activeHeroBanners.length]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 767px)");
+    const updateViewport = () => setIsMobileHeroViewport(mediaQuery.matches);
+
+    updateViewport();
+    mediaQuery.addEventListener?.("change", updateViewport);
+    return () => mediaQuery.removeEventListener?.("change", updateViewport);
+  }, []);
 
   const findProductByIdentifier = (identifier) => {
     const normalizedIdentifier = String(identifier || "").trim().toLowerCase();
@@ -104,7 +224,8 @@ export default function Home({ context }) {
         .map((entry) => findProductByIdentifier(entry.productAsin || entry.productSlug))
         .filter(Boolean)
     : [];
-  const selectedBestSellerCategories = Array.isArray(homepageSettings.bestSellerCategories)
+  const hasBestSellerCategoryConfig = Array.isArray(homepageSettings.bestSellerCategories);
+  const selectedBestSellerCategories = hasBestSellerCategoryConfig
     ? homepageSettings.bestSellerCategories
     : [];
   const configuredOurProducts = Array.isArray(homepageSettings.ourProducts)
@@ -113,7 +234,10 @@ export default function Home({ context }) {
   const homepageOurProducts = configuredOurProducts.length ? configuredOurProducts : frameProducts;
   const configuredBestSellerProducts = getConfiguredHomepageProducts("bestSellerProducts");
   const allowBestSellerCategory = (product) =>
-    !selectedBestSellerCategories.length || selectedBestSellerCategories.includes(product.collectionSlug);
+    !hasBestSellerCategoryConfig || selectedBestSellerCategories.includes(product.collectionSlug);
+  const bestSellerCategoryTabs = hasBestSellerCategoryConfig
+    ? activeTopCategories.filter((category) => selectedBestSellerCategories.includes(category.slug))
+    : activeTopCategories;
   const bestSellerSourceProducts = (configuredBestSellerProducts.length ? configuredBestSellerProducts : featuredProducts).filter(allowBestSellerCategory);
   const homepageBestSellerProducts = activeCategory === "all"
     ? bestSellerSourceProducts
@@ -134,28 +258,53 @@ export default function Home({ context }) {
         sortOrder: index + 1
       }));
 
+  useEffect(() => {
+    if (activeCategory === "all") return;
+    if (!bestSellerCategoryTabs.some((category) => category.slug === activeCategory)) {
+      setActiveCategory("all");
+    }
+  }, [activeCategory, bestSellerCategoryTabs]);
+
   return (
     <main className="container">
-      <section className="hero-banner" aria-label="Featured highlights">
+      <section
+        className="hero-banner"
+        aria-label="Featured highlights"
+        onMouseEnter={() => setIsHeroPaused(true)}
+        onMouseLeave={() => setIsHeroPaused(false)}
+      >
         <div className="hero-slider">
           <article className="hero-slide">
-            {currentIsVideo ? (
+            {!currentIsVideo && failedBannerMedia[currentBanner?.id] ? (
+              <img className="hero-banner-image" src="/images/optimized/banner-1.webp" alt="Avyona featured banner fallback" fetchPriority="high" />
+            ) : currentIsVideo ? (
               <video
+                key={`hero-video-${currentBanner.id || currentVideoSrc}`}
                 className="hero-banner-image"
-                poster={currentBanner.desktopImage || currentBanner.mobileImage}
+                src={currentVideoSrc}
                 autoPlay
                 muted
                 loop
                 playsInline
+                preload="metadata"
                 aria-label={currentBanner.altText || currentBanner.title || "Avyona featured banner"}
-              >
-                {currentBanner.mobileVideo ? <source media="(max-width: 767px)" src={currentBanner.mobileVideo} /> : null}
-                <source src={currentBanner.desktopVideo || currentBanner.mobileVideo} />
-              </video>
+                onLoadedData={(event) => {
+                  event.currentTarget.play?.().catch?.(() => {});
+                }}
+                onCanPlay={(event) => {
+                  event.currentTarget.play?.().catch?.(() => {});
+                }}
+              />
             ) : (
               <picture>
                 <source media="(max-width: 767px)" srcSet={currentBanner.mobileImage || currentBanner.desktopImage} />
-                <img className="hero-banner-image" src={currentBanner.desktopImage || currentBanner.mobileImage} alt={currentBanner.altText || currentBanner.title || "Avyona featured banner"} fetchPriority="high" />
+                <img
+                  className="hero-banner-image"
+                  src={currentBanner.desktopImage || currentBanner.mobileImage}
+                  alt={currentBanner.altText || currentBanner.title || "Avyona featured banner"}
+                  fetchPriority="high"
+                  onError={() => setFailedBannerMedia((current) => ({ ...current, [currentBanner.id]: true }))}
+                />
               </picture>
             )}
             {currentBanner.textEnabled !== false && (currentBanner.title || currentBanner.subtitle) ? (
@@ -173,21 +322,28 @@ export default function Home({ context }) {
           </>
         ) : null}
         {currentButtonText ? (
-          <Link className="hero-banner-cta" to={currentButtonLink || "/collections"}>{currentButtonText}</Link>
+          isExternalLink(safeButtonLink) ? (
+            <a className="hero-banner-cta" href={safeButtonLink} target="_blank" rel="noreferrer">{currentButtonText}</a>
+          ) : (
+            <Link className="hero-banner-cta" to={safeButtonLink || "/collections"}>{currentButtonText}</Link>
+          )
         ) : null}
       </section>
 
-      <section className="section-block">
+      <section className="section-block category-section">
         <div className="section-heading section-heading-centered"><div><p className="eyebrow category-heading-tag">Browse</p><h2>Shop by Category</h2></div></div>
         <div className="category-grid">
           {mainCategories.map((category) => {
             const homepageRule = getCategoryHomepageRule(category);
             const buttonText = homepageRule.homepageButtonText || "Explore Now";
             const buttonLink = homepageRule.homepageButtonLink || `/category/${category.slug}`;
+            const categoryImage = resolveStorefrontMediaUrl(category.imageUrl || category.bannerImageUrl);
 
             return (
               <Link key={category.slug} className="category-card category-card-link" to={buttonLink}>
-                <div className="category-art"><img src={category.imageUrl || category.bannerImageUrl} alt={category.name} loading="lazy" decoding="async" /></div>
+                <div className="category-art">
+                  <img src={categoryImage} alt={category.name} loading="lazy" decoding="async" onError={handleCategoryImageError} />
+                </div>
                 <div className="category-copy">
                   <h3>{category.name}</h3>
                   <p>{category.description}</p>
@@ -220,9 +376,9 @@ export default function Home({ context }) {
       <section className="section-block">
         <div className="section-heading section-heading-centered catalog-heading"><div><h4 className="section-title-medium">Best Sellers and Trending</h4></div></div>
         <div className="catalog-tabs">
-          {["all", ...mainCategories.map((category) => category.slug)].map((categorySlug) => (
+          {["all", ...bestSellerCategoryTabs.map((category) => category.slug)].map((categorySlug) => (
             <button key={categorySlug} className={`catalog-tab ${activeCategory === categorySlug ? "active" : ""}`} type="button" onClick={() => setActiveCategory(categorySlug)}>
-              {categorySlug === "all" ? "All" : (mainCategories.find((category) => category.slug === categorySlug)?.name || categorySlug)}
+              {categorySlug === "all" ? "All" : (bestSellerCategoryTabs.find((category) => category.slug === categorySlug)?.name || categorySlug)}
             </button>
           ))}
         </div>

@@ -58,6 +58,21 @@ function createOrderNumber() {
   return `AVY-${Date.now().toString().slice(-8)}`;
 }
 
+function calculateCouponDiscount(coupon, subtotal) {
+  if (!coupon) return 0;
+  const minimumOrderAmount = Number(coupon.minimumOrderAmount || 0);
+  if (subtotal < minimumOrderAmount) return 0;
+
+  const rawDiscount = coupon.discountType === "fixed"
+    ? Number(coupon.discountValue || 0)
+    : subtotal * (Number(coupon.discountValue || 0) / 100);
+  const cappedDiscount = coupon.maximumDiscountAmount
+    ? Math.min(rawDiscount, Number(coupon.maximumDiscountAmount || 0))
+    : rawDiscount;
+
+  return Math.max(0, Math.min(subtotal, Math.round(cappedDiscount)));
+}
+
 export async function createOrder(request, response) {
   const {
     customer = {},
@@ -85,20 +100,17 @@ export async function createOrder(request, response) {
     throw new ApiError(400, "Delivery address and phone are required");
   }
 
-  const subtotal = Number(pricing.subtotal || 0);
-  const discount = Number(pricing.discount || 0);
   const shippingFee = Number(pricing.shipping || 0);
-  const totalAmount = Number(pricing.total || Math.max(0, subtotal - discount) + shippingFee);
   const connection = await pool.getConnection();
 
   try {
     await connection.beginTransaction();
 
-    let customerId = null;
+    let customerId = request.customer?.id || null;
     if (email) {
       const [existingCustomers] = await connection.execute(
-        "SELECT id FROM customers WHERE email = ? LIMIT 1",
-        [email]
+        "SELECT id FROM customers WHERE id = ? OR email = ? LIMIT 1",
+        [customerId || 0, email]
       );
 
       if (existingCustomers[0]) {
@@ -121,6 +133,77 @@ export async function createOrder(request, response) {
 
     const orderNumber = createOrderNumber();
     const paymentStatus = normalizePaymentStatus(paymentMethod);
+    const normalizedItems = [];
+    let subtotal = 0;
+
+    for (const item of items) {
+      const identifier = String(item.asin || item.slug || "").trim();
+      if (!identifier) {
+        throw new ApiError(400, "Each order item must include a product identifier");
+      }
+
+      const [productRows] = await connection.execute(
+        `SELECT id, asin, slug, name, price, stock_quantity AS stockQuantity, status, is_visible AS isVisible, is_deleted AS isDeleted
+         FROM products
+         WHERE asin = ? OR slug = ?
+         LIMIT 1
+         FOR UPDATE`,
+        [identifier, identifier]
+      );
+      const product = productRows[0];
+
+      if (!product || product.isDeleted || !product.isVisible || product.status !== "active") {
+        throw new ApiError(400, `Product ${identifier} is not available for checkout`);
+      }
+
+      const quantity = Math.max(1, Number(item.quantity || 1));
+      const availableStock = Number(product.stockQuantity || 0);
+      if (availableStock < quantity) {
+        throw new ApiError(409, `${product.name} has only ${availableStock} unit(s) available`);
+      }
+
+      const unitPrice = Number(product.price || 0);
+      const totalPrice = unitPrice * quantity;
+      subtotal += totalPrice;
+      normalizedItems.push({
+        productId: product.id,
+        name: product.name,
+        quantity,
+        unitPrice,
+        totalPrice
+      });
+    }
+
+    let coupon = null;
+    if (couponCode) {
+      const [couponRows] = await connection.execute(
+        `SELECT
+          id,
+          code,
+          discount_type AS discountType,
+          discount_value AS discountValue,
+          minimum_order_amount AS minimumOrderAmount,
+          maximum_discount_amount AS maximumDiscountAmount,
+          usage_limit AS usageLimit,
+          used_count AS usedCount,
+          starts_at AS startsAt,
+          ends_at AS endsAt,
+          status
+         FROM coupons
+         WHERE code = ?
+           AND status = 'active'
+           AND (starts_at IS NULL OR starts_at <= NOW())
+           AND (ends_at IS NULL OR ends_at >= NOW())
+           AND (usage_limit IS NULL OR used_count < usage_limit)
+         LIMIT 1
+         FOR UPDATE`,
+        [String(couponCode).trim().toUpperCase()]
+      );
+      coupon = couponRows[0] || null;
+    }
+
+    const discount = calculateCouponDiscount(coupon, subtotal);
+    const totalAmount = Math.max(0, subtotal - discount) + shippingFee;
     const [orderResult] = await connection.execute(
       `INSERT INTO orders
         (customer_id, order_number, status, payment_status, payment_method, subtotal, shipping_fee, total_amount)
@@ -147,31 +230,23 @@ export async function createOrder(request, response) {
       ]
     );
 
-    for (const item of items) {
-      const identifier = String(item.asin || item.slug || "").trim();
-      let productId = null;
-      if (identifier) {
-        const [productRows] = await connection.execute(
-          "SELECT id FROM products WHERE asin = ? OR slug = ? LIMIT 1",
-          [identifier, identifier]
-        );
-        productId = productRows[0]?.id || null;
-      }
-
-      const quantity = Math.max(1, Number(item.quantity || 1));
-      const unitPrice = Number(item.price || 0);
+    for (const item of normalizedItems) {
       await connection.execute(
         `INSERT INTO order_items (order_id, product_id, product_name, quantity, unit_price, total_price)
          VALUES (?, ?, ?, ?, ?, ?)`,
-        [orderId, productId, item.name || "Product", quantity, unitPrice, unitPrice * quantity]
+        [orderId, item.productId, item.name, item.quantity, item.unitPrice, item.totalPrice]
       );
 
-      if (productId) {
-        await connection.execute(
-          "UPDATE products SET stock_quantity = GREATEST(stock_quantity - ?, 0) WHERE id = ?",
-          [quantity, productId]
-        );
-      }
+      await connection.execute(
+        `UPDATE products
+         SET stock_quantity = stock_quantity - ?, sold_quantity = sold_quantity + ?
+         WHERE id = ? AND stock_quantity >= ?`,
+        [item.quantity, item.quantity, item.productId, item.quantity]
+      );
+    }
+
+    if (coupon && discount > 0) {
+      await connection.execute("UPDATE coupons SET used_count = used_count + 1 WHERE id = ?", [coupon.id]);
     }
 
     await connection.execute(

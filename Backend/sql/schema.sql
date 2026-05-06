@@ -5,26 +5,62 @@ CREATE TABLE IF NOT EXISTS admins (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   full_name VARCHAR(120) NOT NULL,
   email VARCHAR(160) NOT NULL UNIQUE,
+  phone VARCHAR(30) NULL,
   password_hash VARCHAR(255) NOT NULL,
-  role ENUM('super_admin', 'admin', 'editor') NOT NULL DEFAULT 'admin',
+  role ENUM('super_admin', 'admin', 'product_manager', 'order_manager', 'marketing_manager', 'support_staff', 'viewer', 'editor') NOT NULL DEFAULT 'admin',
+  status ENUM('active', 'inactive', 'suspended', 'invite_pending') NOT NULL DEFAULT 'active',
   is_active TINYINT(1) NOT NULL DEFAULT 1,
+  last_login_at DATETIME NULL,
+  invited_at DATETIME NULL,
+  invite_token_hash VARCHAR(255) NULL,
+  invite_expires_at DATETIME NULL,
+  password_reset_token_hash VARCHAR(255) NULL,
+  password_reset_expires_at DATETIME NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
+
+ALTER TABLE admins ADD COLUMN phone VARCHAR(30) NULL;
+ALTER TABLE admins ADD COLUMN status ENUM('active', 'inactive', 'suspended', 'invite_pending') NOT NULL DEFAULT 'active';
+ALTER TABLE admins ADD COLUMN last_login_at DATETIME NULL;
+ALTER TABLE admins ADD COLUMN invited_at DATETIME NULL;
+ALTER TABLE admins ADD COLUMN invite_token_hash VARCHAR(255) NULL;
+ALTER TABLE admins ADD COLUMN invite_expires_at DATETIME NULL;
+ALTER TABLE admins ADD COLUMN password_reset_token_hash VARCHAR(255) NULL;
+ALTER TABLE admins ADD COLUMN password_reset_expires_at DATETIME NULL;
+ALTER TABLE admins MODIFY COLUMN role ENUM('super_admin', 'admin', 'product_manager', 'order_manager', 'marketing_manager', 'support_staff', 'viewer', 'editor') NOT NULL DEFAULT 'admin';
 
 CREATE TABLE IF NOT EXISTS roles (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(80) NOT NULL UNIQUE,
   display_name VARCHAR(120) NOT NULL,
   description TEXT NULL,
+  is_system TINYINT(1) NOT NULL DEFAULT 1,
   status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
+ALTER TABLE roles ADD COLUMN is_system TINYINT(1) NOT NULL DEFAULT 1;
+
+CREATE TABLE IF NOT EXISTS permissions (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  permission_key VARCHAR(140) NOT NULL UNIQUE,
+  module_name VARCHAR(80) NOT NULL,
+  action_name VARCHAR(80) NOT NULL,
+  display_name VARCHAR(120) NOT NULL,
+  description TEXT NULL,
+  is_sensitive TINYINT(1) NOT NULL DEFAULT 0,
+  is_available TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_permissions_module_action (module_name, action_name)
+);
+
 CREATE TABLE IF NOT EXISTS role_permissions (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   role_id INT UNSIGNED NOT NULL,
+  permission_id INT UNSIGNED NULL,
   module_name VARCHAR(80) NOT NULL,
   can_view TINYINT(1) NOT NULL DEFAULT 0,
   can_create TINYINT(1) NOT NULL DEFAULT 0,
@@ -35,8 +71,12 @@ CREATE TABLE IF NOT EXISTS role_permissions (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_role_permission_module (role_id, module_name),
-  CONSTRAINT fk_role_permissions_role FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE
+  CONSTRAINT fk_role_permissions_role FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
+  CONSTRAINT fk_role_permissions_permission FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE SET NULL
 );
+
+ALTER TABLE role_permissions ADD COLUMN permission_id INT UNSIGNED NULL;
+ALTER TABLE role_permissions ADD CONSTRAINT fk_role_permissions_permission FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE SET NULL;
 
 CREATE TABLE IF NOT EXISTS admin_roles (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -46,6 +86,37 @@ CREATE TABLE IF NOT EXISTS admin_roles (
   UNIQUE KEY uq_admin_role (admin_id, role_id),
   CONSTRAINT fk_admin_roles_admin FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE,
   CONSTRAINT fk_admin_roles_role FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS user_custom_permissions (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  admin_id INT UNSIGNED NOT NULL,
+  permission_id INT UNSIGNED NOT NULL,
+  effect ENUM('allow', 'deny') NOT NULL DEFAULT 'allow',
+  reason VARCHAR(255) NULL,
+  assigned_by INT UNSIGNED NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_user_custom_permission (admin_id, permission_id),
+  CONSTRAINT fk_user_custom_permissions_admin FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE,
+  CONSTRAINT fk_user_custom_permissions_permission FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE,
+  CONSTRAINT fk_user_custom_permissions_assigned_by FOREIGN KEY (assigned_by) REFERENCES admins(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS admin_login_sessions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  admin_id INT UNSIGNED NOT NULL,
+  token_hash VARCHAR(255) NOT NULL UNIQUE,
+  refresh_token_hash VARCHAR(255) NULL,
+  ip_address VARCHAR(64) NULL,
+  user_agent TEXT NULL,
+  device_label VARCHAR(160) NULL,
+  status ENUM('active', 'revoked', 'expired') NOT NULL DEFAULT 'active',
+  expires_at DATETIME NOT NULL,
+  last_used_at DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  revoked_at DATETIME NULL,
+  CONSTRAINT fk_admin_login_sessions_admin FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS categories (
@@ -101,12 +172,12 @@ CREATE TABLE IF NOT EXISTS products (
   category_id INT UNSIGNED NOT NULL,
   brand_id INT UNSIGNED NULL,
   variant_group_id INT UNSIGNED NULL,
-  asin VARCHAR(32) NOT NULL UNIQUE,
-  sku VARCHAR(80) NULL UNIQUE,
+  asin VARCHAR(32) NOT NULL,
+  sku VARCHAR(80) NULL,
   barcode VARCHAR(80) NULL,
   model_number VARCHAR(120) NULL,
   name VARCHAR(160) NOT NULL,
-  slug VARCHAR(180) NOT NULL UNIQUE,
+  slug VARCHAR(180) NOT NULL,
   brand VARCHAR(120) NOT NULL,
   short_description VARCHAR(255) NULL,
   description TEXT NULL,
@@ -130,8 +201,18 @@ CREATE TABLE IF NOT EXISTS products (
   is_deleted TINYINT(1) NOT NULL DEFAULT 0,
   deleted_at DATETIME NULL,
   status ENUM('draft', 'active', 'archived', 'out_of_stock') NOT NULL DEFAULT 'draft',
+  stock_status VARCHAR(20) GENERATED ALWAYS AS (
+    CASE
+      WHEN stock_quantity <= 0 OR status = 'out_of_stock' THEN 'out-of-stock'
+      WHEN stock_quantity <= low_stock_threshold THEN 'low-stock'
+      ELSE 'in-stock'
+    END
+  ) STORED,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_products_asin (asin),
+  UNIQUE KEY uq_products_sku (sku),
+  UNIQUE KEY uq_products_slug (slug),
   CONSTRAINT fk_products_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE RESTRICT,
   CONSTRAINT fk_products_brand FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE SET NULL,
   CONSTRAINT fk_products_variant_group FOREIGN KEY (variant_group_id) REFERENCES variant_groups(id) ON DELETE SET NULL
@@ -228,11 +309,34 @@ CREATE TABLE IF NOT EXISTS product_related_products (
   CONSTRAINT fk_product_related_target FOREIGN KEY (related_product_id) REFERENCES products(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS product_policy_items (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  product_id INT UNSIGNED NOT NULL,
+  policy_title VARCHAR(140) NOT NULL,
+  policy_body TEXT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_product_policy_items_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS product_faqs (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  product_id INT UNSIGNED NOT NULL,
+  question VARCHAR(255) NOT NULL,
+  answer TEXT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_product_faqs_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS customers (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   full_name VARCHAR(120) NOT NULL,
   email VARCHAR(160) NOT NULL UNIQUE,
   phone VARCHAR(30) NULL,
+  password_hash VARCHAR(255) NULL,
+  status ENUM('active', 'inactive', 'blocked') NOT NULL DEFAULT 'active',
+  last_login_at DATETIME NULL,
   city VARCHAR(120) NULL,
   state VARCHAR(120) NULL,
   total_orders INT NOT NULL DEFAULT 0,
@@ -240,6 +344,10 @@ CREATE TABLE IF NOT EXISTS customers (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
+
+ALTER TABLE customers ADD COLUMN password_hash VARCHAR(255) NULL;
+ALTER TABLE customers ADD COLUMN status ENUM('active', 'inactive', 'blocked') NOT NULL DEFAULT 'active';
+ALTER TABLE customers ADD COLUMN last_login_at DATETIME NULL;
 
 CREATE TABLE IF NOT EXISTS customer_addresses (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -386,6 +494,312 @@ CREATE TABLE IF NOT EXISTS order_status_timeline (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_order_status_timeline_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS analytics_events (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  source_queue_id BIGINT UNSIGNED NULL,
+  event_uid VARCHAR(120) NULL,
+  event_fingerprint CHAR(64) NULL,
+  event_name VARCHAR(120) NOT NULL DEFAULT '',
+  event_type VARCHAR(40) NOT NULL,
+  user_id INT UNSIGNED NULL,
+  session_id VARCHAR(80) NULL,
+  customer_id INT UNSIGNED NULL,
+  product_id INT UNSIGNED NULL,
+  category_id INT UNSIGNED NULL,
+  clicked_product_id INT UNSIGNED NULL,
+  product_asin VARCHAR(80) NULL,
+  product_slug VARCHAR(180) NULL,
+  search_query VARCHAR(255) NULL,
+  search_result_count INT UNSIGNED NULL,
+  quantity INT UNSIGNED NULL,
+  order_id INT UNSIGNED NULL,
+  order_number VARCHAR(80) NULL,
+  cart_value DECIMAL(12, 2) NULL,
+  event_data JSON NULL,
+  metadata_json JSON NULL,
+  occurred_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_analytics_source_queue (source_queue_id),
+  UNIQUE KEY uniq_analytics_event_uid (event_uid),
+  UNIQUE KEY uniq_analytics_event_fingerprint (event_fingerprint),
+  INDEX idx_analytics_event_type_date (event_type, occurred_at),
+  INDEX idx_analytics_session_date (session_id, occurred_at),
+  INDEX idx_analytics_product_date (product_id, occurred_at),
+  INDEX idx_analytics_category_date (category_id, occurred_at),
+  INDEX idx_analytics_customer_date (customer_id, occurred_at),
+  CONSTRAINT fk_analytics_events_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
+  CONSTRAINT fk_analytics_events_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL,
+  CONSTRAINT fk_analytics_events_clicked_product FOREIGN KEY (clicked_product_id) REFERENCES products(id) ON DELETE SET NULL,
+  CONSTRAINT fk_analytics_events_category_current FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
+  CONSTRAINT fk_analytics_events_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS analytics_event_queue (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  event_type VARCHAR(40) NOT NULL,
+  session_id VARCHAR(80) NULL,
+  customer_id INT UNSIGNED NULL,
+  product_id INT UNSIGNED NULL,
+  category_id INT UNSIGNED NULL,
+  order_id INT UNSIGNED NULL,
+  status ENUM('pending', 'processing', 'processed', 'failed') NOT NULL DEFAULT 'pending',
+  attempts SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  payload_json JSON NOT NULL,
+  error_message VARCHAR(500) NULL,
+  occurred_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  processed_at TIMESTAMP NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_analytics_queue_status_created (status, created_at),
+  INDEX idx_analytics_queue_event_date (event_type, occurred_at),
+  INDEX idx_analytics_queue_session_date (session_id, occurred_at),
+  CONSTRAINT fk_analytics_queue_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
+  CONSTRAINT fk_analytics_queue_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL,
+  CONSTRAINT fk_analytics_queue_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS daily_product_metrics (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  product_key VARCHAR(220) NOT NULL,
+  product_id INT UNSIGNED NULL,
+  product_name VARCHAR(255) NULL,
+  product_slug VARCHAR(180) NULL,
+  product_asin VARCHAR(80) NULL,
+  `date` DATE NOT NULL,
+  views BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  add_to_cart BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  purchases BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_daily_product_metrics_key_date (product_key, `date`),
+  INDEX idx_daily_product_metrics_product_date (product_id, `date`),
+  INDEX idx_daily_product_metrics_views (`date`, views),
+  CONSTRAINT fk_daily_product_metrics_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS daily_search_metrics (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  search_query VARCHAR(255) NOT NULL,
+  `date` DATE NOT NULL,
+  `count` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  total_result_count BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  zero_result_count BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  clicked_product_count BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  last_clicked_product_id INT UNSIGNED NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_daily_search_metrics_query_date (search_query, `date`),
+  INDEX idx_daily_search_metrics_count (`date`, `count`),
+  INDEX idx_daily_search_metrics_zero_results (`date`, zero_result_count),
+  CONSTRAINT fk_daily_search_metrics_clicked_product FOREIGN KEY (last_clicked_product_id) REFERENCES products(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS daily_category_metrics (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  category_key VARCHAR(180) NOT NULL,
+  category_id INT UNSIGNED NULL,
+  category_name VARCHAR(255) NULL,
+  category_slug VARCHAR(180) NULL,
+  `date` DATE NOT NULL,
+  views BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  conversions BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_daily_category_metrics_key_date (category_key, `date`),
+  INDEX idx_daily_category_metrics_category_date (category_id, `date`),
+  INDEX idx_daily_category_metrics_views (`date`, views),
+  CONSTRAINT fk_daily_category_metrics_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS daily_funnel_metrics (
+  `date` DATE NOT NULL PRIMARY KEY,
+  sessions BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  users BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  product_views BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  searches BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  add_to_cart BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  checkout BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  purchase BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  abandoned_carts BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  category_views BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  remove_from_cart BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  wishlist_add BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  filter_applied BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS analytics_abandoned_carts (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  session_id VARCHAR(80) NOT NULL,
+  customer_id INT UNSIGNED NULL,
+  last_cart_event_id BIGINT UNSIGNED NOT NULL,
+  cart_value DECIMAL(12, 2) NULL,
+  last_cart_at TIMESTAMP NOT NULL,
+  abandoned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  metric_recorded TINYINT(1) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_abandoned_cart_session_event (session_id, last_cart_event_id),
+  INDEX idx_abandoned_carts_metric (metric_recorded, abandoned_at),
+  CONSTRAINT fk_abandoned_carts_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
+  CONSTRAINT fk_abandoned_carts_event FOREIGN KEY (last_cart_event_id) REFERENCES analytics_events(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS analytics_daily_sessions (
+  `date` DATE NOT NULL,
+  session_id VARCHAR(80) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`date`, session_id)
+);
+
+CREATE TABLE IF NOT EXISTS analytics_daily_users (
+  `date` DATE NOT NULL,
+  user_id INT UNSIGNED NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`date`, user_id),
+  CONSTRAINT fk_analytics_daily_users_customer FOREIGN KEY (user_id) REFERENCES customers(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS analytics_processing_state (
+  processor_name VARCHAR(80) NOT NULL PRIMARY KEY,
+  last_event_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  last_run_at TIMESTAMP NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS inventory_import_jobs (
+  id VARCHAR(80) NOT NULL PRIMARY KEY,
+  file_name VARCHAR(255) NOT NULL,
+  stored_file_path VARCHAR(500) NOT NULL,
+  template_type VARCHAR(80) NOT NULL,
+  import_type VARCHAR(80) NOT NULL,
+  uploaded_by VARCHAR(180) NULL,
+  total_rows INT NOT NULL DEFAULT 0,
+  processed_rows INT NOT NULL DEFAULT 0,
+  success_rows INT NOT NULL DEFAULT 0,
+  failed_rows INT NOT NULL DEFAULT 0,
+  current_batch INT NOT NULL DEFAULT 0,
+  status VARCHAR(40) NOT NULL DEFAULT 'queued',
+  report_data JSON NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  completed_at TIMESTAMP NULL DEFAULT NULL
+);
+
+CREATE TABLE IF NOT EXISTS inventory_import_failed_rows (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  import_id VARCHAR(80) NOT NULL,
+  `row_number` INT NOT NULL,
+  asin VARCHAR(80) NULL,
+  sku VARCHAR(120) NULL,
+  error_reason TEXT NOT NULL,
+  original_row_data JSON NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_inventory_failed_import (import_id),
+  CONSTRAINT fk_inventory_failed_import FOREIGN KEY (import_id) REFERENCES inventory_import_jobs(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS inventory_export_jobs (
+  id VARCHAR(80) NOT NULL PRIMARY KEY,
+  file_name VARCHAR(255) NOT NULL,
+  stored_file_path VARCHAR(500) NULL,
+  export_type VARCHAR(80) NOT NULL,
+  requested_by VARCHAR(180) NULL,
+  filters_json JSON NULL,
+  total_rows INT NOT NULL DEFAULT 0,
+  processed_rows INT NOT NULL DEFAULT 0,
+  status VARCHAR(40) NOT NULL DEFAULT 'queued',
+  message TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  completed_at TIMESTAMP NULL DEFAULT NULL
+);
+
+ALTER TABLE products ADD COLUMN stock_status VARCHAR(20) GENERATED ALWAYS AS (
+  CASE
+    WHEN stock_quantity <= 0 OR status = 'out_of_stock' THEN 'out-of-stock'
+    WHEN stock_quantity <= low_stock_threshold THEN 'low-stock'
+    ELSE 'in-stock'
+  END
+) STORED;
+
+CREATE TABLE IF NOT EXISTS analytics_funnel_daily (
+  metric_date DATE NOT NULL,
+  event_type VARCHAR(40) NOT NULL,
+  total BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (metric_date, event_type)
+);
+
+CREATE TABLE IF NOT EXISTS analytics_product_daily (
+  metric_date DATE NOT NULL,
+  product_key VARCHAR(220) NOT NULL,
+  product_id INT UNSIGNED NULL,
+  product_name VARCHAR(255) NULL,
+  product_slug VARCHAR(180) NULL,
+  product_asin VARCHAR(80) NULL,
+  views BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  add_to_cart BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  purchases BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  revenue DECIMAL(14, 2) NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (metric_date, product_key),
+  INDEX idx_analytics_product_daily_views (metric_date, views),
+  CONSTRAINT fk_analytics_product_daily_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS analytics_search_daily (
+  metric_date DATE NOT NULL,
+  search_query VARCHAR(255) NOT NULL,
+  total BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (metric_date, search_query),
+  INDEX idx_analytics_search_daily_total (metric_date, total)
+);
+
+CREATE TABLE IF NOT EXISTS analytics_recent_events (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  source_event_id BIGINT UNSIGNED NULL,
+  event_type VARCHAR(40) NOT NULL,
+  search_query VARCHAR(255) NULL,
+  label VARCHAR(255) NOT NULL,
+  quantity INT UNSIGNED NULL,
+  cart_value DECIMAL(12, 2) NULL,
+  occurred_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_analytics_recent_occurred (occurred_at),
+  CONSTRAINT fk_analytics_recent_source_event FOREIGN KEY (source_event_id) REFERENCES analytics_events(id) ON DELETE SET NULL
+);
+
+ALTER TABLE analytics_events ADD COLUMN source_queue_id BIGINT UNSIGNED NULL;
+ALTER TABLE analytics_events ADD COLUMN event_uid VARCHAR(120) NULL;
+ALTER TABLE analytics_events ADD COLUMN event_fingerprint CHAR(64) NULL;
+ALTER TABLE analytics_events ADD COLUMN event_name VARCHAR(120) NOT NULL DEFAULT '';
+ALTER TABLE analytics_events ADD COLUMN event_type VARCHAR(40) NULL;
+ALTER TABLE analytics_events ADD COLUMN user_id INT UNSIGNED NULL;
+ALTER TABLE analytics_events ADD COLUMN category_id INT UNSIGNED NULL;
+ALTER TABLE analytics_events ADD COLUMN clicked_product_id INT UNSIGNED NULL;
+ALTER TABLE analytics_events ADD COLUMN product_asin VARCHAR(80) NULL;
+ALTER TABLE analytics_events ADD COLUMN product_slug VARCHAR(180) NULL;
+ALTER TABLE analytics_events ADD COLUMN search_query VARCHAR(255) NULL;
+ALTER TABLE analytics_events ADD COLUMN search_result_count INT UNSIGNED NULL;
+ALTER TABLE analytics_events ADD COLUMN quantity INT UNSIGNED NULL;
+ALTER TABLE analytics_events ADD COLUMN order_id INT UNSIGNED NULL;
+ALTER TABLE analytics_events ADD COLUMN order_number VARCHAR(80) NULL;
+ALTER TABLE analytics_events ADD COLUMN cart_value DECIMAL(12, 2) NULL;
+ALTER TABLE analytics_events ADD COLUMN event_data JSON NULL;
+ALTER TABLE analytics_events ADD COLUMN occurred_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
+CREATE INDEX idx_analytics_event_type_date ON analytics_events(event_type, occurred_at);
+CREATE INDEX idx_analytics_session_date ON analytics_events(session_id, occurred_at);
+CREATE INDEX idx_analytics_product_date ON analytics_events(product_id, occurred_at);
+CREATE INDEX idx_analytics_category_date ON analytics_events(category_id, occurred_at);
+CREATE INDEX idx_analytics_customer_date ON analytics_events(customer_id, occurred_at);
+CREATE UNIQUE INDEX uniq_analytics_source_queue ON analytics_events(source_queue_id);
+CREATE UNIQUE INDEX uniq_analytics_event_uid ON analytics_events(event_uid);
+CREATE UNIQUE INDEX uniq_analytics_event_fingerprint ON analytics_events(event_fingerprint);
+ALTER TABLE analytics_events ADD CONSTRAINT fk_analytics_events_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL;
+ALTER TABLE analytics_event_queue ADD COLUMN category_id INT UNSIGNED NULL;
+ALTER TABLE daily_search_metrics ADD COLUMN total_result_count BIGINT UNSIGNED NOT NULL DEFAULT 0;
+ALTER TABLE daily_search_metrics ADD COLUMN zero_result_count BIGINT UNSIGNED NOT NULL DEFAULT 0;
+ALTER TABLE daily_search_metrics ADD COLUMN clicked_product_count BIGINT UNSIGNED NOT NULL DEFAULT 0;
+ALTER TABLE daily_search_metrics ADD COLUMN last_clicked_product_id INT UNSIGNED NULL;
+ALTER TABLE daily_funnel_metrics ADD COLUMN abandoned_carts BIGINT UNSIGNED NOT NULL DEFAULT 0;
+ALTER TABLE daily_funnel_metrics ADD COLUMN users BIGINT UNSIGNED NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS payments (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -646,13 +1060,28 @@ CREATE TABLE IF NOT EXISTS uploaded_assets (
 CREATE TABLE IF NOT EXISTS audit_logs (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   admin_id INT UNSIGNED NULL,
+  admin_name VARCHAR(120) NULL,
+  admin_role VARCHAR(80) NULL,
   action VARCHAR(120) NOT NULL,
+  module_name VARCHAR(80) NULL,
   entity_type VARCHAR(80) NOT NULL,
   entity_id VARCHAR(80) NULL,
+  record_name VARCHAR(180) NULL,
+  ip_address VARCHAR(64) NULL,
+  device_label VARCHAR(180) NULL,
+  status ENUM('success', 'failed') NOT NULL DEFAULT 'success',
   metadata_json JSON NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_audit_logs_admin FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE SET NULL
 );
+
+ALTER TABLE audit_logs ADD COLUMN admin_name VARCHAR(120) NULL;
+ALTER TABLE audit_logs ADD COLUMN admin_role VARCHAR(80) NULL;
+ALTER TABLE audit_logs ADD COLUMN module_name VARCHAR(80) NULL;
+ALTER TABLE audit_logs ADD COLUMN record_name VARCHAR(180) NULL;
+ALTER TABLE audit_logs ADD COLUMN ip_address VARCHAR(64) NULL;
+ALTER TABLE audit_logs ADD COLUMN device_label VARCHAR(180) NULL;
+ALTER TABLE audit_logs ADD COLUMN status ENUM('success', 'failed') NOT NULL DEFAULT 'success';
 
 CREATE TABLE IF NOT EXISTS app_settings (
   id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
@@ -665,10 +1094,31 @@ CREATE TABLE IF NOT EXISTS app_settings (
 CREATE INDEX idx_categories_parent ON categories(parent_id);
 CREATE INDEX idx_categories_status_sort ON categories(status, sort_order);
 CREATE INDEX idx_brands_status_sort ON brands(status, sort_order);
+CREATE UNIQUE INDEX uq_products_asin ON products(asin);
+CREATE UNIQUE INDEX uq_products_sku ON products(sku);
+CREATE UNIQUE INDEX uq_products_slug ON products(slug);
+CREATE INDEX idx_products_category ON products(category_id);
+CREATE INDEX idx_products_brand ON products(brand_id);
+CREATE INDEX idx_products_status ON products(status);
+CREATE INDEX idx_products_stock_status ON products(stock_status);
+CREATE INDEX idx_products_stock_safety ON products(stock_quantity, low_stock_threshold, status);
 CREATE INDEX idx_products_category_status ON products(category_id, status);
 CREATE INDEX idx_products_brand_status ON products(brand_id, status);
 CREATE INDEX idx_products_asin ON products(asin);
 CREATE INDEX idx_products_sku ON products(sku);
+CREATE INDEX idx_products_model_number ON products(model_number);
+CREATE FULLTEXT INDEX idx_products_catalog_fulltext ON products(name, brand, asin, sku, barcode, model_number, short_description, description);
+CREATE INDEX idx_inventory_import_jobs_status_created ON inventory_import_jobs(status, created_at);
+CREATE INDEX idx_inventory_import_jobs_template_type ON inventory_import_jobs(template_type, import_type);
+CREATE INDEX idx_inventory_import_failed_rows_keys ON inventory_import_failed_rows(asin, sku);
+CREATE INDEX idx_inventory_export_jobs_status_created ON inventory_export_jobs(status, created_at);
+CREATE INDEX idx_inventory_export_jobs_type_created ON inventory_export_jobs(export_type, created_at);
+CREATE INDEX idx_admins_status ON admins(status);
+CREATE INDEX idx_admin_login_sessions_admin_status ON admin_login_sessions(admin_id, status);
+CREATE INDEX idx_permissions_module_action ON permissions(module_name, action_name);
+CREATE INDEX idx_user_custom_permissions_admin ON user_custom_permissions(admin_id);
+CREATE INDEX idx_audit_logs_admin_created ON audit_logs(admin_id, created_at);
+CREATE INDEX idx_audit_logs_module_created ON audit_logs(module_name, created_at);
 CREATE INDEX idx_products_visibility ON products(status, is_visible, is_deleted);
 CREATE INDEX idx_orders_number ON orders(order_number);
 CREATE INDEX idx_orders_status_created ON orders(status, created_at);

@@ -207,7 +207,7 @@ export default function Customers() {
       ) : null}
 
       <div style={tableCardStyle}>
-        <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, minWidth: "1080px" }}>
+        <table className="dashboard-data-table dashboard-customers-admin-table" style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed" }}>
           <thead>
             <tr style={{ background: "#f8fafc" }}>
               <th style={tableHeaderStyle}>Customer ID</th>
@@ -448,7 +448,8 @@ const actionGroupStyle = {
   display: "flex",
   alignItems: "center",
   gap: "8px",
-  flexWrap: "wrap"
+  flexWrap: "nowrap",
+  whiteSpace: "nowrap"
 };
 
 const mutedTextStyle = {

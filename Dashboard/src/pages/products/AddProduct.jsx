@@ -227,9 +227,14 @@ export function buildProductFormDataFromStorefrontProduct(product) {
   const base = createInitialProductData();
   const totalStock = getTotalStock(product);
   const stockStatus = getStockStatus(product, totalStock);
+  const productImages = [...new Set([
+    product.image,
+    ...(Array.isArray(product.gallery) ? product.gallery : [])
+  ].filter(Boolean))];
 
   return {
     ...base,
+    id: product.id,
     basicInfo: {
       ...base.basicInfo,
       productName: product.name || "",
@@ -254,12 +259,7 @@ export function buildProductFormDataFromStorefrontProduct(product) {
     },
     media: {
       ...base.media,
-      images: [
-        ...(product.image ? [createPseudoUpload("Current product image", product.image)] : []),
-        ...(Array.isArray(product.gallery)
-          ? product.gallery.map((image, index) => createPseudoUpload(`Gallery image ${index + 1}`, image))
-          : [])
-      ],
+      images: productImages.map((image, index) => createPseudoUpload(index === 0 ? "Current product image" : `Gallery image ${index + 1}`, image)),
       videos: product.video ? [createPseudoUpload("Current product video", product.video)] : []
     },
     variants: Array.isArray(product.variants) && product.variants.length
@@ -629,31 +629,35 @@ export default function AddProduct({ initialProductData = null, mode = "add" }) 
     };
   }, []);
 
-  const uploadPrimaryImage = async () => {
-    const firstImage = media.images?.[0];
-    if (!firstImage) return "";
-    if (firstImage.file) {
-      try {
-        const response = await uploadAdminImage(firstImage.file);
+  const uploadProductImages = async () => {
+    const imageFiles = Array.isArray(media.images) ? media.images : [];
+    const uploadedUrls = [];
+
+    for (const image of imageFiles) {
+      if (image.file) {
+        const response = await uploadAdminImage(image.file);
         const uploadedUrl = response.data?.data?.url || "";
-        return uploadedUrl.startsWith("/uploads/") ? `http://localhost:4000${uploadedUrl}` : uploadedUrl;
-      } catch {
-        return "/images/optimized/frame-1.webp";
+        uploadedUrls.push(uploadedUrl.startsWith("/uploads/") ? `http://localhost:4000${uploadedUrl}` : uploadedUrl);
+      } else if (image.url) {
+        uploadedUrls.push(image.url);
       }
     }
-    return firstImage.url || "";
+
+    return uploadedUrls.filter(Boolean);
   };
 
   const buildProductPayload = async (publishStatus) => {
-    const categoryRecord = backendCategories.find((category) => category.slug === basicInfo.category);
-    const primaryImageUrl = await uploadPrimaryImage();
+    const productCategorySlug = basicInfo.subcategory || basicInfo.category;
+    const categoryRecord = backendCategories.find((category) => category.slug === productCategorySlug);
+    const productImageUrls = await uploadProductImages();
+    const primaryImageUrl = productImageUrls[0] || "/images/optimized/frame-1.webp";
     const cleanedHighlights = highlights.map((item) => String(item || "").trim()).filter(Boolean);
     const descriptionText = String(descriptionData.content || "").trim();
     const shortDescription = cleanedHighlights[0] || descriptionText.split(/\n+/)[0] || "";
 
     return {
       categoryId: categoryRecord?.id || undefined,
-      categorySlug: basicInfo.category,
+      categorySlug: productCategorySlug,
       asin: basicInfo.sku || basicInfo.slug || `AVY-${Date.now()}`,
       name: basicInfo.productName,
       slug: basicInfo.slug,
@@ -666,6 +670,7 @@ export default function AddProduct({ initialProductData = null, mode = "add" }) 
       rating: 0,
       reviewCount: 0,
       imageUrl: primaryImageUrl,
+      imageUrls: productImageUrls,
       status: publishStatus
     };
   };
@@ -694,7 +699,7 @@ export default function AddProduct({ initialProductData = null, mode = "add" }) 
       window.setTimeout(() => navigate("/dashboard/products"), 700);
     } catch (error) {
       setSaveTone("error");
-      setSaveMessage(error.response?.data?.message || "Unable to save product. Check backend login, database connection, and required fields.");
+      setSaveMessage(error.response?.data?.message || error.message || "Unable to save product. Check backend login, database connection, and required fields.");
     } finally {
       setIsSavingProduct(false);
     }
@@ -716,18 +721,20 @@ export default function AddProduct({ initialProductData = null, mode = "add" }) 
     })),
     []
   );
-  const availableCategories = React.useMemo(
-    () => flattenCategoryTree(fallbackCategoryTree)
+  const availableCategories = React.useMemo(() => {
+    const sourceCategories = backendCategories.length ? backendCategories : flattenCategoryTree(fallbackCategoryTree);
+    return sourceCategories
       .filter((category) => !category.parentId && category.status === "active")
-      .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0)),
-    []
-  );
+      .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
+  }, [backendCategories]);
   const availableSubcategories = React.useMemo(() => {
-    const selectedCategory = availableCategories.find((category) => category.slug === basicInfo.category);
-    return (selectedCategory?.children || [])
+    const sourceCategories = backendCategories.length ? backendCategories : flattenCategoryTree(fallbackCategoryTree);
+    const selectedCategory = sourceCategories.find((category) => category.slug === basicInfo.category);
+    return sourceCategories
+      .filter((category) => Number(category.parentId || 0) === Number(selectedCategory?.id || 0))
       .filter((category) => category.status === "active")
       .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
-  }, [availableCategories, basicInfo.category]);
+  }, [backendCategories, basicInfo.category]);
   const autoRelatedEnabled = relatedProducts.selectorMode !== "manual-only" && relatedProducts.autoByCategory;
   const manualRelatedEnabled = relatedProducts.selectorMode !== "auto-only";
   const autoRelatedProducts = React.useMemo(() => {

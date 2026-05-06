@@ -1,11 +1,15 @@
 import { Router } from "express";
 import { pingDatabase } from "../../config/db.js";
 import adminAuthRoutes from "./adminAuthRoutes.js";
+import analyticsRoutes from "./analyticsRoutes.js";
 import categoryRoutes from "./categoryRoutes.js";
 import customerRoutes from "./customerRoutes.js";
+import customerAccountRoutes from "./customerAccountRoutes.js";
+import couponRoutes from "./couponRoutes.js";
 import dashboardRoutes from "./dashboardRoutes.js";
 import orderRoutes from "./orderRoutes.js";
 import productRoutes from "./productRoutes.js";
+import seoRoutes from "./seoRoutes.js";
 import settingsRoutes from "./settingsRoutes.js";
 import uploadRoutes from "./uploadRoutes.js";
 import variantGroupRoutes from "./variantGroupRoutes.js";
@@ -32,10 +36,14 @@ router.get("/health", async (_request, response) => {
 });
 
 router.use("/admin/auth", adminAuthRoutes);
+router.use("/analytics", analyticsRoutes);
 router.use("/categories", categoryRoutes);
 router.use("/products", productRoutes);
+router.use("/seo", seoRoutes);
 router.use("/variant-groups", variantGroupRoutes);
 router.use("/customers", customerRoutes);
+router.use("/customer", customerAccountRoutes);
+router.use("/coupons", couponRoutes);
 router.use("/orders", orderRoutes);
 router.use("/dashboard", dashboardRoutes);
 router.use("/settings", settingsRoutes);

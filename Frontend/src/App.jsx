@@ -18,11 +18,15 @@ import {
 } from "./pages";
 import SeoManager from "./components/layout/SeoManager";
 import StoreLayout from "./components/layout/StoreLayout";
+import { trackAnalyticsEvent } from "./api/analyticsApi";
 import { fetchCategoryTree } from "./api/categoryApi";
+import { fetchStorefrontCoupons } from "./api/couponApi";
 import { fallbackCategoryTree } from "./data/category-data";
 import { fetchPublicSettings } from "./api/settingsApi";
 import { fetchStorefrontProducts } from "./api/productApi";
+import { clearCustomerToken, fetchCurrentCustomer, fetchCustomerCart, fetchCustomerOrders, fetchCustomerWishlist, getCustomerToken, syncCustomerCart, syncCustomerWishlist } from "./api/customerApi";
 import { allProducts } from "./data/storefront-content";
+import { couponRules } from "../../shared/coupons";
 import { DEFAULT_APP_SETTINGS, getPublicSettings, mergeSettings } from "../../shared/appSettings";
 import ProtectedRoute from "./components/common/ProtectedRoute";
 import { usePersistentState } from "./hooks/usePersistentState";
@@ -33,6 +37,50 @@ const AUTH_STORAGE_KEY = "avyonaAuthUser";
 const ACCOUNT_STORAGE_KEY = "avyonaAccounts";
 const CUSTOMER_PROFILE_KEY = "avyonaCustomerProfile";
 const ORDER_STORAGE_KEY = "avyonaOrders";
+const PUBLIC_DATA_REFRESH_MS = 5 * 60 * 1000;
+
+function normalizeBackendProduct(product) {
+  const price = Number(product.price || 0);
+  const mrp = Number(product.mrp || price || 0);
+  const stockQuantity = Number(product.stockQuantity || 0);
+  const discount = mrp > price && price > 0 ? Math.round(((mrp - price) / mrp) * 100) : 0;
+  const collectionSlug = product.categorySlug || String(product.categoryName || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const gallery = Array.isArray(product.galleryUrls) && product.galleryUrls.length
+    ? product.galleryUrls
+    : [product.imageUrl || "/images/optimized/frame-1.webp"];
+
+  return {
+    asin: product.asin,
+    sku: product.asin,
+    slug: product.slug,
+    name: product.name,
+    brand: product.brand,
+    category: product.categoryName || "Products",
+    collectionSlug,
+    price,
+    mrp,
+    discount,
+    image: gallery[0],
+    gallery,
+    highlights: [product.shortDescription || "New Avyona product"].filter(Boolean),
+    description: product.description ? String(product.description).split(/\n+/).filter(Boolean) : [product.shortDescription || "Product details will be updated soon."],
+    rating: Number(product.rating || 0),
+    reviewCount: Number(product.reviewCount || 0),
+    availableStock: stockQuantity,
+    stockTone: stockQuantity > 0 ? "in-stock" : "out-of-stock",
+    stockNote: stockQuantity > 0 ? "Available for dispatch" : "Out of stock",
+    variantGroupId: product.variantGroupId || "",
+    variantGroupName: product.variantGroupName || "",
+    variantType: product.variantType || "",
+    variantValue: product.variantValue || product.name,
+    variants: [],
+    specGroups: [],
+    reviews: [],
+    faqs: [],
+    warrantySummary: "",
+    returnSummary: ""
+  };
+}
 
 function App() {
   const location = useLocation();
@@ -48,10 +96,111 @@ function App() {
   const [siteSettings, setSiteSettings] = useState(() => getPublicSettings(DEFAULT_APP_SETTINGS));
   const [siteCategories, setSiteCategories] = useState(fallbackCategoryTree);
   const [storefrontProducts, setStorefrontProducts] = useState(allProducts);
+  const [storefrontCoupons, setStorefrontCoupons] = useState(couponRules);
+  const [isProductCatalogLoading, setIsProductCatalogLoading] = useState(true);
+  const [isCategoryCatalogLoading, setIsCategoryCatalogLoading] = useState(true);
+  const [hasLoadedCustomerSession, setHasLoadedCustomerSession] = useState(false);
+  const [hasHydratedCustomerData, setHasHydratedCustomerData] = useState(false);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadCustomerSession() {
+      if (!getCustomerToken()) {
+        setHasLoadedCustomerSession(true);
+        setHasHydratedCustomerData(true);
+        return;
+      }
+
+      try {
+        const response = await fetchCurrentCustomer();
+        if (!isMounted) return;
+        const customer = response.data?.customer;
+        if (customer) {
+          setAuthUser({ id: customer.id, fullName: customer.fullName, email: customer.email, mobile: customer.mobile });
+          setCustomerProfile({
+            firstName: customer.firstName,
+            lastName: customer.lastName,
+            contact: customer.email,
+            phone: customer.mobile
+          });
+        }
+      } catch {
+        clearCustomerToken();
+        if (isMounted) setAuthUser(null);
+      } finally {
+        if (isMounted) setHasLoadedCustomerSession(true);
+      }
+    }
+
+    loadCustomerSession();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [setAuthUser, setCustomerProfile]);
+
+  useEffect(() => {
+    if (!hasLoadedCustomerSession || !authUser || hasHydratedCustomerData) return undefined;
+    let isMounted = true;
+
+    async function hydrateCustomerData() {
+      try {
+        const [cartResult, wishlistResult, ordersResult] = await Promise.allSettled([
+          fetchCustomerCart(),
+          fetchCustomerWishlist(),
+          fetchCustomerOrders()
+        ]);
+
+        if (!isMounted) return;
+
+        if (cartResult.status === "fulfilled") {
+          const dbCart = Array.isArray(cartResult.value.data) ? cartResult.value.data : [];
+          if (dbCart.length) setCart(dbCart);
+          else if (cart.length) await syncCustomerCart(cart).catch(() => {});
+        }
+
+        if (wishlistResult.status === "fulfilled") {
+          const dbWishlist = Array.isArray(wishlistResult.value.data) ? wishlistResult.value.data : [];
+          if (dbWishlist.length) setWishlist(dbWishlist);
+          else if (wishlist.length) await syncCustomerWishlist(wishlist).catch(() => {});
+        }
+
+        if (ordersResult.status === "fulfilled") {
+          const dbOrders = Array.isArray(ordersResult.value.data) ? ordersResult.value.data : [];
+          if (dbOrders.length) setOrders(dbOrders);
+        }
+      } finally {
+        if (isMounted) setHasHydratedCustomerData(true);
+      }
+    }
+
+    hydrateCustomerData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [authUser, cart, hasHydratedCustomerData, hasLoadedCustomerSession, setCart, setOrders, setWishlist, wishlist]);
+
+  useEffect(() => {
+    if (!authUser || !hasHydratedCustomerData) return undefined;
+    const timerId = window.setTimeout(() => {
+      syncCustomerCart(cart).catch(() => {});
+    }, 300);
+    return () => window.clearTimeout(timerId);
+  }, [authUser, cart, hasHydratedCustomerData]);
+
+  useEffect(() => {
+    if (!authUser || !hasHydratedCustomerData) return undefined;
+    const timerId = window.setTimeout(() => {
+      syncCustomerWishlist(wishlist).catch(() => {});
+    }, 300);
+    return () => window.clearTimeout(timerId);
+  }, [authUser, hasHydratedCustomerData, wishlist]);
 
   useEffect(() => {
     if (!cartAnimation) return undefined;
@@ -96,45 +245,10 @@ function App() {
   useEffect(() => {
     let isMounted = true;
 
-    function normalizeBackendProduct(product) {
-      const price = Number(product.price || 0);
-      const mrp = Number(product.mrp || price || 0);
-      const stockQuantity = Number(product.stockQuantity || 0);
-      const discount = mrp > price && price > 0 ? Math.round(((mrp - price) / mrp) * 100) : 0;
-      const collectionSlug = product.categorySlug || String(product.categoryName || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-
-      return {
-        asin: product.asin,
-        sku: product.asin,
-        slug: product.slug,
-        name: product.name,
-        brand: product.brand,
-        category: product.categoryName || "Products",
-        collectionSlug,
-        price,
-        mrp,
-        discount,
-        image: product.imageUrl || "/images/optimized/frame-1.webp",
-        gallery: [product.imageUrl || "/images/optimized/frame-1.webp"],
-        highlights: [product.shortDescription || "New Avyona product"].filter(Boolean),
-        description: product.description ? String(product.description).split(/\n+/).filter(Boolean) : [product.shortDescription || "Product details will be updated soon."],
-        rating: Number(product.rating || 0),
-        reviewCount: Number(product.reviewCount || 0),
-        availableStock: stockQuantity,
-        stockTone: stockQuantity > 0 ? "in-stock" : "out-of-stock",
-        stockNote: stockQuantity > 0 ? "Available for dispatch" : "Out of stock",
-        variants: [],
-        specGroups: [],
-        reviews: [],
-        faqs: [],
-        warrantySummary: "",
-        returnSummary: ""
-      };
-    }
-
     async function loadProducts() {
+      setIsProductCatalogLoading(true);
       try {
-        const response = await fetchStorefrontProducts({ status: "active" });
+        const response = await fetchStorefrontProducts({ status: "active", limit: 36 });
         if (!isMounted) return;
         const rows = Array.isArray(response.data) ? response.data : [];
         const backendProducts = rows.map(normalizeBackendProduct);
@@ -143,6 +257,8 @@ function App() {
         setStorefrontProducts([...staticBySlug.values()]);
       } catch {
         if (isMounted) setStorefrontProducts(allProducts);
+      } finally {
+        if (isMounted) setIsProductCatalogLoading(false);
       }
     }
 
@@ -156,7 +272,87 @@ function App() {
   useEffect(() => {
     let isMounted = true;
 
+    async function loadCoupons() {
+      try {
+        const response = await fetchStorefrontCoupons({ status: "active" });
+        if (!isMounted) return;
+        const rows = Array.isArray(response.data) ? response.data : [];
+        setStorefrontCoupons(rows.length ? rows : couponRules);
+      } catch {
+        if (isMounted) setStorefrontCoupons(couponRules);
+      }
+    }
+
+    loadCoupons();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    let isRefreshing = false;
+
+    async function refreshPublicData() {
+      if (isRefreshing) return;
+      isRefreshing = true;
+
+      const [settingsResult, productsResult, categoriesResult, couponsResult] = await Promise.allSettled([
+        fetchPublicSettings(),
+        fetchStorefrontProducts({ status: "active", limit: 36 }),
+        fetchCategoryTree(),
+        fetchStorefrontCoupons({ status: "active" })
+      ]);
+
+      if (!isMounted) return;
+
+      if (settingsResult.status === "fulfilled") {
+        setSiteSettings(getPublicSettings(mergeSettings(DEFAULT_APP_SETTINGS, settingsResult.value.data || {})));
+      }
+
+      if (productsResult.status === "fulfilled") {
+        const rows = Array.isArray(productsResult.value.data) ? productsResult.value.data : [];
+        const backendProducts = rows.map(normalizeBackendProduct);
+        const mergedBySlug = new Map(allProducts.map((product) => [product.slug, product]));
+        backendProducts.forEach((product) => mergedBySlug.set(product.slug, product));
+        setStorefrontProducts([...mergedBySlug.values()]);
+      }
+
+      if (categoriesResult.status === "fulfilled") {
+        const rows = categoriesResult.value.data;
+        if (Array.isArray(rows) && rows.length) setSiteCategories(rows);
+      }
+
+      if (couponsResult.status === "fulfilled") {
+        const rows = Array.isArray(couponsResult.value.data) ? couponsResult.value.data : [];
+        setStorefrontCoupons(rows.length ? rows : couponRules);
+      }
+
+      isRefreshing = false;
+    }
+
+    function refreshWhenVisible() {
+      if (document.visibilityState === "visible") {
+        refreshPublicData();
+      }
+    }
+
+    const intervalId = window.setInterval(refreshPublicData, PUBLIC_DATA_REFRESH_MS);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
     async function loadCategories() {
+      setIsCategoryCatalogLoading(true);
       try {
         const response = await fetchCategoryTree();
         if (!isMounted) return;
@@ -164,6 +360,10 @@ function App() {
       } catch {
         if (isMounted) {
           setSiteCategories(fallbackCategoryTree);
+        }
+      } finally {
+        if (isMounted) {
+          setIsCategoryCatalogLoading(false);
         }
       }
     }
@@ -206,6 +406,7 @@ function App() {
         ...current,
         {
           slug: product.slug,
+          asin: product.asin,
           name: product.name,
           category: product.category,
           price: safeVariant?.price ?? product.price,
@@ -239,6 +440,17 @@ function App() {
     }
 
     notify("Added to cart");
+    trackAnalyticsEvent({
+      eventType: "add_to_cart",
+      productAsin: product.asin,
+      productSlug: product.slug,
+      quantity,
+      cartValue: Number((safeVariant?.price ?? product.price) || 0) * Number(quantity || 1),
+      metadata: {
+        productName: product.name,
+        variantLabel: safeVariant?.label || ""
+      }
+    });
   };
 
   const updateCartQuantity = (slug, variantLabel, quantity) => {
@@ -254,11 +466,27 @@ function App() {
   };
 
   const removeCartItem = (slug, variantLabel) => {
+    const removedItem = cart.find(
+      (item) => item.slug === slug && String(item.variantLabel || "") === String(variantLabel || "")
+    );
     setCart((current) =>
       current.filter(
         (item) => !(item.slug === slug && String(item.variantLabel || "") === String(variantLabel || ""))
       )
     );
+    if (removedItem) {
+      trackAnalyticsEvent({
+        eventType: "remove_from_cart",
+        productAsin: removedItem.asin,
+        productSlug: removedItem.slug,
+        quantity: removedItem.quantity,
+        cartValue: Number(removedItem.price || 0) * Number(removedItem.quantity || 1),
+        metadata: {
+          productName: removedItem.name,
+          variantLabel: removedItem.variantLabel || ""
+        }
+      });
+    }
   };
 
   const toggleWishlist = (product, variant) => {
@@ -278,6 +506,7 @@ function App() {
     setWishlist((current) => [
       ...current,
       {
+        asin: product.asin,
         slug: product.slug,
         name: product.name,
         category: product.category,
@@ -287,6 +516,16 @@ function App() {
       }
     ]);
     notify("Saved to wishlist");
+    trackAnalyticsEvent({
+      eventType: "wishlist_add",
+      productAsin: product.asin,
+      productSlug: product.slug,
+      cartValue: Number((variant?.price ?? product.price) || 0),
+      metadata: {
+        productName: product.name,
+        variantLabel
+      }
+    });
   };
 
   const context = {
@@ -305,12 +544,21 @@ function App() {
     toggleWishlist,
     setCart,
     setWishlist,
-    setAuthUser,
+    setAuthUser: (nextUser) => {
+      setHasHydratedCustomerData(false);
+      if (!nextUser) {
+        clearCustomerToken();
+      }
+      setAuthUser(nextUser);
+    },
     setAccounts,
     setCustomerProfile,
     setOrders,
     siteSettings,
     siteCategories,
+    coupons: storefrontCoupons,
+    isProductCatalogLoading,
+    isCategoryCatalogLoading,
     allProducts: storefrontProducts
   };
 

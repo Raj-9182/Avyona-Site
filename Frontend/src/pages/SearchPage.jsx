@@ -1,19 +1,64 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { trackAnalyticsEvent } from "../api/analyticsApi";
+import { fetchStorefrontProducts } from "../api/productApi";
 import ProductCard from "../components/product/ProductCard";
 import { allProducts } from "../data/storefront-content";
 import { formatCurrency, getSearchResults } from "../utils/storefront";
+
+function normalizeBackendProduct(product) {
+  const price = Number(product.price || 0);
+  const mrp = Number(product.mrp || price || 0);
+  const stockQuantity = Number(product.stockQuantity || 0);
+  const discount = mrp > price && price > 0 ? Math.round(((mrp - price) / mrp) * 100) : 0;
+  const collectionSlug = product.categorySlug || String(product.categoryName || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const gallery = Array.isArray(product.galleryUrls) && product.galleryUrls.length ? product.galleryUrls : [product.imageUrl || "/images/optimized/frame-1.webp"];
+
+  return {
+    id: product.id,
+    asin: product.asin,
+    sku: product.asin || product.sku,
+    slug: product.slug,
+    name: product.name,
+    brand: product.brand,
+    category: product.categoryName || "Products",
+    collectionSlug,
+    price,
+    mrp,
+    discount,
+    image: gallery[0],
+    gallery,
+    highlights: [product.shortDescription || "New Avyona product"].filter(Boolean),
+    description: product.description ? String(product.description).split(/\n+/).filter(Boolean) : [product.shortDescription || "Product details will be updated soon."],
+    rating: Number(product.rating || 0),
+    reviewCount: Number(product.reviewCount || 0),
+    availableStock: stockQuantity,
+    stockTone: stockQuantity > 0 ? "in-stock" : "out-of-stock",
+    variants: [],
+    specGroups: [],
+    reviews: [],
+    faqs: []
+  };
+}
 
 export default function SearchPage({ context }) {
   const [searchParams] = useSearchParams();
   const query = searchParams.get("q") || "";
   const productCatalog = context.allProducts && context.allProducts.length ? context.allProducts : allProducts;
-  const rawResults = useMemo(() => getSearchResults(productCatalog, query), [productCatalog, query]);
-  const products = rawResults.map((entry) => entry.product);
+  const fallbackResults = useMemo(() => getSearchResults(productCatalog, query), [productCatalog, query]);
+  const [serverProducts, setServerProducts] = useState([]);
+  const [pagination, setPagination] = useState({ page: 1, limit: 24, total: 0, totalPages: 1 });
+  const [facets, setFacets] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [serverUnavailable, setServerUnavailable] = useState(false);
   const [brandFilter, setBrandFilter] = useState([]);
   const [availability, setAvailability] = useState([]);
   const [rating, setRating] = useState(0);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const trackedQueryRef = useRef("");
+  const trackedFilterRef = useRef("");
+  const products = serverUnavailable ? fallbackResults.map((entry) => entry.product) : serverProducts;
   const prices = products.map((product) => product.price);
   const minPrice = prices.length ? Math.min(...prices) : 0;
   const maxPrice = prices.length ? Math.max(...prices) : 0;
@@ -23,20 +68,134 @@ export default function SearchPage({ context }) {
     setPriceRange([minPrice, maxPrice]);
   }, [minPrice, maxPrice, query]);
 
-  const brands = [...new Set(products.map((product) => product.brand))];
+  useEffect(() => {
+    setPage(1);
+  }, [query, brandFilter, availability, rating]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadSearchResults() {
+      setIsLoading(true);
+      try {
+        const response = await fetchStorefrontProducts({
+          status: "active",
+          search: query,
+          brand: brandFilter.length === 1 ? brandFilter[0] : "",
+          availability: availability.length === 1 ? availability[0] : "",
+          minPrice: priceRange[0] || "",
+          maxPrice: priceRange[1] || "",
+          sort: rating ? "rating-high-low" : "newest",
+          page,
+          limit: 24
+        });
+        if (!isMounted) return;
+        setServerProducts((Array.isArray(response.data) ? response.data : []).map(normalizeBackendProduct));
+        setPagination(response.pagination || { page, limit: 24, total: 0, totalPages: 1 });
+        setFacets(response.facets || null);
+        setServerUnavailable(false);
+        if (query.trim() && trackedQueryRef.current !== query.trim().toLowerCase()) {
+          trackedQueryRef.current = query.trim().toLowerCase();
+          trackAnalyticsEvent({
+            eventType: "search",
+            query: query.trim(),
+            metadata: {
+              resultCount: Number(response.pagination?.total ?? response.count ?? 0)
+            }
+          });
+        }
+      } catch {
+        if (!isMounted) return;
+        setServerUnavailable(true);
+        if (query.trim() && trackedQueryRef.current !== query.trim().toLowerCase()) {
+          trackedQueryRef.current = query.trim().toLowerCase();
+          trackAnalyticsEvent({
+            eventType: "search",
+            query: query.trim(),
+            metadata: {
+              resultCount: fallbackResults.length,
+              source: "fallback"
+            }
+          });
+        }
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    }
+
+    loadSearchResults();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [availability, brandFilter, page, priceRange, query, rating]);
+
+  const brands = facets?.brands?.length ? facets.brands.map((brand) => brand.value) : [...new Set(products.map((product) => product.brand))];
+
+  const trackSearchResultClick = (product) => {
+    if (!query.trim()) return;
+
+    trackAnalyticsEvent({
+      eventType: "product_view",
+      productId: product.id,
+      productAsin: product.asin,
+      productSlug: product.slug,
+      clickedProductId: product.id,
+      clickedProductAsin: product.asin,
+      clickedProductSlug: product.slug,
+      query: query.trim(),
+      resultCount: pagination.total || filtered.length,
+      metadata: {
+        surface: "search_results",
+        productName: product.name,
+        resultCount: pagination.total || filtered.length
+      }
+    });
+  };
 
   useEffect(() => {
     document.body.classList.toggle("search-filters-open", filterOpen);
     return () => document.body.classList.remove("search-filters-open");
   }, [filterOpen]);
 
-  const filtered = products.filter((product) => {
+  const filtered = (serverUnavailable ? products : products).filter((product) => {
     const brandPass = !brandFilter.length || brandFilter.includes(product.brand);
     const availabilityPass = !availability.length || availability.includes(product.stockTone);
     const ratingPass = Number(product.rating || 0) >= rating;
     const pricePass = Number(product.price || 0) >= priceRange[0] && Number(product.price || 0) <= priceRange[1];
     return brandPass && availabilityPass && ratingPass && pricePass;
   });
+
+  useEffect(() => {
+    const hasFilter = brandFilter.length || availability.length || rating || priceRange[0] !== minPrice || priceRange[1] !== maxPrice;
+    if (!hasFilter) return;
+
+    const filterKey = JSON.stringify({
+      query: query.trim(),
+      brandFilter,
+      availability,
+      rating,
+      priceRange
+    });
+    if (trackedFilterRef.current === filterKey) return;
+    trackedFilterRef.current = filterKey;
+
+    trackAnalyticsEvent({
+      eventType: "filter_applied",
+      query: query.trim(),
+      metadata: {
+        surface: "search",
+        filters: {
+          brands: brandFilter,
+          availability,
+          minPrice: priceRange[0],
+          maxPrice: priceRange[1],
+          rating
+        },
+        resultCount: filtered.length
+      }
+    });
+  }, [availability, brandFilter, filtered.length, maxPrice, minPrice, priceRange, query, rating]);
 
   return (
     <main className="container search-page">
@@ -114,10 +273,17 @@ export default function SearchPage({ context }) {
             </button>
           </aside>
           <div className="search-results-content">
-            <div className="section-heading"><div><h2>Products</h2></div></div>
+            <div className="section-heading"><div><h2>Products</h2>{isLoading ? <p>Loading products...</p> : null}</div></div>
             <div className="product-grid">
-              {filtered.length ? filtered.map((product) => <ProductCard key={product.slug} product={product} context={context} eyebrow={`${product.brand} | ${product.category}`} actionLabel="Open Product" actionMode="link" />) : <div className="empty-state"><h3>No matching products found</h3><p>Try another keyword.</p></div>}
+              {filtered.length ? filtered.map((product) => <ProductCard key={product.slug} product={product} context={context} eyebrow={`${product.brand} | ${product.category}`} actionLabel="Open Product" actionMode="link" onProductClick={trackSearchResultClick} />) : <div className="empty-state"><h3>No matching products found</h3><p>Try another keyword.</p></div>}
             </div>
+            {!serverUnavailable && pagination.totalPages > 1 ? (
+              <div className="dashboard-toolbar-actions" style={{ justifyContent: "center", marginTop: "24px" }}>
+                <button className="collection-reset-button" type="button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
+                <span>{`Page ${pagination.page} of ${pagination.totalPages}`}</span>
+                <button className="collection-reset-button" type="button" disabled={!pagination.hasNextPage} onClick={() => setPage((current) => current + 1)}>Next</button>
+              </div>
+            ) : null}
           </div>
         </div>
       </section>

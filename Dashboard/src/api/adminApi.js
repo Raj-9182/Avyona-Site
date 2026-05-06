@@ -1,26 +1,50 @@
 import axios from "axios";
 
 const ADMIN_TOKEN_KEY = "avyonaAdminToken";
+const ADMIN_AUTH_EVENT = "avyonaAdminAuthChanged";
+
+function notifyAuthChanged() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(ADMIN_AUTH_EVENT));
+  }
+}
 
 export function getAdminToken() {
+  if (typeof window === "undefined") return "";
   return window.localStorage.getItem(ADMIN_TOKEN_KEY) || "";
 }
 
 export function setAdminToken(token) {
+  if (typeof window === "undefined") return;
   if (!token) {
     window.localStorage.removeItem(ADMIN_TOKEN_KEY);
+    notifyAuthChanged();
     return;
   }
 
   window.localStorage.setItem(ADMIN_TOKEN_KEY, token);
+  notifyAuthChanged();
 }
 
 export function clearAdminToken() {
+  if (typeof window === "undefined") return;
   window.localStorage.removeItem(ADMIN_TOKEN_KEY);
+  notifyAuthChanged();
+}
+
+export function subscribeAdminAuth(listener) {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener(ADMIN_AUTH_EVENT, listener);
+  window.addEventListener("storage", listener);
+
+  return () => {
+    window.removeEventListener(ADMIN_AUTH_EVENT, listener);
+    window.removeEventListener("storage", listener);
+  };
 }
 
 export const adminApi = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:4000/api/v1"
+  baseURL: import.meta.env?.VITE_API_BASE_URL || "http://localhost:4000/api/v1"
 });
 
 adminApi.interceptors.request.use((config) => {
@@ -32,6 +56,20 @@ adminApi.interceptors.request.use((config) => {
 
   return config;
 });
+
+adminApi.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401 && getAdminToken()) {
+      clearAdminToken();
+      if (window.location.pathname !== "/login") {
+        window.location.assign("/login");
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
 
 export function bootstrapAdmin(payload) {
   return adminApi.post("/admin/auth/bootstrap", payload);
@@ -56,8 +94,12 @@ export function fetchBackendHealth() {
   return adminApi.get("/health");
 }
 
-export function fetchDashboardSummary() {
-  return adminApi.get("/dashboard/summary");
+export function fetchDashboardSummary(params) {
+  return adminApi.get("/dashboard/summary", { params });
+}
+
+export function fetchDashboardAnalytics(params) {
+  return adminApi.get("/dashboard/analytics", { params });
 }
 
 export function fetchAdminSettings() {
@@ -72,12 +114,84 @@ export function fetchProducts(params) {
   return adminApi.get("/products", { params });
 }
 
+export function fetchProduct(productId) {
+  return adminApi.get(`/products/${productId}`);
+}
+
 export function createProduct(payload) {
   return adminApi.post("/products", payload);
 }
 
+export function upsertInventoryProduct(payload) {
+  return adminApi.post("/products/inventory/upsert", payload);
+}
+
+export function validateInventoryImport(payload) {
+  return adminApi.post("/products/inventory/validate", payload);
+}
+
+export function createInventoryImportJob(payload) {
+  return adminApi.post("/products/inventory/jobs", payload, {
+    headers: { "Content-Type": "multipart/form-data" }
+  });
+}
+
+export function fetchInventoryImportJob(jobId) {
+  return adminApi.get(`/products/inventory/jobs/${jobId}`);
+}
+
+export function fetchInventoryImportHistory() {
+  return adminApi.get("/products/inventory/history");
+}
+
+export function fetchInventoryFailedRows(jobId = "") {
+  return jobId
+    ? adminApi.get(`/products/inventory/jobs/${jobId}/failed-rows`)
+    : adminApi.get("/products/inventory/failed-rows");
+}
+
+export function downloadInventoryOriginalFile(jobId) {
+  return adminApi.get(`/products/inventory/jobs/${jobId}/original`, { responseType: "blob" });
+}
+
+export function retryInventoryFailedRows(jobId, payload = {}) {
+  return adminApi.post(`/products/inventory/jobs/${jobId}/retry-failed`, payload);
+}
+
+export function startInventoryImportJob(jobId) {
+  return adminApi.post(`/products/inventory/jobs/${jobId}/start`);
+}
+
+export function cancelInventoryImportJob(jobId) {
+  return adminApi.post(`/products/inventory/jobs/${jobId}/cancel`);
+}
+
+export function fetchInventoryExportProducts(params) {
+  return adminApi.get("/products/inventory/export", { params });
+}
+
+export function createInventoryExportJob(payload) {
+  return adminApi.post("/products/inventory/export/jobs", payload);
+}
+
+export function fetchInventoryExportJob(jobId) {
+  return adminApi.get(`/products/inventory/export/jobs/${jobId}`);
+}
+
+export function fetchInventoryExportJobs() {
+  return adminApi.get("/products/inventory/export/jobs");
+}
+
+export function downloadInventoryExportFile(jobId) {
+  return adminApi.get(`/products/inventory/export/jobs/${jobId}/download`, { responseType: "blob" });
+}
+
 export function updateProduct(productId, payload) {
   return adminApi.patch(`/products/${productId}`, payload);
+}
+
+export function deleteProduct(productId) {
+  return adminApi.delete(`/products/${productId}`);
 }
 
 export function fetchCategories() {
@@ -104,6 +218,26 @@ export function fetchOrders() {
   return adminApi.get("/orders");
 }
 
+export function fetchCoupons(params) {
+  return adminApi.get("/coupons", { params });
+}
+
+export function createCoupon(payload) {
+  return adminApi.post("/coupons", payload);
+}
+
+export function updateCoupon(couponId, payload) {
+  return adminApi.put(`/coupons/${couponId}`, payload);
+}
+
+export function updateCouponStatus(couponId, status) {
+  return adminApi.patch(`/coupons/${couponId}/status`, { status });
+}
+
+export function deleteCoupon(couponId) {
+  return adminApi.delete(`/coupons/${couponId}`);
+}
+
 export function updateOrderTracking(orderId, payload) {
   return adminApi.patch(`/orders/${orderId}/status`, payload);
 }
@@ -114,6 +248,14 @@ export function fetchVariantGroups() {
 
 export function createVariantGroup(payload) {
   return adminApi.post("/variant-groups", payload);
+}
+
+export function updateVariantGroup(groupId, payload) {
+  return adminApi.patch(`/variant-groups/${groupId}`, payload);
+}
+
+export function deleteVariantGroup(groupId) {
+  return adminApi.delete(`/variant-groups/${groupId}`);
 }
 
 export function uploadAdminImage(file) {

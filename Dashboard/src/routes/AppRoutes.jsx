@@ -1,5 +1,5 @@
 import React from "react";
-import { Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 import AdminLayout from "../components/layout/AdminLayout";
 import { allProducts as storefrontProducts } from "../data/storefront-content";
 
@@ -15,6 +15,7 @@ const OrderDetails = React.lazy(() => import("../pages/orders/OrderDetails"));
 const Orders = React.lazy(() => import("../pages/orders/Orders"));
 const AddProduct = React.lazy(() => import("../pages/products/AddProduct"));
 const EditProduct = React.lazy(() => import("../pages/products/EditProduct"));
+const InventoryManager = React.lazy(() => import("../pages/products/InventoryManager"));
 const Products = React.lazy(() => import("../pages/products/Products"));
 const Settings = React.lazy(() => import("../pages/settings/Settings"));
 const Variations = React.lazy(() => import("../pages/variations/Variations"));
@@ -59,6 +60,7 @@ export default function AppRoutes({ context, allProducts }) {
           <Route path="homepage/featured-brands" element={<HomepageConfigurePage sectionKey="featured-brands" />} />
           <Route path="products" element={<Products />} />
           <Route path="products/new" element={<AddProduct />} />
+          <Route path="products/inventory-manager" element={<InventoryManager />} />
           <Route path="products/:productId/edit" element={<EditProduct />} />
           <Route path="variations" element={<Variations />} />
           <Route path="coupons" element={<Coupons />} />
@@ -71,6 +73,7 @@ export default function AppRoutes({ context, allProducts }) {
           <Route path="customers" element={<Customers />} />
           <Route path="customers/:customerId" element={<CustomerDetails />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="settings/manage-access" element={<Navigate to="/dashboard/settings" replace />} />
         </Route>
       </Routes>
     </React.Suspense>

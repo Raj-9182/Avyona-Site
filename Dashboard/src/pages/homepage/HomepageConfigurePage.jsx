@@ -1,9 +1,10 @@
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { fetchAdminSettings, fetchCategories, updateAdminSettings, updateCategory, uploadAdminImage, uploadAdminMedia } from "../../api/adminApi";
-import { compressImageFile } from "../../utils/storefront";
+import { fetchAdminSettings, fetchCategories, fetchProducts, updateAdminSettings, updateCategory, uploadAdminImage, uploadAdminMedia } from "../../api/adminApi";
+import { compressImageFile, getStorefrontBaseUrl } from "../../utils/storefront";
 import { fallbackCategoryTree, flattenCategoryTree } from "../../data/category-data";
 import { allProducts } from "../../data/storefront-content";
+import { useAutoRefresh } from "../../hooks/useAutoRefresh";
 import { cloneSettings, DEFAULT_APP_SETTINGS, mergeSettings } from "../../../../shared/appSettings";
 
 export const homepageConfigureSections = {
@@ -72,31 +73,63 @@ const HERO_FONT_FAMILIES = [
   "Quicksand"
 ];
 
+const ALLOWED_HERO_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const MAX_HERO_IMAGE_SIZE_BYTES = 25 * 1024 * 1024;
+
+function isSafeLink(value) {
+  const link = String(value || "").trim();
+  if (!link) return true;
+  if (link.startsWith("/")) return true;
+  return /^https?:\/\//i.test(link);
+}
+
+function validateHeroMediaFile(file, expectedMediaType = "image") {
+  if (!file) return "Please select a file.";
+  const isVideo = file.type.startsWith("video/");
+
+  if (expectedMediaType === "image") {
+    if (!ALLOWED_HERO_IMAGE_TYPES.has(file.type)) {
+      return "Hero banner images must be JPG, PNG, or WebP.";
+    }
+    if (file.size > MAX_HERO_IMAGE_SIZE_BYTES) {
+      return "Hero banner image is too large. Please upload an optimized image below 25 MB.";
+    }
+  }
+
+  if (expectedMediaType === "video" && !isVideo) {
+    return "Please upload a valid video file for this banner field.";
+  }
+
+  return "";
+}
+
 export default function HomepageConfigurePage({ sectionKey }) {
   const section = homepageConfigureSections[sectionKey] || homepageConfigureSections["hero-banner"];
+  const [refreshToken, setRefreshToken] = React.useState(0);
+  useAutoRefresh(() => setRefreshToken((current) => current + 1));
 
   if (sectionKey === "hero-banner") {
-    return <HeroBannerConfigure section={section} />;
+    return <HeroBannerConfigure section={section} refreshToken={refreshToken} />;
   }
 
   if (sectionKey === "browse-categories") {
-    return <BrowseCategoriesConfigure section={section} />;
+    return <BrowseCategoriesConfigure section={section} refreshToken={refreshToken} />;
   }
 
   if (sectionKey === "our-products") {
-    return <ProductArrangementConfigure section={section} settingsKey="ourProducts" sectionLabel="Our Products" />;
+    return <ProductArrangementConfigure section={section} settingsKey="ourProducts" sectionLabel="Our Products" refreshToken={refreshToken} />;
   }
 
   if (sectionKey === "best-sellers") {
-    return <ProductArrangementConfigure section={section} settingsKey="bestSellerProducts" categorySettingsKey="bestSellerCategories" sectionLabel="Best Sellers & Trending" enableCategoryControls />;
+    return <ProductArrangementConfigure section={section} settingsKey="bestSellerProducts" categorySettingsKey="bestSellerCategories" sectionLabel="Best Sellers & Trending" enableCategoryControls refreshToken={refreshToken} />;
   }
 
   if (sectionKey === "new-arrivals") {
-    return <ProductArrangementConfigure section={section} settingsKey="newArrivalProducts" sectionLabel="New Arrivals" fallbackMode="arrivals" />;
+    return <ProductArrangementConfigure section={section} settingsKey="newArrivalProducts" sectionLabel="New Arrivals" fallbackMode="arrivals" refreshToken={refreshToken} />;
   }
 
   if (sectionKey === "featured-brands") {
-    return <FeaturedBrandsConfigure section={section} />;
+    return <FeaturedBrandsConfigure section={section} refreshToken={refreshToken} />;
   }
 
   return (
@@ -175,7 +208,7 @@ function getFallbackHomepageCategories() {
 }
 
 function getCategoryKey(category) {
-  return category.id ?? category.slug ?? category.name;
+  return String(category.id ?? category.slug ?? category.name ?? "");
 }
 
 function buildCategoryPayload(category) {
@@ -203,14 +236,80 @@ function buildCategoryPayload(category) {
   };
 }
 
-function BrowseCategoriesConfigure({ section }) {
-  const navigate = useNavigate();
+function createBrowseCategoryEntry(category, index) {
+  const categoryKey = getCategoryKey(category);
+  const homepageRule = category.dynamicRuleJson || {};
+
+  return {
+    id: `homepage-category-${categoryKey}`,
+    categoryId: category.id ?? null,
+    categorySlug: category.slug || "",
+    status: String(category.status || "active").toLowerCase() === "inactive" ? "inactive" : "active",
+    sortOrder: Number(category.sortOrder || index + 1),
+    imageUrl: "",
+    buttonText: homepageRule.homepageButtonText || "Explore Now",
+    buttonLink: homepageRule.homepageButtonLink || `/category/${category.slug || ""}`
+  };
+}
+
+function getBrowseEntryKey(entry) {
+  return String(entry.categoryId ?? entry.categorySlug ?? entry.id ?? "");
+}
+
+function normalizeBrowseCategoryEntries(settings, categories) {
+  const configured = Array.isArray(settings.homepage?.browseCategories) ? settings.homepage.browseCategories : [];
+  const fallbackEntries = categories
+    .filter((category) => category.featuredCategory)
+    .map(createBrowseCategoryEntry);
+  const source = configured.length ? configured : fallbackEntries;
+
+  return source
+    .map((entry, index) => ({
+      id: entry.id || `homepage-category-${entry.categoryId || entry.categorySlug || index}`,
+      categoryId: entry.categoryId ?? null,
+      categorySlug: entry.categorySlug || "",
+      status: String(entry.status || "active").toLowerCase() === "inactive" ? "inactive" : "active",
+      sortOrder: Number(entry.sortOrder || index + 1),
+      imageUrl: String(entry.imageUrl || "").trim(),
+      buttonText: String(entry.buttonText || "Explore Now").trim(),
+      buttonLink: String(entry.buttonLink || (entry.categorySlug ? `/category/${entry.categorySlug}` : "/collections")).trim()
+    }))
+    .filter((entry) => getBrowseEntryKey(entry))
+    .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
+}
+
+function getCategoryForBrowseEntry(entry, categories) {
+  const entryKey = getBrowseEntryKey(entry);
+  return categories.find((category) =>
+    String(category.id ?? "") === entryKey ||
+    String(category.slug || "") === String(entry.categorySlug || "")
+  ) || null;
+}
+
+function mergeBrowseCategoryEntry(entry, category) {
+  return {
+    ...category,
+    homepageEntryId: entry.id,
+    homepageSelected: true,
+    homepageStatus: entry.status,
+    homepageSortOrder: Number(entry.sortOrder || 0),
+    homepageImageUrl: entry.imageUrl,
+    homepageButtonText: entry.buttonText || "Explore Now",
+    homepageButtonLink: entry.buttonLink || `/category/${category.slug || ""}`
+  };
+}
+
+function BrowseCategoriesConfigure({ section, refreshToken = 0 }) {
   const [categories, setCategories] = React.useState(getFallbackHomepageCategories);
+  const [settings, setSettings] = React.useState(() => cloneSettings(DEFAULT_APP_SETTINGS));
+  const [browseEntries, setBrowseEntries] = React.useState([]);
   const [expandedCategoryId, setExpandedCategoryId] = React.useState("");
   const [selectedCategoryId, setSelectedCategoryId] = React.useState("");
+  const [draggedCategoryId, setDraggedCategoryId] = React.useState("");
   const [uploadingCategoryId, setUploadingCategoryId] = React.useState("");
   const [isLoading, setIsLoading] = React.useState(true);
   const [isSaving, setIsSaving] = React.useState(false);
+  const [isAutoSavingSort, setIsAutoSavingSort] = React.useState(false);
   const [message, setMessage] = React.useState("");
   const [messageTone, setMessageTone] = React.useState("success");
 
@@ -221,28 +320,37 @@ function BrowseCategoriesConfigure({ section }) {
       setIsLoading(true);
 
       try {
-        const response = await fetchCategories();
+        const [categoryResponse, settingsResponse] = await Promise.all([
+          fetchCategories(),
+          fetchAdminSettings()
+        ]);
         if (!isMounted) return;
 
-        const rows = Array.isArray(response.data?.data) ? response.data.data : [];
+        const rows = Array.isArray(categoryResponse.data?.data) ? categoryResponse.data.data : [];
         const mainCategories = rows
           .filter((category) => !category.parentId)
           .map(normalizeCategoryRow)
           .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
+        const mergedSettings = mergeSettings(DEFAULT_APP_SETTINGS, settingsResponse.data?.data || {});
 
         const nextCategories = mainCategories.length ? mainCategories : getFallbackHomepageCategories();
+        const nextEntries = normalizeBrowseCategoryEntries(mergedSettings, nextCategories);
+        setSettings(mergedSettings);
         setCategories(nextCategories);
-        const firstVisibleCategory = nextCategories.find((category) => category.featuredCategory) || nextCategories[0];
-        setExpandedCategoryId(getCategoryKey(firstVisibleCategory) || "");
+        setBrowseEntries(nextEntries);
+        setExpandedCategoryId("");
         setSelectedCategoryId("");
-        setMessage("Categories loaded from Categories module.");
+        setMessage("Homepage browse categories loaded from backend settings.");
         setMessageTone("success");
       } catch {
         if (!isMounted) return;
         const nextCategories = getFallbackHomepageCategories();
+        const fallbackSettings = cloneSettings(DEFAULT_APP_SETTINGS);
+        const nextEntries = normalizeBrowseCategoryEntries(fallbackSettings, nextCategories);
+        setSettings(fallbackSettings);
         setCategories(nextCategories);
-        const firstVisibleCategory = nextCategories.find((category) => category.featuredCategory) || nextCategories[0];
-        setExpandedCategoryId(getCategoryKey(firstVisibleCategory) || "");
+        setBrowseEntries(nextEntries);
+        setExpandedCategoryId("");
         setSelectedCategoryId("");
         setMessage("Showing default categories. Start backend and sign in as admin to save changes.");
         setMessageTone("warning");
@@ -256,68 +364,152 @@ function BrowseCategoriesConfigure({ section }) {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [refreshToken]);
 
-  const updateCategoryField = (categoryId, field, value) => {
-    setCategories((current) =>
-      current.map((category) =>
-        getCategoryKey(category) === categoryId
-          ? { ...category, [field]: field === "sortOrder" ? Number(value || 0) : value }
-          : category
+  const updateBrowseEntry = (entryId, values) => {
+    setBrowseEntries((current) =>
+      current.map((entry) =>
+        entry.id === entryId
+          ? { ...entry, ...values }
+          : entry
       )
     );
   };
 
-  const updateCategoryFields = (categoryId, values) => {
-    setCategories((current) =>
-      current.map((category) =>
-        getCategoryKey(category) === categoryId
-          ? { ...category, ...values }
-          : category
-      )
-    );
+  const persistBrowseEntries = async (nextEntries, successMessage = "Browse Categories saved. Frontend will show the selected homepage categories.") => {
+    const cleanEntries = nextEntries
+      .map((entry, index) => {
+        const category = getCategoryForBrowseEntry(entry, categories);
+        return {
+          id: entry.id,
+          categoryId: category?.id ?? entry.categoryId ?? null,
+          categorySlug: category?.slug || entry.categorySlug || "",
+          status: entry.status === "inactive" ? "inactive" : "active",
+          sortOrder: Number(entry.sortOrder || index + 1),
+          imageUrl: String(entry.imageUrl || "").trim(),
+          buttonText: String(entry.buttonText || "Explore Now").trim(),
+          buttonLink: String(entry.buttonLink || (category?.slug ? `/category/${category.slug}` : "/collections")).trim()
+        };
+      })
+      .filter((entry) => entry.categoryId || entry.categorySlug)
+      .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
+    const nextSettings = mergeSettings(settings, {
+      homepage: {
+        ...(settings.homepage || {}),
+        browseCategories: cleanEntries
+      }
+    });
+
+    try {
+      const response = await updateAdminSettings({ settings: nextSettings });
+      const savedSettings = mergeSettings(DEFAULT_APP_SETTINGS, response.data?.data || nextSettings);
+      setSettings(savedSettings);
+      setBrowseEntries(normalizeBrowseCategoryEntries(savedSettings, categories));
+      setMessage(successMessage);
+      setMessageTone("success");
+      return true;
+    } catch {
+      setSettings(nextSettings);
+      setBrowseEntries(cleanEntries);
+      setMessage("Saved locally on this page only. Backend/admin login is required for frontend preview to update.");
+      setMessageTone("warning");
+      return false;
+    }
   };
 
-  const handleAddHomepageCategory = () => {
+  const handleAddHomepageCategory = async () => {
     if (!selectedCategoryId) return;
 
-    const nextSortOrder = Math.max(0, ...categories.filter((category) => category.featuredCategory).map((category) => Number(category.sortOrder || 0))) + 1;
-    updateCategoryFields(selectedCategoryId, {
-      featuredCategory: true,
+    const category = categories.find((item) => getCategoryKey(item) === selectedCategoryId);
+    if (!category) return;
+
+    const nextSortOrder = Math.max(0, ...browseEntries.map((entry) => Number(entry.sortOrder || 0))) + 1;
+    const nextEntry = {
+      ...createBrowseCategoryEntry(category, nextSortOrder - 1),
       status: "active",
       sortOrder: nextSortOrder
-    });
+    };
+    const nextEntries = [...browseEntries, nextEntry];
+    setBrowseEntries(nextEntries);
     setExpandedCategoryId(selectedCategoryId);
     setSelectedCategoryId("");
+    setIsAutoSavingSort(true);
+    await persistBrowseEntries(nextEntries, "Category added to homepage and published.");
+    setIsAutoSavingSort(false);
   };
 
-  const handleRemoveHomepageCategory = (categoryId) => {
-    updateCategoryFields(categoryId, { featuredCategory: false });
+  const handleRemoveHomepageCategory = async (categoryId) => {
+    const nextEntries = browseEntries
+      .filter((entry) => getBrowseEntryKey(entry) !== categoryId)
+      .map((entry, index) => ({ ...entry, sortOrder: index + 1 }));
+    setBrowseEntries(nextEntries);
     setExpandedCategoryId((current) => (current === categoryId ? "" : current));
+    setIsAutoSavingSort(true);
+    await persistBrowseEntries(nextEntries, "Category removed from homepage and published.");
+    setIsAutoSavingSort(false);
   };
 
-  const moveHomepageCategory = (categoryId, direction) => {
-    const visibleCategories = categories
-      .filter((category) => category.featuredCategory)
+  const handleHomepageCategoryStatus = async (categoryId, status) => {
+    const nextEntries = browseEntries.map((entry) =>
+      getBrowseEntryKey(entry) === categoryId ? { ...entry, status } : entry
+    );
+    setBrowseEntries(nextEntries);
+    setIsAutoSavingSort(true);
+    await persistBrowseEntries(nextEntries, `Category marked ${status}.`);
+    setIsAutoSavingSort(false);
+  };
+
+  const saveBrowseEntryOrder = async (nextEntries, messageText = "Category order saved.") => {
+    setBrowseEntries(nextEntries);
+    setIsAutoSavingSort(true);
+    await persistBrowseEntries(nextEntries, messageText);
+    setIsAutoSavingSort(false);
+  };
+
+  const moveHomepageCategory = async (categoryId, direction) => {
+    const visibleEntries = [...browseEntries]
       .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
-    const currentIndex = visibleCategories.findIndex((category) => getCategoryKey(category) === categoryId);
+    const currentIndex = visibleEntries.findIndex((entry) => getBrowseEntryKey(entry) === categoryId);
     const nextIndex = currentIndex + direction;
 
-    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= visibleCategories.length) return;
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= visibleEntries.length) return;
 
-    const currentCategory = visibleCategories[currentIndex];
-    const targetCategory = visibleCategories[nextIndex];
-    const currentSortOrder = Number(currentCategory.sortOrder || currentIndex + 1);
-    const targetSortOrder = Number(targetCategory.sortOrder || nextIndex + 1);
-
-    setCategories((current) =>
-      current.map((category) => {
-        const key = getCategoryKey(category);
-        if (key === getCategoryKey(currentCategory)) return { ...category, sortOrder: targetSortOrder };
-        if (key === getCategoryKey(targetCategory)) return { ...category, sortOrder: currentSortOrder };
-        return category;
+    const currentEntry = visibleEntries[currentIndex];
+    const targetEntry = visibleEntries[nextIndex];
+    const nextEntries = browseEntries
+      .map((entry) => {
+        const key = getBrowseEntryKey(entry);
+        if (key === getBrowseEntryKey(currentEntry)) return { ...entry, sortOrder: nextIndex + 1 };
+        if (key === getBrowseEntryKey(targetEntry)) return { ...entry, sortOrder: currentIndex + 1 };
+        return entry;
       })
-    );
+      .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0))
+      .map((entry, index) => ({ ...entry, sortOrder: index + 1 }));
+    await saveBrowseEntryOrder(nextEntries);
+  };
+
+  const handleDropHomepageCategory = async (targetCategoryId, event) => {
+    event?.preventDefault();
+
+    if (!draggedCategoryId || draggedCategoryId === targetCategoryId) {
+      setDraggedCategoryId("");
+      return;
+    }
+
+    const orderedEntries = [...browseEntries].sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
+    const draggedIndex = orderedEntries.findIndex((entry) => getBrowseEntryKey(entry) === draggedCategoryId);
+    const targetIndex = orderedEntries.findIndex((entry) => getBrowseEntryKey(entry) === targetCategoryId);
+
+    if (draggedIndex < 0 || targetIndex < 0) {
+      setDraggedCategoryId("");
+      return;
+    }
+
+    const [draggedEntry] = orderedEntries.splice(draggedIndex, 1);
+    orderedEntries.splice(targetIndex, 0, draggedEntry);
+    const nextEntries = orderedEntries.map((entry, index) => ({ ...entry, sortOrder: index + 1 }));
+    setDraggedCategoryId("");
+    await saveBrowseEntryOrder(nextEntries, "Category order auto-saved.");
   };
 
   const handleCategoryImageUpload = async (categoryId, file) => {
@@ -333,13 +525,13 @@ function BrowseCategoriesConfigure({ section }) {
         : uploadedUrl;
 
       if (!imageUrl) throw new Error("Image upload did not return a URL");
-      updateCategoryField(categoryId, "imageUrl", imageUrl);
-      setMessage("Category image uploaded successfully.");
+      updateBrowseEntry(categoryId, { imageUrl });
+      setMessage("Homepage-only category image uploaded. Save to publish it on the frontend.");
       setMessageTone("success");
     } catch {
       try {
         const compressedImage = await compressImageFile(file, 1200, 0.82);
-        updateCategoryField(categoryId, "imageUrl", compressedImage);
+        updateBrowseEntry(categoryId, { imageUrl: compressedImage });
         setMessage("Backend upload is unavailable, so the category image was added locally for preview.");
         setMessageTone("warning");
       } catch {
@@ -351,35 +543,40 @@ function BrowseCategoriesConfigure({ section }) {
     }
   };
 
-  const handleSave = async () => {
+  const saveBrowseCategories = async (
+    successMessage = "Browse Categories saved. Frontend will show the selected homepage categories.",
+    autoCloseCategoryId = ""
+  ) => {
     setIsSaving(true);
-
-    try {
-      const saved = await Promise.all(
-        categories.map(async (category) => {
-          const response = await updateCategory(category.id, buildCategoryPayload(category));
-          return normalizeCategoryRow(response.data?.data || category);
-        })
-      );
-
-      setCategories(saved.sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0)));
-      setMessage("Browse Categories saved. Frontend will show active homepage categories by sort order.");
-      setMessageTone("success");
-    } catch {
-      setMessage("Updated locally only. Backend/admin login is required to persist category homepage settings.");
-      setMessageTone("warning");
-    } finally {
-      setIsSaving(false);
+    const didSave = await persistBrowseEntries(browseEntries, successMessage);
+    if (didSave && autoCloseCategoryId) {
+      window.setTimeout(() => {
+        setExpandedCategoryId((current) => (current === autoCloseCategoryId ? "" : current));
+      }, 1200);
     }
+    setIsSaving(false);
   };
 
-  const homepageCategories = categories
-    .filter((category) => category.featuredCategory)
-    .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
+  const handleSave = async () => {
+    await saveBrowseCategories();
+  };
+
+  const handleSaveCategoryCta = async (categoryId) => {
+    await saveBrowseCategories("Changes successfully completed.", categoryId);
+  };
+
+  const homepageCategories = browseEntries
+    .map((entry) => {
+      const category = getCategoryForBrowseEntry(entry, categories);
+      return category ? mergeBrowseCategoryEntry(entry, category) : null;
+    })
+    .filter(Boolean)
+    .sort((left, right) => Number(left.homepageSortOrder || 0) - Number(right.homepageSortOrder || 0));
+  const selectedCategoryKeys = new Set(homepageCategories.map((category) => getCategoryKey(category)));
   const availableCategories = categories
-    .filter((category) => !category.featuredCategory)
+    .filter((category) => !selectedCategoryKeys.has(getCategoryKey(category)))
     .sort((left, right) => String(left.name || "").localeCompare(String(right.name || "")));
-  const shownCount = homepageCategories.filter((category) => category.status === "active").length;
+  const shownCount = homepageCategories.filter((category) => category.homepageStatus === "active").length;
 
   return (
     <section className="dashboard-page-shell">
@@ -394,14 +591,12 @@ function BrowseCategoriesConfigure({ section }) {
           <div>
             <span style={eyebrowStyle}>Shop by Category</span>
             <h3 style={panelTitleStyle}>Homepage Category Display</h3>
-            <p style={panelCopyStyle}>Select existing categories, decide what appears on the homepage, and arrange the display order manually.</p>
+            <p style={panelCopyStyle}>Select homepage categories, drag them into order, and publish homepage-only card images.</p>
           </div>
           <div style={actionGroupStyle}>
             <span style={summaryPillStyle}>{`${shownCount} Shown`}</span>
             <span style={summaryPillStyle}>{`${homepageCategories.length} Selected`}</span>
-            <button type="button" onClick={() => navigate("/dashboard/categories")} style={secondaryButtonStyle}>
-              Manage Categories
-            </button>
+            {isAutoSavingSort ? <span style={summaryPillStyle}>Auto-saving...</span> : null}
             <button type="button" onClick={handleSave} disabled={isSaving || isLoading} style={saveButtonStyle}>
               {isSaving ? "Saving..." : "Save Browse Categories"}
             </button>
@@ -418,7 +613,7 @@ function BrowseCategoriesConfigure({ section }) {
           <div>
             <span style={eyebrowStyle}>Available Categories</span>
             <h4 style={selectorTitleStyle}>Add Existing Category to Homepage</h4>
-            <p style={panelCopyStyle}>Create and manage category details from the Categories module. Use this section only for homepage visibility and arrangement.</p>
+            <p style={panelCopyStyle}>Homepage display settings stay separate from category page and menu settings.</p>
           </div>
           <div style={selectorControlsStyle}>
             <select
@@ -443,67 +638,113 @@ function BrowseCategoriesConfigure({ section }) {
             const categoryKey = getCategoryKey(category);
 
             return (
-            <article key={categoryKey} style={categoryManageCardStyle}>
+            <article
+              key={categoryKey}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => handleDropHomepageCategory(categoryKey, event)}
+              style={{
+                ...categoryManageCardStyle,
+                ...(draggedCategoryId === categoryKey ? categoryManageCardDraggingStyle : null)
+              }}
+            >
               <button
                 type="button"
-                onClick={() => setExpandedCategoryId((current) => (current === categoryKey ? "" : categoryKey))}
-                style={categoryPreviewButtonStyle}
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", categoryKey);
+                  setDraggedCategoryId(categoryKey);
+                }}
+                onDragEnd={() => setDraggedCategoryId("")}
+                style={categoryDragHandleStyle}
+                aria-label={`Drag ${category.name}`}
+                title="Drag to reorder"
               >
-                <img src={category.imageUrl || category.bannerImageUrl || "/images/optimized/personal-audio-category.webp"} alt="" style={categoryPreviewImageStyle} />
+                <span aria-hidden="true" style={categoryDragDotsStyle}>
+                  <span style={categoryDragDotStyle} />
+                  <span style={categoryDragDotStyle} />
+                  <span style={categoryDragDotStyle} />
+                  <span style={categoryDragDotStyle} />
+                  <span style={categoryDragDotStyle} />
+                  <span style={categoryDragDotStyle} />
+                </span>
+              </button>
+              <div style={categoryPreviewContentStyle}>
+                <img src={getAdminMediaPreviewUrl(category.homepageImageUrl || category.imageUrl || category.bannerImageUrl || "/images/optimized/personal-audio-category.webp")} alt="" style={categoryPreviewImageStyle} />
                 <div style={categoryPreviewCopyStyle}>
                   <span style={eyebrowStyle}>Category</span>
                   <strong style={categoryPreviewCopyStyleStrong}>{category.name}</strong>
-                  <span>{`${category.productCount} products | ${category.status === "active" ? "Active" : "Inactive"} | Sort ${category.sortOrder || 0}`}</span>
+                  <span style={categoryMetaStyle}>
+                    <span>{`${category.productCount} products`}</span>
+                    <span>{category.homepageStatus === "active" ? "Active" : "Inactive"}</span>
+                    <span>{`Sort ${category.homepageSortOrder || 0}`}</span>
+                  </span>
+                  {category.homepageImageUrl ? <span>Homepage image override active</span> : null}
                 </div>
-              </button>
+              </div>
+              <div style={categoryRowActionsStyle}>
+                <span style={categoryOrderPillStyle}>{`#${index + 1}`}</span>
+                <button
+                  type="button"
+                  onClick={() => handleHomepageCategoryStatus(categoryKey, category.homepageStatus === "active" ? "inactive" : "active")}
+                  style={category.homepageStatus === "active" ? rowActiveButtonStyle : rowInactiveButtonStyle}
+                >
+                  {category.homepageStatus === "active" ? "Active" : "Inactive"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExpandedCategoryId((current) => (current === categoryKey ? "" : categoryKey))}
+                  style={categoryEditButtonStyle}
+                >
+                  {expandedCategoryId === categoryKey ? "Close" : "Edit CTA"}
+                </button>
+                <button type="button" onClick={() => handleRemoveHomepageCategory(categoryKey)} style={rowDeleteButtonStyle}>
+                  Delete
+                </button>
+              </div>
 
               {expandedCategoryId === categoryKey ? (
-                <div style={bannerEditorStyle}>
-                  <div style={homepageArrangementBarStyle}>
-                    <span style={summaryPillStyle}>{`Position ${index + 1}`}</span>
-                    <div style={actionGroupStyle}>
-                      <button type="button" onClick={() => moveHomepageCategory(categoryKey, -1)} disabled={index === 0} style={secondaryButtonStyle}>Move Up</button>
-                      <button type="button" onClick={() => moveHomepageCategory(categoryKey, 1)} disabled={index === homepageCategories.length - 1} style={secondaryButtonStyle}>Move Down</button>
-                      <button type="button" onClick={() => handleRemoveHomepageCategory(categoryKey)} style={dangerButtonStyle}>Remove from Homepage</button>
-                    </div>
-                  </div>
-
+                <div style={{ ...bannerEditorStyle, gridColumn: "1 / -1" }}>
                   <div style={categorySmallGridStyle}>
                     <label style={fieldStyle}>
                       <span style={labelStyle}>Sort Order</span>
                       <input
                         type="number"
                         min="0"
-                        value={category.sortOrder}
-                        onChange={(event) => updateCategoryField(categoryKey, "sortOrder", event.target.value)}
+                        value={category.homepageSortOrder}
+                        onChange={(event) => updateBrowseEntry(category.homepageEntryId, { sortOrder: Number(event.target.value || 0) })}
                         style={inputStyle}
                       />
                     </label>
-                    <label style={fieldStyle}>
-                      <span style={labelStyle}>Status</span>
-                      <div style={segmentedControlStyle}>
-                        <button
-                          type="button"
-                          onClick={() => updateCategoryField(categoryKey, "status", "active")}
-                          style={{
-                            ...segmentedButtonStyle,
-                            ...(category.status === "active" ? segmentedButtonActiveStyle : null)
-                          }}
-                        >
-                          Active
+                  </div>
+                  <div style={categorySmallGridStyle}>
+                    <ImageUploadField
+                      label="Homepage Card Image"
+                      imageUrl={category.homepageImageUrl || category.imageUrl || category.bannerImageUrl}
+                      isUploading={uploadingCategoryId === category.homepageEntryId}
+                      onUpload={(file) => handleCategoryImageUpload(category.homepageEntryId, file)}
+                    />
+                    <div style={compactSectionGridStyle}>
+                      <label style={fieldStyle}>
+                        <span style={labelStyle}>CTA Button Text</span>
+                        <input value={category.homepageButtonText} onChange={(event) => updateBrowseEntry(category.homepageEntryId, { buttonText: event.target.value })} style={inputStyle} />
+                      </label>
+                      <label style={fieldStyle}>
+                        <span style={labelStyle}>CTA Button Link</span>
+                        <input value={category.homepageButtonLink} onChange={(event) => updateBrowseEntry(category.homepageEntryId, { buttonLink: event.target.value })} style={inputStyle} />
+                      </label>
+                      {category.homepageImageUrl ? (
+                        <button type="button" onClick={() => updateBrowseEntry(category.homepageEntryId, { imageUrl: "" })} style={secondaryButtonStyle}>
+                          Use Original Category Image
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => updateCategoryField(categoryKey, "status", "inactive")}
-                          style={{
-                            ...segmentedButtonStyle,
-                            ...(category.status === "inactive" ? segmentedButtonInactiveStyle : null)
-                          }}
-                        >
-                          Inactive
-                        </button>
-                      </div>
-                    </label>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div style={editorSaveBarStyle}>
+                    <button type="button" onClick={() => setExpandedCategoryId("")} style={secondaryButtonStyle}>Close</button>
+                    <button type="button" onClick={() => handleSaveCategoryCta(categoryKey)} disabled={isSaving || isLoading} style={saveButtonStyle}>
+                      {isSaving ? "Saving..." : "Save Changes"}
+                    </button>
                   </div>
                 </div>
               ) : null}
@@ -526,6 +767,10 @@ function getProductKey(product) {
   return String(product.asin || product.slug || product.name || "");
 }
 
+function normalizeProductIdentifier(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function createHomepageProductEntry(product, index) {
   return {
     id: `homepage-product-${getProductKey(product)}`,
@@ -537,19 +782,67 @@ function createHomepageProductEntry(product, index) {
   };
 }
 
-function getProductByHomepageEntry(entry) {
-  const asin = String(entry.productAsin || "").trim();
-  const slug = String(entry.productSlug || "").trim();
-  return allProducts.find((product) => String(product.asin || "") === asin || String(product.slug || "") === slug) || null;
+function normalizeDashboardProduct(product) {
+  const price = Number(product.price || 0);
+  const mrp = Number(product.mrp || price || 0);
+  const categorySlug = product.categorySlug || product.collectionSlug || String(product.categoryName || product.category || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const gallery = Array.isArray(product.galleryUrls) && product.galleryUrls.length
+    ? product.galleryUrls
+    : Array.isArray(product.gallery) && product.gallery.length
+      ? product.gallery
+      : [product.imageUrl || product.image || "/images/optimized/frame-1.webp"];
+
+  return {
+    ...product,
+    asin: String(product.asin || product.sku || product.slug || "").trim(),
+    sku: String(product.sku || product.asin || "").trim(),
+    slug: product.slug || String(product.name || product.asin || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, ""),
+    name: product.name || "Untitled product",
+    brand: product.brand || "",
+    category: product.categoryName || product.category || "Products",
+    categorySlug,
+    collectionSlug: categorySlug,
+    price,
+    mrp,
+    image: gallery[0],
+    gallery,
+    status: String(product.status || "active").toLowerCase()
+  };
 }
 
-function normalizeHomepageProducts(settings, settingsKey = "ourProducts", fallbackProducts = allProducts.slice(0, 8)) {
+function mergeProductSources(products = []) {
+  const byKey = new Map();
+
+  allProducts.map(normalizeDashboardProduct).forEach((product) => {
+    byKey.set(getProductKey(product), product);
+  });
+
+  products.map(normalizeDashboardProduct).forEach((product) => {
+    byKey.set(getProductKey(product), product);
+  });
+
+  return Array.from(byKey.values()).filter((product) => getProductKey(product));
+}
+
+function getProductByHomepageEntry(entry, productSource = allProducts) {
+  const asin = String(entry.productAsin || "").trim();
+  const slug = String(entry.productSlug || "").trim();
+  return productSource.find((product) => String(product.asin || "") === asin || String(product.slug || "") === slug) || null;
+}
+
+function normalizeHomepageProducts(settings, settingsKey = "ourProducts", fallbackProducts = allProducts.slice(0, 8), productSource = allProducts) {
   const configured = Array.isArray(settings.homepage?.[settingsKey]) ? settings.homepage[settingsKey] : [];
   const source = configured.length ? configured : fallbackProducts.map(createHomepageProductEntry);
 
   return source
     .map((entry, index) => {
-      const product = getProductByHomepageEntry(entry);
+      const product = getProductByHomepageEntry(entry, productSource);
       return {
         id: entry.id || `homepage-product-${entry.productAsin || entry.productSlug || index}`,
         productAsin: entry.productAsin || product?.asin || "",
@@ -559,20 +852,62 @@ function normalizeHomepageProducts(settings, settingsKey = "ourProducts", fallba
         slotNumber: Number(entry.slotNumber || entry.sortOrder || index + 1)
       };
     })
-    .filter((entry) => getProductByHomepageEntry(entry))
+    .filter((entry) => getProductByHomepageEntry(entry, productSource))
     .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
 }
 
-function getProductCategoryOptions() {
+function getProductCategoryOptions(productSource = allProducts) {
   const bySlug = new Map();
-  allProducts.forEach((product) => {
+  productSource.forEach((product) => {
     const slug = String(product.collectionSlug || product.categorySlug || "").trim();
     if (!slug) return;
-    bySlug.set(slug, product.category || slug);
+    bySlug.set(slug, { slug, label: product.category || slug, sortOrder: 9999 });
   });
-  return Array.from(bySlug.entries())
-    .map(([slug, label]) => ({ slug, label }))
+  return Array.from(bySlug.values())
     .sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function getBackendCategoryOptions(categories = []) {
+  return categories
+    .filter((category) => !category.parentId)
+    .filter((category) => String(category.status || "active").toLowerCase() !== "inactive")
+    .map((category) => ({
+      slug: String(category.slug || "").trim(),
+      label: String(category.name || category.categoryName || category.slug || "").trim(),
+      sortOrder: Number(category.sortOrder || 0)
+    }))
+    .filter((category) => category.slug && category.label);
+}
+
+function mergeCategoryOptions(...optionGroups) {
+  const bySlug = new Map();
+
+  optionGroups.flat().forEach((option) => {
+    const slug = String(option?.slug || "").trim();
+    if (!slug) return;
+
+    if (!bySlug.has(slug)) {
+      bySlug.set(slug, {
+        slug,
+        label: String(option.label || slug).trim(),
+        sortOrder: Number(option.sortOrder || 9999)
+      });
+      return;
+    }
+
+    const current = bySlug.get(slug);
+    bySlug.set(slug, {
+      ...current,
+      label: current.label || String(option.label || slug).trim(),
+      sortOrder: Math.min(Number(current.sortOrder || 9999), Number(option.sortOrder || 9999))
+    });
+  });
+
+  return Array.from(bySlug.values())
+    .sort((left, right) =>
+      Number(left.sortOrder || 9999) - Number(right.sortOrder || 9999) ||
+      left.label.localeCompare(right.label)
+    );
 }
 
 function getConfiguredCategorySlugs(settings, categorySettingsKey, categoryOptions) {
@@ -582,24 +917,34 @@ function getConfiguredCategorySlugs(settings, categorySettingsKey, categoryOptio
     : categoryOptions.map((category) => category.slug);
 }
 
-function ProductArrangementConfigure({ section, settingsKey, categorySettingsKey = "", sectionLabel, enableCategoryControls = false, fallbackMode = "" }) {
+function ProductArrangementConfigure({ section, settingsKey, categorySettingsKey = "", sectionLabel, enableCategoryControls = false, fallbackMode = "", refreshToken = 0 }) {
   const navigate = useNavigate();
   const [settings, setSettings] = React.useState(() => cloneSettings(DEFAULT_APP_SETTINGS));
+  const [productSource, setProductSource] = React.useState(() => mergeProductSources());
   const fallbackProducts = fallbackMode === "arrivals"
-    ? [...allProducts].sort((left, right) => Number(right.rating || 0) - Number(left.rating || 0)).slice(0, 4)
+    ? [...productSource].sort((left, right) => Number(right.rating || 0) - Number(left.rating || 0)).slice(0, 4)
     : settingsKey === "bestSellerProducts"
-      ? allProducts.slice(0, 8)
-      : allProducts.filter((product) => product.collectionSlug === "digital-photo-frames");
-  const categoryOptions = React.useMemo(() => getProductCategoryOptions(), []);
-  const [homepageProducts, setHomepageProducts] = React.useState(() => normalizeHomepageProducts(DEFAULT_APP_SETTINGS, settingsKey, fallbackProducts));
+      ? productSource.slice(0, 8)
+      : productSource.filter((product) => product.collectionSlug === "digital-photo-frames");
+  const productCategoryOptions = React.useMemo(() => getProductCategoryOptions(productSource), [productSource]);
+  const [backendCategoryOptions, setBackendCategoryOptions] = React.useState([]);
+  const categoryOptions = React.useMemo(
+    () => mergeCategoryOptions(backendCategoryOptions, productCategoryOptions),
+    [backendCategoryOptions, productCategoryOptions]
+  );
+  const [homepageProducts, setHomepageProducts] = React.useState(() => normalizeHomepageProducts(DEFAULT_APP_SETTINGS, settingsKey, fallbackProducts, productSource));
   const [visibleCategorySlugs, setVisibleCategorySlugs] = React.useState(() =>
     getConfiguredCategorySlugs(DEFAULT_APP_SETTINGS, categorySettingsKey, categoryOptions)
   );
   const [selectedProductAsin, setSelectedProductAsin] = React.useState("");
   const [productAsinSearch, setProductAsinSearch] = React.useState("");
+  const [isProductSearchOpen, setIsProductSearchOpen] = React.useState(false);
   const [draggedProductId, setDraggedProductId] = React.useState("");
   const [isLoading, setIsLoading] = React.useState(true);
   const [isSaving, setIsSaving] = React.useState(false);
+  const [isAutoSavingSort, setIsAutoSavingSort] = React.useState(false);
+  const [isSearchingProducts, setIsSearchingProducts] = React.useState(false);
+  const [categoryUpdateMessage, setCategoryUpdateMessage] = React.useState("");
   const [message, setMessage] = React.useState("");
   const [messageTone, setMessageTone] = React.useState("success");
 
@@ -609,24 +954,44 @@ function ProductArrangementConfigure({ section, settingsKey, categorySettingsKey
     async function loadSettings() {
       setIsLoading(true);
       try {
-        const response = await fetchAdminSettings();
+        const [settingsResponse, productsResponse, categoriesResponse] = await Promise.all([
+          fetchAdminSettings(),
+          fetchProducts({ status: "active" }),
+          enableCategoryControls ? fetchCategories() : Promise.resolve({ data: { data: [] } })
+        ]);
         if (!isMounted) return;
 
-        const mergedSettings = mergeSettings(DEFAULT_APP_SETTINGS, response.data?.data || {});
+        const liveProducts = Array.isArray(productsResponse.data?.data) ? productsResponse.data.data : [];
+        const liveCategories = Array.isArray(categoriesResponse.data?.data) ? categoriesResponse.data.data : [];
+        const nextProductSource = mergeProductSources(liveProducts);
+        const nextFallbackProducts = fallbackMode === "arrivals"
+          ? [...nextProductSource].sort((left, right) => Number(right.rating || 0) - Number(left.rating || 0)).slice(0, 4)
+          : settingsKey === "bestSellerProducts"
+            ? nextProductSource.slice(0, 8)
+            : nextProductSource.filter((product) => product.collectionSlug === "digital-photo-frames");
+        const nextBackendCategoryOptions = getBackendCategoryOptions(liveCategories);
+        const nextCategoryOptions = mergeCategoryOptions(nextBackendCategoryOptions, getProductCategoryOptions(nextProductSource));
+        const mergedSettings = mergeSettings(DEFAULT_APP_SETTINGS, settingsResponse.data?.data || {});
+        setProductSource(nextProductSource);
+        setBackendCategoryOptions(nextBackendCategoryOptions);
         setSettings(mergedSettings);
-        setHomepageProducts(normalizeHomepageProducts(mergedSettings, settingsKey, fallbackProducts));
+        setHomepageProducts(normalizeHomepageProducts(mergedSettings, settingsKey, nextFallbackProducts, nextProductSource));
         if (enableCategoryControls) {
-          setVisibleCategorySlugs(getConfiguredCategorySlugs(mergedSettings, categorySettingsKey, categoryOptions));
+          setVisibleCategorySlugs(getConfiguredCategorySlugs(mergedSettings, categorySettingsKey, nextCategoryOptions));
         }
-        setMessage(`${sectionLabel} products loaded from admin settings.`);
+        setMessage(`${sectionLabel} products loaded from backend products and admin settings.`);
         setMessageTone("success");
       } catch {
         if (!isMounted) return;
+        const fallbackProductSource = mergeProductSources();
         const fallbackSettings = cloneSettings(DEFAULT_APP_SETTINGS);
+        const fallbackCategoryOptions = getProductCategoryOptions(fallbackProductSource);
+        setProductSource(fallbackProductSource);
+        setBackendCategoryOptions([]);
         setSettings(fallbackSettings);
-        setHomepageProducts(normalizeHomepageProducts(fallbackSettings, settingsKey, fallbackProducts));
+        setHomepageProducts(normalizeHomepageProducts(fallbackSettings, settingsKey, fallbackProducts, fallbackProductSource));
         if (enableCategoryControls) {
-          setVisibleCategorySlugs(getConfiguredCategorySlugs(fallbackSettings, categorySettingsKey, categoryOptions));
+          setVisibleCategorySlugs(getConfiguredCategorySlugs(fallbackSettings, categorySettingsKey, fallbackCategoryOptions));
         }
         setMessage("Showing default products. Start backend and sign in as admin to save changes.");
         setMessageTone("warning");
@@ -640,25 +1005,69 @@ function ProductArrangementConfigure({ section, settingsKey, categorySettingsKey
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [refreshToken]);
 
-  const selectedAsins = new Set(homepageProducts.map((entry) => String(entry.productAsin || "")));
-  const availableProducts = allProducts
-    .filter((product) =>
-      product.asin &&
-      !selectedAsins.has(String(product.asin)) &&
-      (!enableCategoryControls || visibleCategorySlugs.includes(product.collectionSlug))
-    )
+  React.useEffect(() => {
+    const searchTerm = productAsinSearch.trim();
+    if (!searchTerm) return;
+
+    let isMounted = true;
+    const timeoutId = window.setTimeout(async () => {
+      setIsSearchingProducts(true);
+      try {
+        const response = await fetchProducts({ search: searchTerm });
+        if (!isMounted) return;
+        const rows = Array.isArray(response.data?.data) ? response.data.data : [];
+        if (!rows.length) return;
+        setProductSource((current) => mergeProductSources([...current, ...rows]));
+      } catch {
+        if (!isMounted) return;
+        setMessage("Product search could not reach backend. Check backend server and try the ASIN again.");
+        setMessageTone("warning");
+      } finally {
+        if (isMounted) setIsSearchingProducts(false);
+      }
+    }, 250);
+
+    return () => {
+      isMounted = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, [productAsinSearch]);
+
+  const selectedKeys = new Set(
+    homepageProducts.flatMap((entry) => {
+      const product = getProductByHomepageEntry(entry, productSource);
+      return [entry.productAsin, entry.productSlug, product?.asin, product?.sku, product?.slug]
+        .map(normalizeProductIdentifier)
+        .filter(Boolean);
+    })
+  );
+  const availableProducts = productSource
+    .filter((product) => {
+      const productIdentifiers = [product.asin, product.sku, product.slug, getProductKey(product)]
+        .map(normalizeProductIdentifier)
+        .filter(Boolean);
+      return (
+        getProductKey(product) &&
+        !productIdentifiers.some((identifier) => selectedKeys.has(identifier))
+      );
+    })
     .sort((left, right) => String(left.name || "").localeCompare(String(right.name || "")));
   const normalizedProductSearch = productAsinSearch.trim().toLowerCase();
   const filteredAvailableProducts = normalizedProductSearch
-    ? availableProducts.filter((product) =>
-        String(product.asin || "").toLowerCase().includes(normalizedProductSearch) ||
-        String(product.name || "").toLowerCase().includes(normalizedProductSearch) ||
-        String(product.brand || "").toLowerCase().includes(normalizedProductSearch)
-      )
+    ? availableProducts.filter((product) => [product.asin, product.sku, product.slug, getProductKey(product)]
+        .map(normalizeProductIdentifier)
+        .some((identifier) => identifier.includes(normalizedProductSearch)))
     : availableProducts;
   const activeCount = homepageProducts.filter((entry) => entry.status === "active").length;
+  const selectedProduct = productSource.find((product) => getProductKey(product) === selectedProductAsin) || null;
+  const searchModalProducts = normalizedProductSearch ? filteredAvailableProducts : availableProducts.slice(0, 24);
+
+  const handleSelectProductFromSearch = (product) => {
+    setSelectedProductAsin(getProductKey(product));
+    setProductAsinSearch(product.asin || product.sku || product.slug || "");
+  };
 
   const updateHomepageProduct = (entryId, values) => {
     setHomepageProducts((current) =>
@@ -673,82 +1082,25 @@ function ProductArrangementConfigure({ section, settingsKey, categorySettingsKey
       slotNumber: Number(entry.slotNumber || index + 1)
     }));
 
-  const handleAddProduct = () => {
-    const product = allProducts.find((entry) => String(entry.asin || "") === selectedProductAsin);
-    if (!product) return;
-
-    const nextSlot = Math.max(0, ...homepageProducts.map((entry) => Number(entry.slotNumber || 0))) + 1;
-    const nextSort = Math.max(0, ...homepageProducts.map((entry) => Number(entry.sortOrder || 0))) + 1;
-
-    setHomepageProducts((current) => [
-      ...current,
-      {
-        ...createHomepageProductEntry(product, nextSort - 1),
-        sortOrder: nextSort,
-        slotNumber: nextSlot
-      }
-    ]);
-    setSelectedProductAsin("");
-    setProductAsinSearch("");
-  };
-
-  const handleRemoveProduct = (entryId) => {
-    setHomepageProducts((current) => current.filter((entry) => entry.id !== entryId));
-  };
-
-  const moveHomepageProduct = (entryId, direction) => {
-    setHomepageProducts((current) => {
-      const ordered = [...current].sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
-      const currentIndex = ordered.findIndex((entry) => entry.id === entryId);
-      const nextIndex = currentIndex + direction;
-
-      if (currentIndex < 0 || nextIndex < 0 || nextIndex >= ordered.length) return current;
-
-      const [entry] = ordered.splice(currentIndex, 1);
-      ordered.splice(nextIndex, 0, entry);
-      return ordered.map((item, index) => ({ ...item, sortOrder: index + 1, slotNumber: index + 1 }));
-    });
-  };
-
-  const handleDropProduct = (targetEntryId) => {
-    if (!draggedProductId || draggedProductId === targetEntryId) {
-      setDraggedProductId("");
-      return;
-    }
-
-    setHomepageProducts((current) => {
-      const ordered = [...current].sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
-      const draggedIndex = ordered.findIndex((entry) => entry.id === draggedProductId);
-      const targetIndex = ordered.findIndex((entry) => entry.id === targetEntryId);
-
-      if (draggedIndex < 0 || targetIndex < 0) return current;
-
-      const [entry] = ordered.splice(draggedIndex, 1);
-      ordered.splice(targetIndex, 0, entry);
-      return ordered.map((item, index) => ({ ...item, sortOrder: index + 1, slotNumber: index + 1 }));
-    });
-    setDraggedProductId("");
-  };
-
-  const handleSave = async () => {
-    setIsSaving(true);
-
-    const nextProducts = homepageProducts
+  const buildCleanHomepageProducts = (sourceProducts) =>
+    sourceProducts
       .map((entry, index) => ({
         id: entry.id,
         productAsin: String(entry.productAsin || "").trim(),
         productSlug: String(entry.productSlug || "").trim(),
         status: entry.status === "inactive" ? "inactive" : "active",
         sortOrder: Number(entry.sortOrder || index + 1),
-        slotNumber: Number(entry.slotNumber || index + 1)
+        slotNumber: Number(entry.slotNumber || entry.sortOrder || index + 1)
       }))
       .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
 
+  const persistHomepageProducts = async (nextProducts, successMessage, categorySlugs = visibleCategorySlugs) => {
+    const cleanProducts = buildCleanHomepageProducts(nextProducts);
     const nextSettings = mergeSettings(settings, {
       homepage: {
         ...(settings.homepage || {}),
-        [settingsKey]: nextProducts,
-        ...(enableCategoryControls && categorySettingsKey ? { [categorySettingsKey]: visibleCategorySlugs } : {})
+        [settingsKey]: cleanProducts,
+        ...(enableCategoryControls && categorySettingsKey ? { [categorySettingsKey]: categorySlugs } : {})
       }
     });
 
@@ -756,20 +1108,129 @@ function ProductArrangementConfigure({ section, settingsKey, categorySettingsKey
       const response = await updateAdminSettings({ settings: nextSettings });
       const savedSettings = mergeSettings(DEFAULT_APP_SETTINGS, response.data?.data || nextSettings);
       setSettings(savedSettings);
-      setHomepageProducts(normalizeHomepageProducts(savedSettings, settingsKey, fallbackProducts));
+      setHomepageProducts(normalizeHomepageProducts(savedSettings, settingsKey, fallbackProducts, productSource));
       if (enableCategoryControls) {
-        setVisibleCategorySlugs(savedSettings.homepage?.[categorySettingsKey] || visibleCategorySlugs);
+        setVisibleCategorySlugs(savedSettings.homepage?.[categorySettingsKey] || categorySlugs);
       }
-      setMessage(`${sectionLabel} saved. Frontend will show active products by slot order.`);
+      setMessage(successMessage);
       setMessageTone("success");
+      return true;
     } catch {
       setSettings(nextSettings);
-      setHomepageProducts(nextProducts);
+      setHomepageProducts(cleanProducts);
       setMessage("Saved locally on this page only. Backend/admin login is required for frontend preview to update.");
       setMessageTone("warning");
-    } finally {
-      setIsSaving(false);
+      return false;
     }
+  };
+
+  const autoSaveHomepageProducts = async (nextProducts, successMessage) => {
+    setHomepageProducts(nextProducts);
+    setIsAutoSavingSort(true);
+    await persistHomepageProducts(nextProducts, successMessage);
+    setIsAutoSavingSort(false);
+  };
+
+  const handleVisibleCategoryChange = async (categorySlug, isChecked) => {
+    const nextSlugs = isChecked
+      ? Array.from(new Set([...visibleCategorySlugs, categorySlug]))
+      : visibleCategorySlugs.filter((slug) => slug !== categorySlug);
+    setVisibleCategorySlugs(nextSlugs);
+    setSelectedProductAsin("");
+    setCategoryUpdateMessage("");
+  };
+
+  const handleSaveVisibleCategories = async () => {
+    setIsAutoSavingSort(true);
+    const didSave = await persistHomepageProducts(homepageProducts, `${sectionLabel} categories updated.`, visibleCategorySlugs);
+    setCategoryUpdateMessage(didSave ? "Categories updated successfully." : "Categories updated locally. Sign in and keep backend running to publish.");
+    setIsAutoSavingSort(false);
+  };
+
+  const handleAddProduct = async () => {
+    const product = productSource.find((entry) => getProductKey(entry) === selectedProductAsin);
+    if (!product) return;
+
+    const nextSlot = Math.max(0, ...homepageProducts.map((entry) => Number(entry.slotNumber || 0))) + 1;
+    const nextSort = Math.max(0, ...homepageProducts.map((entry) => Number(entry.sortOrder || 0))) + 1;
+
+    const nextProducts = [
+      ...homepageProducts,
+      {
+        ...createHomepageProductEntry(product, nextSort - 1),
+        sortOrder: nextSort,
+        slotNumber: nextSlot
+      }
+    ];
+    const nextCategorySlugs = enableCategoryControls && product.collectionSlug
+      ? Array.from(new Set([...visibleCategorySlugs, product.collectionSlug]))
+      : visibleCategorySlugs;
+
+    setHomepageProducts(nextProducts);
+    if (enableCategoryControls) setVisibleCategorySlugs(nextCategorySlugs);
+    setSelectedProductAsin("");
+    setProductAsinSearch("");
+    setIsAutoSavingSort(true);
+    await persistHomepageProducts(nextProducts, `${sectionLabel} product added and published.`, nextCategorySlugs);
+    setIsAutoSavingSort(false);
+    setIsProductSearchOpen(false);
+  };
+
+  const handleRemoveProduct = async (entryId) => {
+    const nextProducts = resequenceProducts(homepageProducts.filter((entry) => entry.id !== entryId));
+    await autoSaveHomepageProducts(nextProducts, `${sectionLabel} product removed and published.`);
+  };
+
+  const handleProductStatus = async (entryId, status) => {
+    const nextProducts = homepageProducts.map((entry) => entry.id === entryId ? { ...entry, status } : entry);
+    await autoSaveHomepageProducts(nextProducts, `${sectionLabel} product marked ${status}.`);
+  };
+
+  const moveHomepageProduct = async (entryId, direction) => {
+    const ordered = [...homepageProducts].sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
+    const currentIndex = ordered.findIndex((entry) => entry.id === entryId);
+    const nextIndex = currentIndex + direction;
+
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= ordered.length) return;
+
+    const [entry] = ordered.splice(currentIndex, 1);
+    ordered.splice(nextIndex, 0, entry);
+    await autoSaveHomepageProducts(
+      ordered.map((item, index) => ({ ...item, sortOrder: index + 1, slotNumber: index + 1 })),
+      `${sectionLabel} order auto-saved.`
+    );
+  };
+
+  const handleDropProduct = async (targetEntryId, event) => {
+    event?.preventDefault();
+
+    if (!draggedProductId || draggedProductId === targetEntryId) {
+      setDraggedProductId("");
+      return;
+    }
+
+    const ordered = [...homepageProducts].sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
+    const draggedIndex = ordered.findIndex((entry) => entry.id === draggedProductId);
+    const targetIndex = ordered.findIndex((entry) => entry.id === targetEntryId);
+
+    if (draggedIndex < 0 || targetIndex < 0) {
+      setDraggedProductId("");
+      return;
+    }
+
+    const [entry] = ordered.splice(draggedIndex, 1);
+    ordered.splice(targetIndex, 0, entry);
+    setDraggedProductId("");
+    await autoSaveHomepageProducts(
+      ordered.map((item, index) => ({ ...item, sortOrder: index + 1, slotNumber: index + 1 })),
+      `${sectionLabel} order auto-saved.`
+    );
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    await persistHomepageProducts(homepageProducts, `${sectionLabel} saved. Frontend will show active products by slot order.`);
+    setIsSaving(false);
   };
 
   return (
@@ -785,18 +1246,21 @@ function ProductArrangementConfigure({ section, settingsKey, categorySettingsKey
           <div>
             <span style={eyebrowStyle}>Product Arrangement</span>
             <h3 style={panelTitleStyle}>{`Homepage ${sectionLabel}`}</h3>
-            <p style={panelCopyStyle}>Select available products by ASIN, control visibility, assign slot numbers, and arrange the display order.</p>
+            <p style={panelCopyStyle}>Search by ASIN, add products to the homepage, and drag rows into the display order.</p>
           </div>
-          <div style={actionGroupStyle}>
-            <span style={summaryPillStyle}>{`${activeCount} Active`}</span>
-            <span style={summaryPillStyle}>{`${homepageProducts.length} Selected`}</span>
-            <button type="button" onClick={() => navigate("/dashboard/products")} style={secondaryButtonStyle}>
-              Manage Products
-            </button>
-            <button type="button" onClick={handleSave} disabled={isSaving || isLoading} style={saveButtonStyle}>
-              {isSaving ? "Saving..." : `Save ${sectionLabel}`}
-            </button>
-          </div>
+          {["ourProducts", "bestSellerProducts"].includes(settingsKey) ? null : (
+            <div style={actionGroupStyle}>
+              <span style={summaryPillStyle}>{`${activeCount} Active`}</span>
+              <span style={summaryPillStyle}>{`${homepageProducts.length} Selected`}</span>
+              {isAutoSavingSort ? <span style={summaryPillStyle}>Auto-saving...</span> : null}
+              <button type="button" onClick={() => navigate("/dashboard/products")} style={secondaryButtonStyle}>
+                Manage Products
+              </button>
+              <button type="button" onClick={handleSave} disabled={isSaving || isLoading} style={saveButtonStyle}>
+                {isSaving ? "Saving..." : `Save ${sectionLabel}`}
+              </button>
+            </div>
+          )}
         </div>
 
         {message ? (
@@ -812,20 +1276,22 @@ function ProductArrangementConfigure({ section, settingsKey, categorySettingsKey
               <h4 style={selectorTitleStyle}>Control Product Categories</h4>
               <p style={panelCopyStyle}>Choose which product categories are allowed to appear in this homepage section.</p>
             </div>
+            <div style={categoryFilterHeaderActionsStyle}>
+              <span style={summaryPillStyle}>{`${visibleCategorySlugs.length} Selected`}</span>
+              <div style={categoryUpdateActionStyle}>
+                <button type="button" onClick={handleSaveVisibleCategories} disabled={isAutoSavingSort} style={saveButtonStyle}>
+                  {isAutoSavingSort ? "Updating..." : "Update Categories"}
+                </button>
+                {categoryUpdateMessage ? <span style={categoryUpdateMessageStyle}>{categoryUpdateMessage}</span> : null}
+              </div>
+            </div>
             <div style={categoryFilterGridStyle}>
               {categoryOptions.map((category) => (
                 <label key={category.slug} style={compactToggleStyle}>
                   <input
                     type="checkbox"
                     checked={visibleCategorySlugs.includes(category.slug)}
-                    onChange={(event) => {
-                      setVisibleCategorySlugs((current) =>
-                        event.target.checked
-                          ? Array.from(new Set([...current, category.slug]))
-                          : current.filter((slug) => slug !== category.slug)
-                      );
-                      setSelectedProductAsin("");
-                    }}
+                    onChange={(event) => handleVisibleCategoryChange(category.slug, event.target.checked)}
                   />
                   <span>{category.label}</span>
                 </label>
@@ -848,98 +1314,157 @@ function ProductArrangementConfigure({ section, settingsKey, categorySettingsKey
                 onChange={(event) => {
                   setProductAsinSearch(event.target.value);
                   setSelectedProductAsin("");
+                  setIsProductSearchOpen(true);
                 }}
-                placeholder="Type ASIN number"
+                onFocus={() => setIsProductSearchOpen(true)}
+                placeholder="Type exact or partial ASIN"
                 style={inputStyle}
               />
             </label>
-            <select
-              value={selectedProductAsin}
-              onChange={(event) => setSelectedProductAsin(event.target.value)}
-              style={inputStyle}
-              disabled={!filteredAvailableProducts.length}
-            >
-              <option value="">
-                {availableProducts.length
-                  ? filteredAvailableProducts.length
-                    ? `Select product ASIN (${filteredAvailableProducts.length} found)`
-                    : "No product found for this ASIN"
-                  : "All products are already selected"}
-              </option>
-              {filteredAvailableProducts.map((product) => (
-                <option key={product.asin} value={product.asin}>{`${product.asin} - ${product.name}`}</option>
-              ))}
-            </select>
-            <button type="button" onClick={handleAddProduct} disabled={!selectedProductAsin} style={saveButtonStyle}>
-              Add to Homepage
-            </button>
           </div>
         </div>
+
+        {isProductSearchOpen ? (
+          <div style={modalOverlayStyle}>
+            <div style={productSearchModalPanelStyle}>
+              <div style={modalHeaderStyle}>
+                <div>
+                  <span style={eyebrowStyle}>Inventory Search</span>
+                  <h4 style={modalTitleStyle}>Select Product by ASIN or SKU</h4>
+                  <p style={panelCopyStyle}>Search the complete product inventory, select one product, then add it to the homepage.</p>
+                </div>
+                <button type="button" onClick={() => setIsProductSearchOpen(false)} style={modalCloseButtonStyle} aria-label="Close product search">x</button>
+              </div>
+
+              <label style={fieldStyle}>
+                <span style={labelStyle}>Search Product ASIN / SKU</span>
+                <input
+                  autoFocus
+                  value={productAsinSearch}
+                  onChange={(event) => {
+                    setProductAsinSearch(event.target.value);
+                    setSelectedProductAsin("");
+                  }}
+                  placeholder="Example: B06CZKLJ4D"
+                  style={inputStyle}
+                />
+              </label>
+
+              <div style={productSearchSummaryStyle}>
+                <span style={summaryPillStyle}>{isSearchingProducts ? "Searching..." : `${searchModalProducts.length} results`}</span>
+                {selectedProduct ? <span style={summaryPillStyle}>{`Selected: ${selectedProduct.asin || selectedProduct.slug}`}</span> : null}
+              </div>
+
+              <div style={productSearchResultsStyle}>
+                {searchModalProducts.length ? searchModalProducts.map((product) => {
+                  const productKey = getProductKey(product);
+                  const isSelected = productKey === selectedProductAsin;
+
+                  return (
+                    <button
+                      key={productKey}
+                      type="button"
+                      onClick={() => handleSelectProductFromSearch(product)}
+                      style={{
+                        ...productSearchResultStyle,
+                        ...(isSelected ? productSearchResultSelectedStyle : null)
+                      }}
+                    >
+                      <AdminPreviewImage src={product.image || product.imageUrl || product.gallery?.[0] || "/images/optimized/frame-1.webp"} alt={product.name} style={productSearchImageStyle} />
+                      <span style={productSearchCopyStyle}>
+                        <strong>{product.name}</strong>
+                        <span>{`ASIN/SKU: ${product.asin || product.sku || product.slug}`}</span>
+                        <span>{`${product.category || product.categoryName || "Products"} | ${product.status || "active"}`}</span>
+                      </span>
+                      <span style={isSelected ? rowActiveButtonStyle : categoryEditButtonStyle}>{isSelected ? "Selected" : "Select"}</span>
+                    </button>
+                  );
+                }) : (
+                  <div style={emptyHomepageCategoryStyle}>
+                    {normalizedProductSearch ? "No product found for this ASIN or SKU." : "Type an ASIN or SKU to search inventory."}
+                  </div>
+                )}
+              </div>
+
+              <div style={modalFooterStyle}>
+                <button type="button" onClick={handleAddProduct} disabled={!selectedProductAsin || isAutoSavingSort} style={saveButtonStyle}>
+                  {isAutoSavingSort ? "Adding..." : "Add to Homepage"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         <div style={productArrangementListStyle}>
           {homepageProducts.length ? homepageProducts
             .slice()
             .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0))
             .map((entry, index) => {
-              const product = getProductByHomepageEntry(entry);
+              const product = getProductByHomepageEntry(entry, productSource);
               if (!product) return null;
 
               return (
                 <article
                   key={entry.id}
-                  draggable
-                  onDragStart={() => setDraggedProductId(entry.id)}
                   onDragOver={(event) => event.preventDefault()}
-                  onDrop={() => handleDropProduct(entry.id)}
+                  onDrop={(event) => handleDropProduct(entry.id, event)}
                   style={{
                     ...productArrangementCardStyle,
                     ...(draggedProductId === entry.id ? productArrangementCardDraggingStyle : null)
                   }}
                 >
-                  <div style={dragHandleStyle}>Drag</div>
-                  <img src={product.image} alt={product.name} style={productArrangementImageStyle} />
+                  <button
+                    type="button"
+                    draggable
+                    onDragStart={(event) => {
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData("text/plain", entry.id);
+                      setDraggedProductId(entry.id);
+                    }}
+                    onDragEnd={() => setDraggedProductId("")}
+                    style={productDragHandleStyle}
+                    aria-label={`Drag ${product.name}`}
+                    title="Drag to reorder"
+                  >
+                    <span aria-hidden="true" style={categoryDragDotsStyle}>
+                      <span style={categoryDragDotStyle} />
+                      <span style={categoryDragDotStyle} />
+                      <span style={categoryDragDotStyle} />
+                      <span style={categoryDragDotStyle} />
+                      <span style={categoryDragDotStyle} />
+                      <span style={categoryDragDotStyle} />
+                    </span>
+                  </button>
+                  <AdminPreviewImage src={product.image} alt={product.name} style={productArrangementImageStyle} />
                   <div style={productArrangementContentStyle}>
-                    <span style={eyebrowStyle}>{`Slot ${entry.slotNumber || index + 1}`}</span>
+                    <span style={eyebrowStyle}>{`Position ${index + 1}`}</span>
                     <strong style={productArrangementTitleStyle}>{product.name}</strong>
-                    <span style={bannerMetaStyle}>{`ASIN: ${product.asin} | ${entry.status === "active" ? "Active" : "Inactive"}`}</span>
+                    <span style={productMetaGroupStyle}>
+                      <span>{`ASIN: ${product.asin || product.sku || product.slug}`}</span>
+                      <span>{product.category}</span>
+                      <span>{entry.status === "active" ? "Active" : "Inactive"}</span>
+                    </span>
                   </div>
                   <div style={productArrangementControlsStyle}>
-                    <label style={fieldStyle}>
-                      <span style={labelStyle}>Slot Number</span>
-                      <input
-                        type="number"
-                        min="1"
-                        value={entry.slotNumber}
-                        onChange={(event) => updateHomepageProduct(entry.id, { slotNumber: Number(event.target.value || 0), sortOrder: Number(event.target.value || 0) })}
-                        style={inputStyle}
-                      />
-                    </label>
-                    <div style={segmentedControlStyle}>
-                      <button
-                        type="button"
-                        onClick={() => updateHomepageProduct(entry.id, { status: "active" })}
-                        style={{
-                          ...segmentedButtonStyle,
-                          ...(entry.status === "active" ? segmentedButtonActiveStyle : null)
-                        }}
-                      >
-                        Active
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateHomepageProduct(entry.id, { status: "inactive" })}
-                        style={{
-                          ...segmentedButtonStyle,
-                          ...(entry.status === "inactive" ? segmentedButtonInactiveStyle : null)
-                        }}
-                      >
-                        Inactive
-                      </button>
-                    </div>
                     <div style={productArrangementActionStyle}>
-                      <button type="button" onClick={() => moveHomepageProduct(entry.id, -1)} disabled={index === 0} style={secondaryButtonStyle}>Move Up</button>
-                      <button type="button" onClick={() => moveHomepageProduct(entry.id, 1)} disabled={index === homepageProducts.length - 1} style={secondaryButtonStyle}>Move Down</button>
-                      <button type="button" onClick={() => handleRemoveProduct(entry.id)} style={dangerButtonStyle}>Remove</button>
+                      <label style={productSlotInlineStyle}>
+                        <span style={productSlotLabelStyle}>Slot</span>
+                        <input
+                          type="number"
+                          min="1"
+                          value={entry.slotNumber}
+                          onChange={(event) => updateHomepageProduct(entry.id, { slotNumber: Number(event.target.value || 0), sortOrder: Number(event.target.value || 0) })}
+                          style={productSlotInputStyle}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => handleProductStatus(entry.id, entry.status === "active" ? "inactive" : "active")}
+                        style={entry.status === "active" ? rowActiveButtonStyle : rowInactiveButtonStyle}
+                      >
+                        {entry.status === "active" ? "Active" : "Inactive"}
+                      </button>
+                      <button type="button" onClick={() => handleRemoveProduct(entry.id)} style={rowDeleteButtonStyle}>Delete</button>
                     </div>
                   </div>
                 </article>
@@ -993,7 +1518,7 @@ function normalizeFeaturedBrands(settings) {
     .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
 }
 
-function FeaturedBrandsConfigure({ section }) {
+function FeaturedBrandsConfigure({ section, refreshToken = 0 }) {
   const [settings, setSettings] = React.useState(() => cloneSettings(DEFAULT_APP_SETTINGS));
   const [brands, setBrands] = React.useState(() => normalizeFeaturedBrands(DEFAULT_APP_SETTINGS));
   const [expandedBrandId, setExpandedBrandId] = React.useState("");
@@ -1037,7 +1562,7 @@ function FeaturedBrandsConfigure({ section }) {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [refreshToken]);
 
   const updateBrand = (brandId, values) => {
     setBrands((current) => current.map((brand) => brand.id === brandId ? { ...brand, ...values } : brand));
@@ -1229,7 +1754,7 @@ function FeaturedBrandsConfigure({ section }) {
 
 function createEmptyBanner() {
   return {
-    id: `hero-${Date.now()}`,
+    id: createHeroBannerId(),
     mediaType: "image",
     desktopImage: "",
     mobileImage: "",
@@ -1252,6 +1777,10 @@ function createEmptyBanner() {
   };
 }
 
+function createHeroBannerId() {
+  return `hero-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function getHeroSettings(settings) {
   return {
     globalCtaEnabled: Boolean(settings.homepage?.globalHeroCta?.enabled),
@@ -1263,6 +1792,38 @@ function getHeroSettings(settings) {
 function inferMediaType(banner) {
   if (banner.mediaType === "video" || banner.desktopVideo || banner.mobileVideo) return "video";
   return "image";
+}
+
+function getBannerMediaFields(banner) {
+  const mediaType = inferMediaType(banner);
+
+  if (mediaType === "video") {
+    return {
+      mediaType,
+      primary: String(banner.desktopVideo || "").trim(),
+      secondary: String(banner.mobileVideo || "").trim(),
+      poster: String(banner.desktopImage || banner.mobileImage || "").trim()
+    };
+  }
+
+  return {
+    mediaType,
+    primary: String(banner.desktopImage || "").trim(),
+    secondary: String(banner.mobileImage || "").trim(),
+    poster: ""
+  };
+}
+
+function isTemporaryMediaUrl(value) {
+  const url = String(value || "").trim();
+  return url.startsWith("blob:");
+}
+
+function isPersistableHeroBanner(banner) {
+  const media = getBannerMediaFields(banner);
+  const urls = [media.primary, media.secondary, media.poster].filter(Boolean);
+
+  return Boolean(media.primary || media.secondary) && urls.every((url) => !isTemporaryMediaUrl(url));
 }
 
 function normalizeBanners(settings) {
@@ -1278,6 +1839,7 @@ function normalizeBanners(settings) {
       subtitleFontSize: Number(banner.subtitleFontSize || 17),
       fontFamily: banner.fontFamily || "Montserrat",
       fontStyle: banner.fontStyle || "normal",
+      fontWeight: banner.fontWeight || "800",
       ctaEnabled: banner.ctaEnabled !== false,
       textEnabled: banner.textEnabled !== false
     }))
@@ -1293,21 +1855,64 @@ function getFontStyleParts(value) {
   return { fontFamily, fontStyle };
 }
 
-function HeroBannerConfigure({ section }) {
+function getAdminMediaPreviewUrl(value) {
+  const url = String(value || "").trim();
+  if (!url || /^(data:|https?:|blob:)/i.test(url)) return url;
+  if (url.startsWith("/images/")) return `${getStorefrontBaseUrl()}${url}`;
+  if (url.startsWith("/uploads/")) return `http://localhost:4000${url}`;
+  return url;
+}
+
+function AdminPreviewImage({ src, alt, style }) {
+  const [hasError, setHasError] = React.useState(false);
+  const displaySrc = getAdminMediaPreviewUrl(src);
+
+  if (!displaySrc || hasError) {
+    return (
+      <span style={{ ...style, display: "grid", placeItems: "center", color: "#64748b", fontSize: "12px", fontWeight: 900 }}>
+        {String(alt || "Image").slice(0, 1).toUpperCase()}
+      </span>
+    );
+  }
+
+  return (
+    <img
+      src={displaySrc}
+      alt={alt}
+      style={style}
+      loading="lazy"
+      onError={() => setHasError(true)}
+    />
+  );
+}
+
+function HeroBannerConfigure({ section, refreshToken = 0 }) {
   const [settings, setSettings] = React.useState(() => cloneSettings(DEFAULT_APP_SETTINGS));
   const [banners, setBanners] = React.useState(() => normalizeBanners(DEFAULT_APP_SETTINGS));
   const [globalHeroCta, setGlobalHeroCta] = React.useState(() => getHeroSettings(DEFAULT_APP_SETTINGS));
   const [expandedBannerId, setExpandedBannerId] = React.useState("");
+  const [isGlobalCtaOpen, setIsGlobalCtaOpen] = React.useState(false);
+  const [newBannerDraft, setNewBannerDraft] = React.useState(null);
+  const [draggedBannerId, setDraggedBannerId] = React.useState("");
   const [uploadingField, setUploadingField] = React.useState("");
   const [isLoading, setIsLoading] = React.useState(true);
   const [isSaving, setIsSaving] = React.useState(false);
+  const [isCreatingBanner, setIsCreatingBanner] = React.useState(false);
+  const [isAutoSavingSort, setIsAutoSavingSort] = React.useState(false);
   const [message, setMessage] = React.useState("");
   const [messageTone, setMessageTone] = React.useState("success");
+  const isEditingRef = React.useRef(false);
+
+  React.useEffect(() => {
+    isEditingRef.current = Boolean(expandedBannerId || newBannerDraft || uploadingField || isSaving || isCreatingBanner);
+  }, [expandedBannerId, newBannerDraft, uploadingField, isSaving, isCreatingBanner]);
 
   React.useEffect(() => {
     let isMounted = true;
 
     async function loadSettings() {
+      if (refreshToken > 0 && isEditingRef.current) return;
+
       setIsLoading(true);
       try {
         const response = await fetchAdminSettings();
@@ -1318,7 +1923,6 @@ function HeroBannerConfigure({ section }) {
         setSettings(mergedSettings);
         setBanners(nextBanners);
         setGlobalHeroCta(getHeroSettings(mergedSettings));
-        setExpandedBannerId(nextBanners[0]?.id || "");
         setMessage("Hero banners loaded from backend.");
         setMessageTone("success");
       } catch {
@@ -1328,7 +1932,6 @@ function HeroBannerConfigure({ section }) {
         setSettings(fallbackSettings);
         setBanners(nextBanners);
         setGlobalHeroCta(getHeroSettings(fallbackSettings));
-        setExpandedBannerId(nextBanners[0]?.id || "");
         setMessage("Showing default banner setup. Sign in as admin and keep backend running to save changes.");
         setMessageTone("warning");
       } finally {
@@ -1341,7 +1944,7 @@ function HeroBannerConfigure({ section }) {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [refreshToken]);
 
   const updateBanner = (bannerId, field, value) => {
     setBanners((current) =>
@@ -1364,7 +1967,10 @@ function HeroBannerConfigure({ section }) {
   };
 
   const updateBannerMediaType = (bannerId, mediaType) => {
-    updateBannerFields(bannerId, { mediaType });
+    updateBannerFields(bannerId, {
+      mediaType,
+      ...(mediaType === "image" ? { desktopVideo: "", mobileVideo: "" } : {})
+    });
   };
 
   const updateBannerFontStyle = (bannerId, value) => {
@@ -1372,19 +1978,26 @@ function HeroBannerConfigure({ section }) {
   };
 
   const handleAddBanner = () => {
-    const nextBanner = {
-        ...createEmptyBanner(),
-        id: `hero-${Date.now()}`,
+    setNewBannerDraft({
+      ...createEmptyBanner(),
+      id: createHeroBannerId(),
       sortOrder: banners.length + 1
-    };
-
-    setBanners((current) => [...current, nextBanner]);
-    setExpandedBannerId(nextBanner.id);
+    });
   };
 
   const handleRemoveBanner = (bannerId) => {
     setBanners((current) => current.filter((banner) => banner.id !== bannerId));
     setExpandedBannerId((current) => (current === bannerId ? "" : current));
+  };
+
+  const handleDeleteBanner = async (bannerId) => {
+    const banner = banners.find((item) => item.id === bannerId);
+    const confirmed = window.confirm(`Delete this hero banner?\n\n${banner?.title || "Untitled banner"}`);
+    if (!confirmed) return;
+
+    const nextBanners = buildCleanHeroBanners(banners.filter((banner) => banner.id !== bannerId));
+    setExpandedBannerId((current) => (current === bannerId ? "" : current));
+    await persistHeroBanners(nextBanners, "Hero banner deleted.");
   };
 
   const handleMediaUpload = async (bannerId, field, file) => {
@@ -1393,6 +2006,14 @@ function HeroBannerConfigure({ section }) {
     const uploadKey = `${bannerId}:${field}`;
     setUploadingField(uploadKey);
     const isVideo = file.type.startsWith("video/");
+    const mediaError = validateHeroMediaFile(file, isVideo ? "video" : "image");
+
+    if (mediaError) {
+      setMessage(mediaError);
+      setMessageTone("warning");
+      setUploadingField("");
+      return;
+    }
 
     try {
       const response = isVideo ? await uploadAdminMedia(file) : await uploadAdminImage(file);
@@ -1402,8 +2023,10 @@ function HeroBannerConfigure({ section }) {
         : uploadedUrl;
 
       if (!mediaUrl) throw new Error("Media upload did not return a URL");
-      updateBanner(bannerId, field, mediaUrl);
-      if (isVideo) updateBanner(bannerId, "mediaType", "video");
+      updateBannerFields(bannerId, {
+        [field]: mediaUrl,
+        ...(isVideo ? { mediaType: "video" } : null)
+      });
       setMessage(`${isVideo ? "Video" : "Image"} uploaded successfully.`);
       setMessageTone("success");
     } catch {
@@ -1422,24 +2045,116 @@ function HeroBannerConfigure({ section }) {
     }
   };
 
-  const handleSave = async () => {
-    setIsSaving(true);
-    const nextBanners = banners
-      .map((banner, index) => ({
-        ...banner,
-        title: String(banner.title || "").trim(),
-        subtitle: String(banner.subtitle || "").trim(),
-        altText: String(banner.altText || "").trim(),
-        buttonText: String(banner.buttonText || "").trim(),
-        buttonLink: String(banner.buttonLink || "").trim() || "/collections",
-        titleFontSize: Number(banner.titleFontSize || 56),
-        subtitleFontSize: Number(banner.subtitleFontSize || 17),
-        fontFamily: String(banner.fontFamily || "Montserrat").trim(),
-        fontStyle: String(banner.fontStyle || "normal").trim(),
-        sortOrder: Number(banner.sortOrder || index + 1)
-      }))
-      .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
+  const updateNewBanner = (field, value) => {
+    setNewBannerDraft((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        [field]: ["sortOrder", "titleFontSize", "subtitleFontSize"].includes(field) ? Number(value || 0) : value
+      };
+    });
+  };
 
+  const updateNewBannerFields = (values) => {
+    setNewBannerDraft((current) => current ? { ...current, ...values } : current);
+  };
+
+  const updateNewBannerMediaType = (mediaType) => {
+    updateNewBannerFields({
+      mediaType,
+      ...(mediaType === "image" ? { desktopVideo: "", mobileVideo: "" } : {})
+    });
+  };
+
+  const updateNewBannerFontStyle = (value) => {
+    updateNewBannerFields(getFontStyleParts(value));
+  };
+
+  const handleNewBannerMediaUpload = async (field, file) => {
+    if (!file || !newBannerDraft) return;
+
+    const uploadKey = `new-banner:${field}`;
+    setUploadingField(uploadKey);
+    const isVideo = file.type.startsWith("video/");
+    const mediaError = validateHeroMediaFile(file, isVideo ? "video" : "image");
+
+    if (mediaError) {
+      setMessage(mediaError);
+      setMessageTone("warning");
+      setUploadingField("");
+      return;
+    }
+
+    try {
+      const response = isVideo ? await uploadAdminMedia(file) : await uploadAdminImage(file);
+      const uploadedUrl = response.data?.data?.url || "";
+      const mediaUrl = uploadedUrl.startsWith("/uploads/")
+        ? `http://localhost:4000${uploadedUrl}`
+        : uploadedUrl;
+
+      if (!mediaUrl) throw new Error("Media upload did not return a URL");
+      updateNewBannerFields({
+        [field]: mediaUrl,
+        ...(isVideo ? { mediaType: "video" } : null)
+      });
+      setMessage(`${isVideo ? "Video" : "Image"} uploaded successfully.`);
+      setMessageTone("success");
+    } catch {
+      setMessage("Upload failed. Please make sure the backend is running, then try the image or video again.");
+      setMessageTone("warning");
+    } finally {
+      setUploadingField("");
+    }
+  };
+
+  const cleanHeroBanner = (banner, index = 0) => ({
+    ...banner,
+    mediaType: inferMediaType(banner),
+    title: String(banner.title || "").trim(),
+    subtitle: String(banner.subtitle || "").trim(),
+    altText: String(banner.altText || "").trim(),
+    desktopImage: String(banner.desktopImage || "").trim(),
+    mobileImage: String(banner.mobileImage || "").trim(),
+    desktopVideo: String(banner.desktopVideo || "").trim(),
+    mobileVideo: String(banner.mobileVideo || "").trim(),
+    buttonText: String(banner.buttonText || "").trim(),
+    buttonLink: String(banner.buttonLink || "").trim() || "/collections",
+    startDate: String(banner.startDate || "").trim(),
+    endDate: String(banner.endDate || "").trim(),
+    titleFontSize: Number(banner.titleFontSize || 56),
+    subtitleFontSize: Number(banner.subtitleFontSize || 17),
+    fontFamily: String(banner.fontFamily || "Montserrat").trim(),
+    fontStyle: String(banner.fontStyle || "normal").trim(),
+    fontWeight: String(banner.fontWeight || "800").trim(),
+    status: banner.status === "inactive" ? "inactive" : "active",
+    sortOrder: Number(banner.sortOrder || index + 1)
+  });
+
+  const buildCleanHeroBanners = (sourceBanners, { dropInvalid = true } = {}) =>
+    sourceBanners
+      .map(cleanHeroBanner)
+      .filter((banner) => !dropInvalid || isPersistableHeroBanner(banner) || banner.status === "inactive")
+      .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0))
+      .map((banner, index) => ({ ...banner, sortOrder: index + 1 }));
+
+  const validateHeroBanner = (banner) => {
+    const cleanedBanner = cleanHeroBanner(banner);
+
+    if (!cleanedBanner.title) return "Banner title is required.";
+    if (cleanedBanner.status === "active" && !isPersistableHeroBanner(cleanedBanner)) {
+      return "Active hero banners need a desktop or mobile image/video.";
+    }
+    if (!isSafeLink(cleanedBanner.buttonLink)) {
+      return "Button link must be an internal path starting with / or a valid https:// URL.";
+    }
+    if (cleanedBanner.startDate && cleanedBanner.endDate && new Date(cleanedBanner.endDate) < new Date(cleanedBanner.startDate)) {
+      return "Banner end date must be after the start date.";
+    }
+
+    return "";
+  };
+
+  const persistHeroBanners = async (nextBanners, successMessage) => {
     const nextSettings = mergeSettings(settings, {
       homepage: {
         ...(settings.homepage || {}),
@@ -1458,16 +2173,139 @@ function HeroBannerConfigure({ section }) {
       setSettings(savedSettings);
       setBanners(normalizeBanners(savedSettings));
       setGlobalHeroCta(getHeroSettings(savedSettings));
-      setMessage("Hero banners saved. Frontend will show active banners sorted by sort order.");
+      setMessage(successMessage);
       setMessageTone("success");
+      return true;
     } catch {
       setSettings(nextSettings);
       setBanners(nextBanners);
       setMessage("Saved locally on this page only. Backend/admin login is required for frontend preview to update.");
       setMessageTone("warning");
-    } finally {
-      setIsSaving(false);
+      return false;
     }
+  };
+
+  const handleCreateBanner = async () => {
+    if (!newBannerDraft || isCreatingBanner) return;
+
+    const validationMessage = validateHeroBanner(newBannerDraft);
+    if (validationMessage) {
+      setMessage(validationMessage);
+      setMessageTone("warning");
+      return;
+    }
+
+    setIsCreatingBanner(true);
+    const nextBanners = buildCleanHeroBanners([...banners, newBannerDraft]);
+    await persistHeroBanners(nextBanners, "New hero banner saved. It will now appear on the website homepage.");
+    setNewBannerDraft(null);
+    setExpandedBannerId("");
+    setIsCreatingBanner(false);
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+
+    const invalidBannerMessage = banners.map(validateHeroBanner).find(Boolean);
+    if (invalidBannerMessage) {
+      setMessage(invalidBannerMessage);
+      setMessageTone("warning");
+      setIsSaving(false);
+      return;
+    }
+
+    const nextBanners = buildCleanHeroBanners(banners);
+    await persistHeroBanners(nextBanners, "Hero banners saved. Frontend will show active banners sorted by sort order.");
+    setIsSaving(false);
+  };
+
+  const handleSaveGlobalCta = async () => {
+    if (isSaving) return;
+
+    setIsSaving(true);
+    const nextBanners = buildCleanHeroBanners(banners, { dropInvalid: false });
+    const didSave = await persistHeroBanners(nextBanners, "Changes successfully completed.");
+    if (didSave) {
+      window.setTimeout(() => {
+        setIsGlobalCtaOpen(false);
+      }, 1200);
+    }
+    setIsSaving(false);
+  };
+
+  const handleSaveBanner = async (bannerId) => {
+    if (isSaving) return;
+
+    const banner = banners.find((item) => item.id === bannerId);
+    if (!banner) return;
+
+    const cleanedBanner = cleanHeroBanner(banner, banners.findIndex((item) => item.id === bannerId));
+    const validationMessage = validateHeroBanner(cleanedBanner);
+    if (validationMessage) {
+      setMessage(validationMessage);
+      setMessageTone("warning");
+      return;
+    }
+
+    setIsSaving(true);
+    const nextBanners = buildCleanHeroBanners(
+      banners.map((item, index) => (item.id === bannerId ? cleanHeroBanner(banner, index) : item)),
+      { dropInvalid: false }
+    );
+    const didSave = await persistHeroBanners(nextBanners, "Changes successfully completed.");
+    if (didSave) {
+      window.setTimeout(() => {
+        setExpandedBannerId((current) => (current === bannerId ? "" : current));
+      }, 1200);
+    }
+    setIsSaving(false);
+  };
+
+  const handleBannerStatus = async (bannerId, status) => {
+    const nextBanners = banners.map((banner) =>
+      banner.id === bannerId ? { ...banner, status } : banner
+    );
+    setBanners(nextBanners);
+    setIsAutoSavingSort(true);
+    await persistHeroBanners(
+      buildCleanHeroBanners(nextBanners, { dropInvalid: false }),
+      `Hero banner marked ${status}.`
+    );
+    setIsAutoSavingSort(false);
+  };
+
+  const saveBannerOrder = async (nextBanners) => {
+    const sequencedBanners = nextBanners.map((banner, index) => ({ ...banner, sortOrder: index + 1 }));
+    setBanners(sequencedBanners);
+    setIsAutoSavingSort(true);
+    await persistHeroBanners(
+      buildCleanHeroBanners(sequencedBanners, { dropInvalid: false }),
+      "Hero banner order auto-saved."
+    );
+    setIsAutoSavingSort(false);
+  };
+
+  const handleDropBanner = async (targetBannerId, event) => {
+    event?.preventDefault();
+
+    if (!draggedBannerId || draggedBannerId === targetBannerId) {
+      setDraggedBannerId("");
+      return;
+    }
+
+    const orderedBanners = [...banners].sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
+    const draggedIndex = orderedBanners.findIndex((banner) => banner.id === draggedBannerId);
+    const targetIndex = orderedBanners.findIndex((banner) => banner.id === targetBannerId);
+
+    if (draggedIndex < 0 || targetIndex < 0) {
+      setDraggedBannerId("");
+      return;
+    }
+
+    const [draggedBanner] = orderedBanners.splice(draggedIndex, 1);
+    orderedBanners.splice(targetIndex, 0, draggedBanner);
+    setDraggedBannerId("");
+    await saveBannerOrder(orderedBanners);
   };
 
   const activeCount = banners.filter((banner) => banner.status === "active").length;
@@ -1490,10 +2328,8 @@ function HeroBannerConfigure({ section }) {
           <div style={actionGroupStyle}>
             <span style={summaryPillStyle}>{`${activeCount} Active`}</span>
             <span style={summaryPillStyle}>{`${banners.length} Total`}</span>
-            <button type="button" onClick={handleAddBanner} style={secondaryButtonStyle}>Add Banner</button>
-            <button type="button" onClick={handleSave} disabled={isSaving || isLoading} style={saveButtonStyle}>
-              {isSaving ? "Saving..." : "Save Hero Banner"}
-            </button>
+            {isAutoSavingSort ? <span style={summaryPillStyle}>Auto-saving...</span> : null}
+            <button type="button" onClick={handleAddBanner} style={saveButtonStyle}>Add Banner</button>
           </div>
         </div>
 
@@ -1504,48 +2340,112 @@ function HeroBannerConfigure({ section }) {
         ) : null}
 
         <div style={globalCtaPanelStyle}>
-          <label style={compactToggleStyle}>
-            <input
-              type="checkbox"
-              checked={globalHeroCta.globalCtaEnabled}
-              onChange={(event) => setGlobalHeroCta((current) => ({ ...current, globalCtaEnabled: event.target.checked }))}
-            />
-            <span>Enable one CTA button for all slides</span>
-          </label>
-          <div style={formGridStyle}>
-            <label style={fieldStyle}>
-              <span style={labelStyle}>All Slide Button Text</span>
-              <input
-                value={globalHeroCta.globalCtaText}
-                onChange={(event) => setGlobalHeroCta((current) => ({ ...current, globalCtaText: event.target.value }))}
-                placeholder="Shop Now"
-                style={inputStyle}
-              />
-            </label>
-            <PageLinkPicker
-              label="All Slide Button URL"
-              value={globalHeroCta.globalCtaLink}
-              options={PAGE_LINK_OPTIONS}
-              onChange={(value) => setGlobalHeroCta((current) => ({ ...current, globalCtaLink: value }))}
-            />
-          </div>
+          <button type="button" onClick={() => setIsGlobalCtaOpen((current) => !current)} style={collapsibleHeaderButtonStyle}>
+            <span style={collapsibleTitleBlockStyle}>
+              <strong>Global CTA Settings</strong>
+              <small>{globalHeroCta.globalCtaEnabled ? `Enabled | ${globalHeroCta.globalCtaText}` : "Disabled"}</small>
+            </span>
+            <span style={summaryPillStyle}>{isGlobalCtaOpen ? "Close" : "Open"}</span>
+          </button>
+          {isGlobalCtaOpen ? (
+            <div style={collapsibleBodyStyle}>
+              <label style={compactToggleStyle}>
+                <input
+                  type="checkbox"
+                  checked={globalHeroCta.globalCtaEnabled}
+                  onChange={(event) => setGlobalHeroCta((current) => ({ ...current, globalCtaEnabled: event.target.checked }))}
+                />
+                <span>Enable one CTA button for all slides</span>
+              </label>
+              <div style={formGridStyle}>
+                <label style={fieldStyle}>
+                  <span style={labelStyle}>All Slide Button Text</span>
+                  <input
+                    value={globalHeroCta.globalCtaText}
+                    onChange={(event) => setGlobalHeroCta((current) => ({ ...current, globalCtaText: event.target.value }))}
+                    placeholder="Shop Now"
+                    style={inputStyle}
+                  />
+                </label>
+                <PageLinkPicker
+                  label="All Slide Button URL"
+                  value={globalHeroCta.globalCtaLink}
+                  options={PAGE_LINK_OPTIONS}
+                  onChange={(value) => setGlobalHeroCta((current) => ({ ...current, globalCtaLink: value }))}
+                />
+              </div>
+              <div style={inlineSaveBarStyle}>
+                <button type="button" onClick={handleSaveGlobalCta} disabled={isSaving || isLoading} style={saveButtonStyle}>
+                  {isSaving ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div style={bannerListStyle}>
           {banners.map((banner, index) => (
-            <article key={banner.id} style={bannerCardStyle}>
+            <article
+              key={banner.id}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => handleDropBanner(banner.id, event)}
+              style={{
+                ...bannerCardStyle,
+                ...(draggedBannerId === banner.id ? bannerCardDraggingStyle : null)
+              }}
+            >
               <button
                 type="button"
-                onClick={() => setExpandedBannerId((current) => (current === banner.id ? "" : banner.id))}
-                style={bannerPreviewButtonStyle}
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", banner.id);
+                  setDraggedBannerId(banner.id);
+                }}
+                onDragEnd={() => setDraggedBannerId("")}
+                style={bannerDragHandleStyle}
+                aria-label={`Drag ${banner.title || `banner ${index + 1}`}`}
+                title="Drag to reorder"
               >
-                <HeroMediaPreview banner={banner} compact />
-                <div style={bannerPreviewContentStyle}>
-                  <span style={eyebrowStyle}>{`Banner ${index + 1}`}</span>
-                  <strong style={bannerPreviewTitleStyle}>{banner.title || "Untitled Banner"}</strong>
-                  <span style={bannerMetaStyle}>{`${banner.status === "active" ? "Active" : "Inactive"} | ${banner.mediaType === "video" ? "Video" : "Image"} | Sort ${banner.sortOrder || index + 1}`}</span>
-                </div>
+                <span aria-hidden="true" style={categoryDragDotsStyle}>
+                  <span style={categoryDragDotStyle} />
+                  <span style={categoryDragDotStyle} />
+                  <span style={categoryDragDotStyle} />
+                  <span style={categoryDragDotStyle} />
+                  <span style={categoryDragDotStyle} />
+                  <span style={categoryDragDotStyle} />
+                </span>
               </button>
+              <HeroMediaPreview banner={banner} compact />
+              <div style={bannerPreviewContentStyle}>
+                <span style={eyebrowStyle}>{`Banner ${index + 1}`}</span>
+                <strong style={bannerPreviewTitleStyle}>{banner.title || "Untitled Banner"}</strong>
+                <span style={bannerMetaGroupStyle}>
+                  <span>{banner.status === "active" ? "Active" : "Inactive"}</span>
+                  <span>{banner.mediaType === "video" ? "Video" : "Image"}</span>
+                  <span>{`Sort ${banner.sortOrder || index + 1}`}</span>
+                </span>
+              </div>
+              <div style={bannerRowActionsStyle}>
+                <span style={categoryOrderPillStyle}>{`#${index + 1}`}</span>
+                <button
+                  type="button"
+                  onClick={() => handleBannerStatus(banner.id, banner.status === "active" ? "inactive" : "active")}
+                  style={banner.status === "active" ? rowActiveButtonStyle : rowInactiveButtonStyle}
+                >
+                  {banner.status === "active" ? "Active" : "Inactive"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExpandedBannerId((current) => (current === banner.id ? "" : banner.id))}
+                  style={categoryEditButtonStyle}
+                >
+                  {expandedBannerId === banner.id ? "Close" : "Edit"}
+                </button>
+                <button type="button" onClick={() => handleDeleteBanner(banner.id)} style={rowDeleteButtonStyle}>
+                  Delete
+                </button>
+              </div>
 
               {expandedBannerId === banner.id ? (
                 <div style={bannerEditorStyle}>
@@ -1556,7 +2456,9 @@ function HeroBannerConfigure({ section }) {
                     </div>
                     <div style={actionGroupStyle}>
                       <button type="button" onClick={() => setExpandedBannerId("")} style={secondaryButtonStyle}>Edit Done</button>
-                      <button type="button" onClick={() => handleRemoveBanner(banner.id)} style={dangerButtonStyle}>Delete</button>
+                      <button type="button" onClick={() => handleSaveBanner(banner.id)} disabled={isSaving || isLoading} style={saveButtonStyle}>
+                        {isSaving ? "Saving..." : "Save Changes"}
+                      </button>
                     </div>
                   </div>
 
@@ -1636,7 +2538,7 @@ function HeroBannerConfigure({ section }) {
                         </div>
                         <label style={fieldStyle}>
                           <span style={labelStyle}>Title</span>
-                          <input value={banner.title} onChange={(event) => updateBanner(banner.id, "title", event.target.value)} placeholder="Banner title" style={inputStyle} />
+                          <input value={banner.title} required onChange={(event) => updateBanner(banner.id, "title", event.target.value)} placeholder="Banner title" style={inputStyle} />
                         </label>
                         <label style={fieldStyle}>
                           <span style={labelStyle}>Subtitle</span>
@@ -1704,6 +2606,16 @@ function HeroBannerConfigure({ section }) {
                           onChange={(value) => updateBanner(banner.id, "buttonLink", value)}
                           disabled={globalHeroCta.globalCtaEnabled}
                         />
+                        <div style={pairedFieldGridStyle}>
+                          <label style={fieldStyle}>
+                            <span style={labelStyle}>Start Date Optional</span>
+                            <input type="date" value={banner.startDate || ""} onChange={(event) => updateBanner(banner.id, "startDate", event.target.value)} style={inputStyle} />
+                          </label>
+                          <label style={fieldStyle}>
+                            <span style={labelStyle}>End Date Optional</span>
+                            <input type="date" value={banner.endDate || ""} onChange={(event) => updateBanner(banner.id, "endDate", event.target.value)} style={inputStyle} />
+                          </label>
+                        </div>
                       </div>
                     </div>
 
@@ -1711,24 +2623,203 @@ function HeroBannerConfigure({ section }) {
                       <h5 style={editorSectionTitleStyle}>Publishing</h5>
                       <div style={compactSectionGridStyle}>
                         <label style={fieldStyle}>
-                          <span style={labelStyle}>Status</span>
-                          <select value={banner.status} onChange={(event) => updateBanner(banner.id, "status", event.target.value)} style={inputStyle}>
-                            <option value="active">Active</option>
-                            <option value="inactive">Inactive</option>
-                          </select>
-                        </label>
-                        <label style={fieldStyle}>
                           <span style={labelStyle}>Sort Order</span>
                           <input type="number" min="1" value={banner.sortOrder} onChange={(event) => updateBanner(banner.id, "sortOrder", event.target.value)} style={inputStyle} />
                         </label>
                       </div>
                     </div>
                   </div>
+
+                  <div style={editorSaveBarStyle}>
+                    <button type="button" onClick={() => setExpandedBannerId("")} style={secondaryButtonStyle}>Cancel</button>
+                    <button type="button" onClick={() => handleSaveBanner(banner.id)} disabled={isSaving || isLoading} style={saveButtonStyle}>
+                      {isSaving ? "Saving..." : "Save Changes"}
+                    </button>
+                  </div>
                 </div>
               ) : null}
             </article>
           ))}
         </div>
+
+        {newBannerDraft ? (
+          <div style={modalOverlayStyle} role="dialog" aria-modal="true" aria-labelledby="new-hero-banner-title">
+            <div style={modalPanelStyle}>
+              <div style={modalHeaderStyle}>
+                <div>
+                  <span style={eyebrowStyle}>New Hero Banner</span>
+                  <h3 id="new-hero-banner-title" style={modalTitleStyle}>Add Banner</h3>
+                  <p style={panelCopyStyle}>Upload a desktop or mobile image/video, set the text, then save it directly to the website homepage.</p>
+                </div>
+                <button type="button" onClick={() => setNewBannerDraft(null)} style={secondaryButtonStyle}>Close</button>
+              </div>
+
+              <HeroMediaPreview banner={newBannerDraft} />
+
+              <div style={modalBodyGridStyle}>
+                <div style={mediaTypePanelStyle}>
+                  <h5 style={editorSectionTitleStyle}>Media Upload</h5>
+                  <label style={fieldStyle}>
+                    <span style={labelStyle}>Media Type</span>
+                    <select value={newBannerDraft.mediaType} onChange={(event) => updateNewBannerMediaType(event.target.value)} style={inputStyle}>
+                      <option value="image">Image</option>
+                      <option value="video">Video</option>
+                    </select>
+                  </label>
+                  <div style={uploadGridStyle}>
+                    <MediaUploadField
+                      label={newBannerDraft.mediaType === "video" ? "Desktop Banner Video" : "Desktop Banner Image"}
+                      accept={newBannerDraft.mediaType === "video" ? "video/*" : "image/*"}
+                      mediaUrl={newBannerDraft.mediaType === "video" ? newBannerDraft.desktopVideo : newBannerDraft.desktopImage}
+                      mediaType={newBannerDraft.mediaType}
+                      isUploading={uploadingField === `new-banner:${newBannerDraft.mediaType === "video" ? "desktopVideo" : "desktopImage"}`}
+                      onUpload={(file) => handleNewBannerMediaUpload(newBannerDraft.mediaType === "video" ? "desktopVideo" : "desktopImage", file)}
+                    />
+                    <MediaUploadField
+                      label={newBannerDraft.mediaType === "video" ? "Mobile Banner Video" : "Mobile Banner Image"}
+                      accept={newBannerDraft.mediaType === "video" ? "video/*" : "image/*"}
+                      mediaUrl={newBannerDraft.mediaType === "video" ? newBannerDraft.mobileVideo : newBannerDraft.mobileImage}
+                      mediaType={newBannerDraft.mediaType}
+                      isUploading={uploadingField === `new-banner:${newBannerDraft.mediaType === "video" ? "mobileVideo" : "mobileImage"}`}
+                      onUpload={(file) => handleNewBannerMediaUpload(newBannerDraft.mediaType === "video" ? "mobileVideo" : "mobileImage", file)}
+                    />
+                  </div>
+                </div>
+
+                <div style={editorSectionStyle}>
+                  <h5 style={editorSectionTitleStyle}>Media Details</h5>
+                  <label style={fieldStyle}>
+                    <span style={labelStyle}>Alt Text</span>
+                    <input value={newBannerDraft.altText} onChange={(event) => updateNewBanner("altText", event.target.value)} placeholder="Describe the banner media" style={inputStyle} />
+                  </label>
+                  <label style={fieldStyle}>
+                    <span style={labelStyle}>{newBannerDraft.mediaType === "video" ? "Desktop Video URL" : "Desktop Image URL"}</span>
+                    <input
+                      value={newBannerDraft.mediaType === "video" ? newBannerDraft.desktopVideo : newBannerDraft.desktopImage}
+                      onChange={(event) => updateNewBanner(newBannerDraft.mediaType === "video" ? "desktopVideo" : "desktopImage", event.target.value)}
+                      placeholder={newBannerDraft.mediaType === "video" ? "/uploads/banner-video.mp4" : "/images/optimized/banner-1.webp"}
+                      style={inputStyle}
+                    />
+                  </label>
+                  <label style={fieldStyle}>
+                    <span style={labelStyle}>{newBannerDraft.mediaType === "video" ? "Mobile Video URL" : "Mobile Image URL"}</span>
+                    <input
+                      value={newBannerDraft.mediaType === "video" ? newBannerDraft.mobileVideo : newBannerDraft.mobileImage}
+                      onChange={(event) => updateNewBanner(newBannerDraft.mediaType === "video" ? "mobileVideo" : "mobileImage", event.target.value)}
+                      placeholder={newBannerDraft.mediaType === "video" ? "/uploads/banner-mobile-video.mp4" : "/images/optimized/banner-1.webp"}
+                      style={inputStyle}
+                    />
+                  </label>
+                </div>
+
+                <div style={editorSectionStyle}>
+                  <h5 style={editorSectionTitleStyle}>Slide Text</h5>
+                  <label style={compactToggleStyle}>
+                    <input
+                      type="checkbox"
+                      checked={newBannerDraft.textEnabled}
+                      onChange={(event) => updateNewBanner("textEnabled", event.target.checked)}
+                    />
+                    <span>Enable slide text</span>
+                  </label>
+                  <label style={fieldStyle}>
+                    <span style={labelStyle}>Title</span>
+                    <input value={newBannerDraft.title} required onChange={(event) => updateNewBanner("title", event.target.value)} placeholder="Banner title" style={inputStyle} />
+                  </label>
+                  <label style={fieldStyle}>
+                    <span style={labelStyle}>Subtitle</span>
+                    <textarea value={newBannerDraft.subtitle} onChange={(event) => updateNewBanner("subtitle", event.target.value)} placeholder="Banner subtitle" rows={2} style={textareaStyle} />
+                  </label>
+                </div>
+
+                <div style={editorSectionStyle}>
+                  <h5 style={editorSectionTitleStyle}>CTA & Publishing</h5>
+                  <label style={compactToggleStyle}>
+                    <input
+                      type="checkbox"
+                      checked={newBannerDraft.ctaEnabled}
+                      disabled={globalHeroCta.globalCtaEnabled}
+                      onChange={(event) => updateNewBanner("ctaEnabled", event.target.checked)}
+                    />
+                    <span>{globalHeroCta.globalCtaEnabled ? "Disabled by all-slide CTA" : "Enable this slide CTA"}</span>
+                  </label>
+                  <label style={fieldStyle}>
+                    <span style={labelStyle}>Button Text</span>
+                    <input value={newBannerDraft.buttonText} disabled={globalHeroCta.globalCtaEnabled} onChange={(event) => updateNewBanner("buttonText", event.target.value)} placeholder="Shop Now" style={inputStyle} />
+                  </label>
+                  <PageLinkPicker
+                    label="Button Link"
+                    value={newBannerDraft.buttonLink}
+                    options={PAGE_LINK_OPTIONS}
+                    onChange={(value) => updateNewBanner("buttonLink", value)}
+                    disabled={globalHeroCta.globalCtaEnabled}
+                  />
+                  <div style={pairedFieldGridStyle}>
+                    <label style={fieldStyle}>
+                      <span style={labelStyle}>Start Date Optional</span>
+                      <input type="date" value={newBannerDraft.startDate || ""} onChange={(event) => updateNewBanner("startDate", event.target.value)} style={inputStyle} />
+                    </label>
+                    <label style={fieldStyle}>
+                      <span style={labelStyle}>End Date Optional</span>
+                      <input type="date" value={newBannerDraft.endDate || ""} onChange={(event) => updateNewBanner("endDate", event.target.value)} style={inputStyle} />
+                    </label>
+                  </div>
+                  <div style={pairedFieldGridStyle}>
+                    <label style={fieldStyle}>
+                      <span style={labelStyle}>Status</span>
+                      <select value={newBannerDraft.status} onChange={(event) => updateNewBanner("status", event.target.value)} style={inputStyle}>
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                      </select>
+                    </label>
+                    <label style={fieldStyle}>
+                      <span style={labelStyle}>Sort Order</span>
+                      <input type="number" min="1" value={newBannerDraft.sortOrder} onChange={(event) => updateNewBanner("sortOrder", event.target.value)} style={inputStyle} />
+                    </label>
+                  </div>
+                </div>
+
+                <div style={editorSectionStyle}>
+                  <h5 style={editorSectionTitleStyle}>Typography</h5>
+                  <div style={pairedFieldGridStyle}>
+                    <label style={fieldStyle}>
+                      <span style={labelStyle}>Title Size</span>
+                      <input type="number" min="20" max="96" value={newBannerDraft.titleFontSize} onChange={(event) => updateNewBanner("titleFontSize", event.target.value)} style={inputStyle} />
+                    </label>
+                    <label style={fieldStyle}>
+                      <span style={labelStyle}>Subtitle Size</span>
+                      <input type="number" min="12" max="40" value={newBannerDraft.subtitleFontSize} onChange={(event) => updateNewBanner("subtitleFontSize", event.target.value)} style={inputStyle} />
+                    </label>
+                  </div>
+                  <label style={fieldStyle}>
+                    <span style={labelStyle}>Font Style</span>
+                    <select value={getFontStyleValue(newBannerDraft)} onChange={(event) => updateNewBannerFontStyle(event.target.value)} style={inputStyle}>
+                      {HERO_FONT_FAMILIES.flatMap((fontFamily) => [
+                        <option key={`${fontFamily}-new-normal`} value={`${fontFamily}|normal`}>{`${fontFamily} - Normal`}</option>,
+                        <option key={`${fontFamily}-new-italic`} value={`${fontFamily}|italic`}>{`${fontFamily} - Italic`}</option>
+                      ])}
+                    </select>
+                  </label>
+                  <label style={fieldStyle}>
+                    <span style={labelStyle}>Font Weight</span>
+                    <select value={newBannerDraft.fontWeight} onChange={(event) => updateNewBanner("fontWeight", event.target.value)} style={inputStyle}>
+                      <option value="500">Medium</option>
+                      <option value="700">Bold</option>
+                      <option value="800">Extra Bold</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+
+              <div style={modalFooterStyle}>
+                <button type="button" onClick={() => setNewBannerDraft(null)} style={secondaryButtonStyle}>Cancel</button>
+                <button type="button" onClick={handleCreateBanner} disabled={isCreatingBanner || Boolean(uploadingField)} style={saveButtonStyle}>
+                  {isCreatingBanner ? "Saving Banner..." : "Save Banner"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         <Link to="/dashboard/homepage" style={backButtonStyle}>Back to Homepage Sections</Link>
       </div>
@@ -1743,15 +2834,40 @@ function getBannerPreviewUrl(banner) {
   return banner.desktopImage || banner.mobileImage || banner.desktopVideo || banner.mobileVideo || "";
 }
 
+function getHeroPreviewTitleStyle(banner) {
+  return {
+    margin: 0,
+    color: "#0f172a",
+    fontSize: `${Math.max(20, Math.min(96, Number(banner.titleFontSize || 56))) * 0.48}px`,
+    lineHeight: 1.08,
+    fontFamily: banner.fontFamily || "Montserrat",
+    fontStyle: banner.fontStyle || "normal",
+    fontWeight: banner.fontWeight || "800"
+  };
+}
+
+function getHeroPreviewSubtitleStyle(banner) {
+  return {
+    margin: 0,
+    color: "#475569",
+    fontSize: `${Math.max(12, Math.min(40, Number(banner.subtitleFontSize || 17)))}px`,
+    lineHeight: 1.5,
+    fontFamily: banner.fontFamily || "Montserrat",
+    fontStyle: banner.fontStyle || "normal",
+    fontWeight: banner.fontWeight === "800" ? "700" : banner.fontWeight || "500"
+  };
+}
+
 function HeroMediaPreview({ banner, compact = false }) {
   const previewUrl = getBannerPreviewUrl(banner);
+  const previewSrc = getAdminMediaPreviewUrl(previewUrl);
   const isVideo = banner.mediaType === "video" && (banner.desktopVideo || banner.mobileVideo);
 
   if (compact) {
     return isVideo ? (
-      <video src={previewUrl} style={bannerPreviewThumbStyle} muted playsInline />
+      <video src={previewSrc} style={bannerPreviewThumbStyle} muted playsInline />
     ) : (
-      <img src={previewUrl || "/images/optimized/banner-1.webp"} alt="" style={bannerPreviewThumbStyle} />
+      <img src={previewSrc || getAdminMediaPreviewUrl("/images/optimized/banner-1.webp")} alt="" style={bannerPreviewThumbStyle} />
     );
   }
 
@@ -1760,9 +2876,9 @@ function HeroMediaPreview({ banner, compact = false }) {
       <div style={heroReviewMediaStyle}>
         {previewUrl ? (
           isVideo ? (
-            <video src={previewUrl} controls muted playsInline style={heroReviewMediaElementStyle} />
+            <video src={previewSrc} controls muted playsInline style={heroReviewMediaElementStyle} />
           ) : (
-            <img src={previewUrl} alt={banner.altText || banner.title || "Hero banner preview"} style={heroReviewMediaElementStyle} />
+            <img src={previewSrc} alt={banner.altText || banner.title || "Hero banner preview"} style={heroReviewMediaElementStyle} />
           )
         ) : (
           <span style={uploadPlaceholderStyle}>No media selected yet</span>
@@ -1770,7 +2886,14 @@ function HeroMediaPreview({ banner, compact = false }) {
       </div>
       <div style={heroReviewCopyStyle}>
         <span style={eyebrowStyle}>Review</span>
-        <strong>{banner.title || "Untitled slide"}</strong>
+        {banner.textEnabled !== false ? (
+          <div style={heroPreviewTextBlockStyle}>
+            <h4 style={getHeroPreviewTitleStyle(banner)}>{banner.title || "Untitled slide"}</h4>
+            {banner.subtitle ? <p style={getHeroPreviewSubtitleStyle(banner)}>{banner.subtitle}</p> : null}
+          </div>
+        ) : (
+          <strong>{banner.title || "Untitled slide"}</strong>
+        )}
         <span>{banner.mediaType === "video" ? "Video slide" : "Image slide"}</span>
         <span>{banner.altText ? `Alt: ${banner.altText}` : "Alt text not set"}</span>
       </div>
@@ -1781,6 +2904,7 @@ function HeroMediaPreview({ banner, compact = false }) {
 function MediaUploadField({ label, mediaUrl, mediaType, accept, isUploading, onUpload }) {
   const inputId = React.useId();
   const [mediaFailed, setMediaFailed] = React.useState(false);
+  const previewUrl = getAdminMediaPreviewUrl(mediaUrl);
 
   React.useEffect(() => {
     setMediaFailed(false);
@@ -1792,6 +2916,7 @@ function MediaUploadField({ label, mediaUrl, mediaType, accept, isUploading, onU
   };
 
   const noun = mediaType === "video" ? "video" : "image";
+  const acceptedText = mediaType === "video" ? "MP4/WebM video files" : "JPG, PNG, or WebP images";
 
   return (
     <label
@@ -1814,18 +2939,18 @@ function MediaUploadField({ label, mediaUrl, mediaType, accept, isUploading, onU
       />
       <span style={labelStyle}>{label}</span>
       <span style={uploadPreviewShellStyle}>
-        {mediaUrl && !mediaFailed ? (
+        {previewUrl && !mediaFailed ? (
           mediaType === "video" ? (
-            <video src={mediaUrl} style={uploadPreviewImageStyle} muted playsInline onError={() => setMediaFailed(true)} />
+            <video src={previewUrl} style={uploadPreviewImageStyle} muted playsInline onError={() => setMediaFailed(true)} />
           ) : (
-            <img src={mediaUrl} alt="" style={uploadPreviewImageStyle} onError={() => setMediaFailed(true)} />
+            <img src={previewUrl} alt="" style={uploadPreviewImageStyle} onError={() => setMediaFailed(true)} />
           )
         ) : (
           <span style={uploadPlaceholderStyle}>Choose {noun}</span>
         )}
       </span>
       <strong style={uploadTitleStyle}>{isUploading ? `Adding ${noun}...` : `Drag ${noun}s here`}</strong>
-      <span style={uploadHelpStyle}>or click to upload {noun} files</span>
+      <span style={uploadHelpStyle}>{acceptedText}</span>
     </label>
   );
 }
@@ -1833,6 +2958,7 @@ function MediaUploadField({ label, mediaUrl, mediaType, accept, isUploading, onU
 function ImageUploadField({ label, imageUrl, isUploading, onUpload }) {
   const inputId = React.useId();
   const [imageFailed, setImageFailed] = React.useState(false);
+  const previewUrl = getAdminMediaPreviewUrl(imageUrl);
 
   React.useEffect(() => {
     setImageFailed(false);
@@ -1864,8 +2990,8 @@ function ImageUploadField({ label, imageUrl, isUploading, onUpload }) {
       />
       <span style={labelStyle}>{label}</span>
       <span style={uploadPreviewShellStyle}>
-        {imageUrl && !imageFailed ? (
-          <img src={imageUrl} alt="" style={uploadPreviewImageStyle} onError={() => setImageFailed(true)} />
+        {previewUrl && !imageFailed ? (
+          <img src={previewUrl} alt="" style={uploadPreviewImageStyle} onError={() => setImageFailed(true)} />
         ) : (
           <span style={uploadPlaceholderStyle}>Choose image</span>
         )}
@@ -1928,11 +3054,11 @@ function PageLinkPicker({ label, value, options, onChange, disabled = false, fie
 }
 
 const heroStyle = {
-  padding: "28px",
+  padding: "24px",
   border: "1px solid rgba(203, 213, 225, 0.72)",
-  borderRadius: "24px",
-  background: "linear-gradient(135deg, #ffffff 0%, #f3fbf5 58%, #e9f7ec 100%)",
-  boxShadow: "0 18px 42px rgba(148, 163, 184, 0.14)"
+  borderRadius: "18px",
+  background: "linear-gradient(135deg, #ffffff 0%, #f6fbf7 64%, #edf8ef 100%)",
+  boxShadow: "0 10px 26px rgba(15, 23, 42, 0.055)"
 };
 
 const eyebrowStyle = {
@@ -1946,8 +3072,8 @@ const eyebrowStyle = {
 const titleStyle = {
   margin: "10px 0 10px",
   color: "#0f172a",
-  fontSize: "42px",
-  lineHeight: 1.05
+  fontSize: "34px",
+  lineHeight: 1.08
 };
 
 const copyStyle = {
@@ -1959,19 +3085,19 @@ const copyStyle = {
 
 const panelStyle = {
   display: "grid",
-  gap: "18px",
-  marginTop: "22px",
-  padding: "24px",
+  gap: "16px",
+  marginTop: "0",
+  padding: "18px",
   border: "1px solid rgba(203, 213, 225, 0.72)",
-  borderRadius: "20px",
+  borderRadius: "16px",
   background: "#ffffff",
-  boxShadow: "0 12px 28px rgba(15, 23, 42, 0.06)"
+  boxShadow: "0 10px 26px rgba(15, 23, 42, 0.055)"
 };
 
 const panelTitleStyle = {
   margin: "8px 0 8px",
   color: "#0f172a",
-  fontSize: "24px"
+  fontSize: "22px"
 };
 
 const panelCopyStyle = {
@@ -1982,7 +3108,7 @@ const panelCopyStyle = {
 
 const placeholderGridStyle = {
   display: "grid",
-  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 240px), 1fr))",
   gap: "14px"
 };
 
@@ -2023,7 +3149,8 @@ const actionGroupStyle = {
   alignItems: "center",
   justifyContent: "flex-end",
   gap: "10px",
-  flexWrap: "wrap"
+  flexWrap: "nowrap",
+  whiteSpace: "nowrap"
 };
 
 const summaryPillStyle = {
@@ -2085,19 +3212,55 @@ const feedbackWarningStyle = {
 
 const bannerListStyle = {
   display: "grid",
-  gap: "18px"
+  gap: "14px"
 };
 
 const globalCtaPanelStyle = {
   display: "grid",
-  gap: "14px",
-  padding: "16px",
+  gap: "0",
+  padding: "0",
   borderRadius: "16px",
   border: "1px solid #dbe6ef",
-  background: "#f8fafc",
+  background: "#ffffff",
   minWidth: 0,
   boxSizing: "border-box",
   overflow: "hidden"
+};
+
+const collapsibleHeaderButtonStyle = {
+  width: "100%",
+  minHeight: "64px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "14px",
+  padding: "14px 16px",
+  border: 0,
+  background: "#fbfdfc",
+  color: "#0f172a",
+  textAlign: "left",
+  cursor: "pointer"
+};
+
+const collapsibleTitleBlockStyle = {
+  display: "grid",
+  gap: "4px",
+  minWidth: 0
+};
+
+const collapsibleBodyStyle = {
+  display: "grid",
+  gap: "14px",
+  padding: "14px",
+  borderTop: "1px solid #e5edf5",
+  background: "#f8fafc"
+};
+
+const inlineSaveBarStyle = {
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: "10px",
+  flexWrap: "wrap"
 };
 
 const mediaTypePanelStyle = {
@@ -2110,7 +3273,8 @@ const mediaTypePanelStyle = {
   background: "#ffffff",
   alignContent: "start",
   minWidth: 0,
-  boxSizing: "border-box"
+  boxSizing: "border-box",
+  overflow: "visible"
 };
 
 const editorSectionStyle = {
@@ -2124,7 +3288,7 @@ const editorSectionStyle = {
   alignContent: "start",
   minWidth: 0,
   boxSizing: "border-box",
-  overflow: "hidden"
+  overflow: "visible"
 };
 
 const editorSectionTitleStyle = {
@@ -2140,7 +3304,7 @@ const wideFieldStyle = {
 
 const editorSectionsGridStyle = {
   display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 340px), 1fr))",
   gap: "12px",
   alignItems: "stretch",
   minWidth: 0
@@ -2154,7 +3318,7 @@ const compactSectionGridStyle = {
 
 const pairedFieldGridStyle = {
   display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 240px), 1fr))",
   gap: "10px",
   minWidth: 0
 };
@@ -2177,26 +3341,36 @@ const twoThirdFieldStyle = {
 
 const bannerCardStyle = {
   display: "grid",
-  gap: "0",
-  padding: "0",
-  border: "1px solid rgba(203, 213, 225, 0.82)",
+  gridTemplateColumns: "42px 170px minmax(0, 1fr) auto",
+  gap: "14px",
+  alignItems: "center",
+  padding: "14px",
+  border: "1px solid #dbe6ef",
   borderRadius: "18px",
   background: "#ffffff",
-  overflow: "hidden"
+  overflow: "visible",
+  boxShadow: "0 10px 24px rgba(15, 23, 42, 0.045)",
+  boxSizing: "border-box"
 };
 
-const bannerPreviewButtonStyle = {
-  width: "100%",
+const bannerCardDraggingStyle = {
+  opacity: 0.72,
+  borderColor: "#22c55e",
+  background: "#f0fdf4",
+  boxShadow: "0 16px 30px rgba(34, 197, 94, 0.16)"
+};
+
+const bannerDragHandleStyle = {
   display: "grid",
-  gridTemplateColumns: "170px minmax(0, 1fr)",
-  gap: "16px",
-  alignItems: "center",
-  padding: "14px 16px",
-  border: 0,
-  background: "#fbfdfc",
-  color: "#0f172a",
-  textAlign: "left",
-  cursor: "pointer"
+  placeItems: "center",
+  width: "42px",
+  height: "74px",
+  border: "1px solid #e5edf5",
+  borderRadius: "12px",
+  background: "#f8fafc",
+  color: "#64748b",
+  cursor: "grab",
+  touchAction: "none"
 };
 
 const bannerPreviewThumbStyle = {
@@ -2210,7 +3384,7 @@ const bannerPreviewThumbStyle = {
 
 const bannerPreviewContentStyle = {
   display: "grid",
-  gap: "5px",
+  gap: "6px",
   minWidth: 0
 };
 
@@ -2227,6 +3401,26 @@ const bannerMetaStyle = {
   color: "#64748b",
   fontSize: "13px",
   fontWeight: 700
+};
+
+const bannerMetaGroupStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+  flexWrap: "wrap",
+  color: "#64748b",
+  fontSize: "13px",
+  fontWeight: 700
+};
+
+const bannerRowActionsStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "flex-end",
+  gap: "8px",
+  minWidth: "258px",
+  flexWrap: "nowrap",
+  whiteSpace: "nowrap"
 };
 
 const heroReviewStyle = {
@@ -2268,15 +3462,37 @@ const heroReviewCopyStyle = {
   minWidth: 0
 };
 
+const heroPreviewTextBlockStyle = {
+  display: "grid",
+  gap: "6px",
+  minWidth: 0
+};
+
 const bannerEditorStyle = {
   display: "grid",
   gap: "10px",
   padding: "12px",
+  gridColumn: "1 / -1",
   borderTop: "1px solid #e5edf5",
   background: "#f8fafc",
   minWidth: 0,
   boxSizing: "border-box",
-  overflow: "hidden"
+  overflow: "visible"
+};
+
+const editorSaveBarStyle = {
+  position: "sticky",
+  bottom: "0",
+  zIndex: 5,
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: "10px",
+  padding: "12px",
+  borderRadius: "14px",
+  border: "1px solid #dbe6ef",
+  background: "rgba(255, 255, 255, 0.94)",
+  boxShadow: "0 -10px 24px rgba(15, 23, 42, 0.06)",
+  flexWrap: "wrap"
 };
 
 const bannerCardHeaderStyle = {
@@ -2295,7 +3511,7 @@ const bannerTitleStyle = {
 
 const formGridStyle = {
   display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))",
   gap: "14px"
 };
 
@@ -2337,8 +3553,77 @@ const fileInputStyle = {
   position: "absolute",
   width: "1px",
   height: "1px",
-  opacity: 0,
-  pointerEvents: "none"
+  opacity: 0
+};
+
+const modalOverlayStyle = {
+  position: "fixed",
+  inset: 0,
+  zIndex: 1000,
+  display: "grid",
+  placeItems: "center",
+  padding: "24px",
+  background: "rgba(15, 23, 42, 0.48)",
+  boxSizing: "border-box"
+};
+
+const modalPanelStyle = {
+  width: "min(1080px, 100%)",
+  maxHeight: "calc(100vh - 48px)",
+  overflowY: "auto",
+  display: "grid",
+  gap: "16px",
+  padding: "20px",
+  borderRadius: "20px",
+  border: "1px solid rgba(203, 213, 225, 0.9)",
+  background: "#ffffff",
+  boxShadow: "0 28px 80px rgba(15, 23, 42, 0.28)",
+  boxSizing: "border-box"
+};
+
+const modalHeaderStyle = {
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "space-between",
+  gap: "16px",
+  flexWrap: "wrap"
+};
+
+const modalCloseButtonStyle = {
+  width: "38px",
+  height: "38px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: "10px",
+  border: "1px solid #cbd5e1",
+  background: "#ffffff",
+  color: "#0f172a",
+  fontSize: "18px",
+  fontWeight: 900,
+  cursor: "pointer"
+};
+
+const modalTitleStyle = {
+  margin: "6px 0 6px",
+  color: "#0f172a",
+  fontSize: "28px",
+  lineHeight: 1.1
+};
+
+const modalBodyGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: "12px",
+  minWidth: 0
+};
+
+const modalFooterStyle = {
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: "10px",
+  paddingTop: "4px",
+  flexWrap: "wrap"
 };
 
 const uploadPreviewShellStyle = {
@@ -2385,7 +3670,8 @@ const uploadHelpStyle = {
 };
 
 const linkPickerShellStyle = {
-  position: "relative"
+  position: "relative",
+  zIndex: 30
 };
 
 const linkPickerButtonStyle = {
@@ -2458,19 +3744,19 @@ const linkPickerOptionActiveStyle = {
 
 const categoryManageListStyle = {
   display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  gap: "16px"
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 520px), 1fr))",
+  gap: "14px"
 };
 
 const homepageCategorySelectorStyle = {
   display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr) minmax(320px, 0.65fr)",
+  gridTemplateColumns: "minmax(min(100%, 420px), 1fr) minmax(min(100%, 420px), 0.7fr)",
   gap: "16px",
-  alignItems: "end",
+  alignItems: "center",
   padding: "16px",
-  borderRadius: "16px",
+  borderRadius: "14px",
   border: "1px solid #dbe6ef",
-  background: "#f8fafc"
+  background: "linear-gradient(180deg, #fbfdff 0%, #f8fafc 100%)"
 };
 
 const selectorTitleStyle = {
@@ -2489,7 +3775,7 @@ const selectorControlsStyle = {
 
 const productSelectorControlsStyle = {
   display: "grid",
-  gridTemplateColumns: "minmax(180px, 0.75fr) minmax(220px, 1fr) auto",
+  gridTemplateColumns: "minmax(min(100%, 260px), 1fr) auto",
   gap: "10px",
   alignItems: "end",
   minWidth: 0
@@ -2504,21 +3790,112 @@ const categoryFilterPanelStyle = {
   background: "#f8fafc"
 };
 
+const categoryFilterHeaderActionsStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "flex-end",
+  gap: "10px",
+  flexWrap: "wrap"
+};
+
+const categoryUpdateActionStyle = {
+  display: "grid",
+  justifyItems: "end",
+  gap: "6px"
+};
+
+const categoryUpdateMessageStyle = {
+  color: "#166534",
+  fontSize: "12px",
+  fontWeight: 800
+};
+
 const categoryFilterGridStyle = {
   display: "grid",
-  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 260px), 1fr))",
   gap: "10px"
 };
 
 const categoryManageCardStyle = {
   display: "grid",
-  gap: "0",
-  padding: "0",
-  border: "1px solid rgba(203, 213, 225, 0.82)",
+  gridTemplateColumns: "38px 76px minmax(0, 1fr) auto",
+  gap: "12px",
+  alignItems: "center",
+  padding: "12px",
+  border: "1px solid #dbe6ef",
   borderRadius: "16px",
   background: "#ffffff",
-  overflow: "hidden"
+  overflow: "visible",
+  boxShadow: "0 10px 24px rgba(15, 23, 42, 0.045)",
+  boxSizing: "border-box"
 };
+
+const categoryManageCardDraggingStyle = {
+  opacity: 0.72,
+  borderColor: "#22c55e",
+  background: "#f0fdf4",
+  boxShadow: "0 16px 30px rgba(34, 197, 94, 0.16)"
+};
+
+const categoryDragHandleStyle = {
+  display: "grid",
+  placeItems: "center",
+  width: "38px",
+  height: "58px",
+  border: "1px solid #e5edf5",
+  borderRadius: "12px",
+  background: "#f8fafc",
+  color: "#64748b",
+  fontSize: "18px",
+  fontWeight: 900,
+  letterSpacing: "-0.2em",
+  cursor: "grab",
+  touchAction: "none"
+};
+
+const categoryDragDotsStyle = {
+  width: "14px",
+  display: "grid",
+  gridTemplateColumns: "repeat(2, 4px)",
+  gap: "4px 5px"
+};
+
+const categoryDragDotStyle = {
+  width: "4px",
+  height: "4px",
+  borderRadius: "50%",
+  background: "#64748b"
+};
+
+const categoryPreviewContentStyle = {
+  display: "contents"
+};
+
+const categoryMetaStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+  flexWrap: "wrap",
+  color: "#64748b",
+  fontSize: "13px",
+  lineHeight: 1.35
+};
+
+const categoryOrderPillStyle = {
+  ...summaryPillStyle,
+  minHeight: "32px",
+  padding: "0 10px",
+  background: "#f8fafc",
+  color: "#0f172a"
+};
+
+const categoryEditButtonStyle = {
+  ...secondaryButtonStyle,
+  minHeight: "34px",
+  padding: "0 12px",
+  borderRadius: "9px"
+};
+
 
 const homepageArrangementBarStyle = {
   display: "flex",
@@ -2569,59 +3946,60 @@ const segmentedButtonInactiveStyle = {
 
 const productArrangementListStyle = {
   display: "grid",
-  gap: "12px"
+  gap: "10px"
 };
 
 const productArrangementCardStyle = {
   display: "grid",
-  gridTemplateColumns: "72px 92px minmax(0, 1fr) minmax(360px, 0.9fr)",
-  gap: "14px",
+  gridTemplateColumns: "38px 74px minmax(0, 1fr) minmax(240px, auto)",
+  gap: "12px",
   alignItems: "center",
-  padding: "14px",
-  borderRadius: "16px",
+  padding: "10px",
+  borderRadius: "14px",
   border: "1px solid #dbe6ef",
   background: "#ffffff",
-  boxSizing: "border-box"
+  boxSizing: "border-box",
+  boxShadow: "0 8px 20px rgba(15, 23, 42, 0.04)"
 };
 
 const productArrangementCardDraggingStyle = {
-  opacity: 0.58,
-  borderColor: "#86efac",
-  background: "#f0fdf4"
+  opacity: 0.72,
+  borderColor: "#22c55e",
+  background: "#f0fdf4",
+  boxShadow: "0 16px 30px rgba(34, 197, 94, 0.16)"
 };
 
-const dragHandleStyle = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  minHeight: "40px",
-  borderRadius: "10px",
-  border: "1px dashed #94a3b8",
+const productDragHandleStyle = {
+  display: "grid",
+  placeItems: "center",
+  width: "38px",
+  height: "58px",
+  border: "1px solid #e5edf5",
+  borderRadius: "12px",
   background: "#f8fafc",
   color: "#475569",
-  fontSize: "12px",
-  fontWeight: 900,
-  cursor: "grab"
+  cursor: "grab",
+  touchAction: "none"
 };
 
 const productArrangementImageStyle = {
-  width: "92px",
-  height: "72px",
+  width: "74px",
+  height: "58px",
   objectFit: "cover",
-  borderRadius: "12px",
+  borderRadius: "10px",
   border: "1px solid #e5edf5",
   background: "#eef4f1"
 };
 
 const productArrangementContentStyle = {
   display: "grid",
-  gap: "5px",
+  gap: "6px",
   minWidth: 0
 };
 
 const productArrangementTitleStyle = {
   color: "#0f172a",
-  fontSize: "17px",
+  fontSize: "16px",
   lineHeight: 1.25,
   overflow: "hidden",
   textOverflow: "ellipsis",
@@ -2629,23 +4007,121 @@ const productArrangementTitleStyle = {
 };
 
 const productArrangementControlsStyle = {
-  display: "grid",
-  gridTemplateColumns: "110px 220px minmax(0, 1fr)",
-  gap: "10px",
-  alignItems: "end",
+  display: "flex",
+  justifyContent: "flex-end",
+  alignItems: "center",
   minWidth: 0
 };
 
 const productArrangementActionStyle = {
   display: "flex",
-  gap: "8px",
+  gap: "7px",
   justifyContent: "flex-end",
+  alignItems: "center",
+  flexWrap: "nowrap",
+  whiteSpace: "nowrap"
+};
+
+const productMetaGroupStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+  flexWrap: "wrap",
+  color: "#64748b",
+  fontSize: "13px",
+  fontWeight: 700
+};
+
+const productSearchModalPanelStyle = {
+  ...modalPanelStyle,
+  width: "min(920px, 100%)",
+  maxHeight: "calc(100vh - 56px)"
+};
+
+const productSearchSummaryStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: "10px",
   flexWrap: "wrap"
+};
+
+const productSearchResultsStyle = {
+  display: "grid",
+  gap: "10px",
+  maxHeight: "52vh",
+  overflowY: "auto",
+  paddingRight: "4px"
+};
+
+const productSearchResultStyle = {
+  display: "grid",
+  gridTemplateColumns: "72px minmax(0, 1fr) auto",
+  gap: "12px",
+  alignItems: "center",
+  width: "100%",
+  padding: "10px",
+  borderRadius: "14px",
+  border: "1px solid #dbe6ef",
+  background: "#ffffff",
+  color: "#0f172a",
+  textAlign: "left",
+  cursor: "pointer"
+};
+
+const productSearchResultSelectedStyle = {
+  borderColor: "#86efac",
+  background: "#f0fdf4"
+};
+
+const productSearchImageStyle = {
+  width: "72px",
+  height: "56px",
+  objectFit: "cover",
+  borderRadius: "10px",
+  border: "1px solid #e5edf5",
+  background: "#eef4f1"
+};
+
+const productSearchCopyStyle = {
+  display: "grid",
+  gap: "3px",
+  color: "#64748b",
+  fontSize: "13px",
+  fontWeight: 700,
+  minWidth: 0
+};
+
+const productSlotInlineStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "6px",
+  minHeight: "32px",
+  padding: "0 8px",
+  borderRadius: "9px",
+  border: "1px solid #dbe6ef",
+  background: "#ffffff"
+};
+
+const productSlotLabelStyle = {
+  color: "#475569",
+  fontSize: "12px",
+  fontWeight: 900
+};
+
+const productSlotInputStyle = {
+  width: "48px",
+  height: "26px",
+  boxSizing: "border-box",
+  border: "1px solid #cbd5e1",
+  borderRadius: "7px",
+  padding: "0 6px",
+  color: "#0f172a",
+  fontWeight: 800
 };
 
 const brandListStyle = {
   display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 420px), 1fr))",
   gap: "14px"
 };
 
@@ -2719,29 +4195,31 @@ const brandEditorStyle = {
 
 const brandEditorGridStyle = {
   display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 260px), 1fr))",
   gap: "12px"
 };
 
 const categoryPreviewButtonStyle = {
   width: "100%",
   display: "grid",
-  gridTemplateColumns: "86px minmax(0, 1fr)",
+  gridTemplateColumns: "74px minmax(0, 1fr) auto",
   gap: "12px",
   alignItems: "center",
-  padding: "14px",
+  padding: "12px",
   border: 0,
   background: "#fbfdfc",
   color: "#0f172a",
   textAlign: "left",
-  cursor: "pointer"
+  cursor: "pointer",
+  borderRadius: "0 14px 14px 0",
+  minWidth: 0
 };
 
 const categoryPreviewImageStyle = {
-  width: "86px",
-  height: "70px",
+  width: "74px",
+  height: "58px",
   objectFit: "cover",
-  borderRadius: "12px",
+  borderRadius: "10px",
   border: "1px solid #e5edf5",
   background: "#eef4f1"
 };
@@ -2751,6 +4229,46 @@ const categoryPreviewCopyStyle = {
   gap: "4px",
   color: "#64748b",
   minWidth: 0
+};
+
+const categoryRowActionsStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "flex-end",
+  gap: "8px",
+  flexWrap: "nowrap",
+  minWidth: "258px",
+  whiteSpace: "nowrap"
+};
+
+const rowStatusButtonBaseStyle = {
+  minHeight: "34px",
+  padding: "0 12px",
+  borderRadius: "999px",
+  fontSize: "12px",
+  fontWeight: 900,
+  cursor: "pointer"
+};
+
+const rowActiveButtonStyle = {
+  ...rowStatusButtonBaseStyle,
+  border: "1px solid #bbf7d0",
+  background: "#dcfce7",
+  color: "#166534"
+};
+
+const rowInactiveButtonStyle = {
+  ...rowStatusButtonBaseStyle,
+  border: "1px solid #fecaca",
+  background: "#fff1f2",
+  color: "#b91c1c"
+};
+
+const rowDeleteButtonStyle = {
+  ...categoryEditButtonStyle,
+  borderColor: "#fecaca",
+  background: "#fff7f7",
+  color: "#b91c1c"
 };
 
 const categoryPreviewCopyStyleStrong = {
@@ -2779,7 +4297,7 @@ const compactToggleStyle = {
 
 const categorySmallGridStyle = {
   display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))",
   gap: "12px"
 };
 

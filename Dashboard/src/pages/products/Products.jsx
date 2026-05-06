@@ -1,7 +1,11 @@
 import React from "react";
 import { Link } from "react-router-dom";
+import { FaEdit, FaExternalLinkAlt, FaPlus, FaTasks, FaTrash, FaUndo } from "react-icons/fa";
 import products from "../../data/products";
-import { fetchProducts } from "../../api/adminApi";
+import { deleteProduct, fetchProducts } from "../../api/adminApi";
+import { useAutoRefresh } from "../../hooks/useAutoRefresh";
+import PermissionGate from "../../components/access/PermissionGate";
+import { canAccess } from "../../utils/accessControl";
 import { buildStorefrontProductUrl, formatCurrency } from "../../utils/storefront";
 
 const rowsPerPageOptions = [5, 10, 20];
@@ -63,6 +67,28 @@ function normalizeProductRow(product) {
   };
 }
 
+function ProductThumbnail({ src, alt }) {
+  const [hasError, setHasError] = React.useState(false);
+
+  if (!src || hasError) {
+    return (
+      <span className="dashboard-product-thumb is-empty" aria-hidden="true">
+        {String(alt || "P").slice(0, 1).toUpperCase()}
+      </span>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className="dashboard-product-thumb"
+      loading="lazy"
+      onError={() => setHasError(true)}
+    />
+  );
+}
+
 export default function Products() {
   const [tableProducts, setTableProducts] = React.useState(products);
   const [sourceMessage, setSourceMessage] = React.useState("Showing local catalog preview.");
@@ -73,80 +99,74 @@ export default function Products() {
   const [statusFilter, setStatusFilter] = React.useState("all");
   const [currentPage, setCurrentPage] = React.useState(1);
   const [rowsPerPage, setRowsPerPage] = React.useState(10);
+  const [pagination, setPagination] = React.useState({ page: 1, limit: 10, total: products.length, totalPages: 1 });
+  const [facets, setFacets] = React.useState(null);
+  const canEditProducts = canAccess("products", "edit");
+  const canDeleteProducts = canAccess("products", "delete");
 
   const categories = React.useMemo(
-    () => ["all", ...new Set(tableProducts.map((product) => product.category).filter(Boolean))],
-    [tableProducts]
+    () => ["all", ...new Set((facets?.categories?.map((category) => category.value) || tableProducts.map((product) => product.category)).filter(Boolean))],
+    [facets, tableProducts]
   );
   const brands = React.useMemo(
-    () => ["all", ...new Set(tableProducts.map((product) => product.brand).filter(Boolean))],
-    [tableProducts]
+    () => ["all", ...new Set((facets?.brands?.map((brand) => brand.value) || tableProducts.map((product) => product.brand)).filter(Boolean))],
+    [facets, tableProducts]
   );
 
   const filteredProducts = React.useMemo(() => {
-    const query = searchTerm.trim().toLowerCase();
-
-    return tableProducts.filter((product) => {
-      const matchesSearch = !query || [
-        product.name,
-        product.brand,
-        product.category,
-        product.sku,
-        product.slug
-      ].some((value) => String(value || "").toLowerCase().includes(query));
-
-      const matchesCategory = categoryFilter === "all" || product.category === categoryFilter;
-      const matchesBrand = brandFilter === "all" || product.brand === brandFilter;
-      const matchesStock = stockFilter === "all" || product.stockStatus === stockFilter;
-      const matchesStatus = statusFilter === "all" || product.status === statusFilter;
-
-      return matchesSearch && matchesCategory && matchesBrand && matchesStock && matchesStatus;
-    });
-  }, [brandFilter, categoryFilter, searchTerm, statusFilter, stockFilter, tableProducts]);
+    return tableProducts;
+  }, [tableProducts]);
 
   React.useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, categoryFilter, brandFilter, stockFilter, statusFilter, rowsPerPage]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / rowsPerPage));
+  const totalPages = Math.max(1, Number(pagination.totalPages || 1));
   const safeCurrentPage = Math.min(currentPage, totalPages);
-  const pageStart = (safeCurrentPage - 1) * rowsPerPage;
-  const paginatedProducts = filteredProducts.slice(pageStart, pageStart + rowsPerPage);
-  const pageEnd = Math.min(pageStart + rowsPerPage, filteredProducts.length);
+  const pageStart = filteredProducts.length ? ((safeCurrentPage - 1) * rowsPerPage) : 0;
+  const paginatedProducts = filteredProducts;
+  const pageEnd = filteredProducts.length ? pageStart + filteredProducts.length : 0;
 
-  const handleDelete = (productId) => {
-    setTableProducts((current) => current.filter((product) => product.id !== productId));
+  const handleDelete = async (productId) => {
+    try {
+      await deleteProduct(productId);
+      loadProducts();
+    } catch {
+      setSourceMessage("Delete failed. Check your permissions and backend connection.");
+    }
   };
 
-  React.useEffect(() => {
-    let isMounted = true;
-
-    async function loadProducts() {
-      try {
-        const response = await fetchProducts();
-        if (!isMounted) return;
-
-        const rows = Array.isArray(response.data?.data) ? response.data.data : [];
-        if (rows.length) {
-          setTableProducts(rows.map(normalizeProductRow));
-          setSourceMessage("Products loaded from backend.");
-          return;
-        }
-
-        setSourceMessage("Backend returned no products, so local catalog preview is shown.");
-      } catch {
-        if (!isMounted) return;
+  const loadProducts = React.useCallback(async ({ showFallbackMessage = true } = {}) => {
+    try {
+      const response = await fetchProducts({
+        page: currentPage,
+        limit: rowsPerPage,
+        search: searchTerm,
+        categorySlug: categoryFilter === "all" ? "" : categoryFilter,
+        brand: brandFilter === "all" ? "" : brandFilter,
+        availability: stockFilter === "all" ? "" : stockFilter === "in-stock" ? "in-stock" : stockFilter === "out-of-stock" ? "out-of-stock" : "",
+        status: statusFilter === "all" ? "" : statusFilter === "active" ? "active" : "draft"
+      });
+      const rows = Array.isArray(response.data?.data) ? response.data.data : [];
+      setTableProducts(rows.map(normalizeProductRow));
+      setPagination(response.data?.pagination || { page: currentPage, limit: rowsPerPage, total: rows.length, totalPages: 1 });
+      setFacets(response.data?.facets || null);
+      setSourceMessage("Products loaded from backend with server-side pagination.");
+    } catch {
+      if (showFallbackMessage) {
         setTableProducts(products);
+        setPagination({ page: 1, limit: products.length, total: products.length, totalPages: 1 });
+        setFacets(null);
         setSourceMessage("Backend products are unavailable, so local catalog preview is shown.");
       }
     }
+  }, [brandFilter, categoryFilter, currentPage, rowsPerPage, searchTerm, statusFilter, stockFilter]);
 
+  React.useEffect(() => {
     loadProducts();
+  }, [loadProducts]);
 
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  useAutoRefresh(() => loadProducts({ showFallbackMessage: false }));
 
   const resetFilters = () => {
     setSearchTerm("");
@@ -158,44 +178,38 @@ export default function Products() {
   };
 
   return (
-    <div style={{ display: "grid", gap: "20px" }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: "16px",
-          flexWrap: "wrap"
-        }}
-      >
+    <section className="dashboard-page-shell dashboard-admin-page">
+      <div className="dashboard-page-heading">
         <div>
           <h2 style={{ margin: 0 }}>Products</h2>
-          <p style={{ margin: "8px 0 0", color: "#64748b" }}>
+          <p className="dashboard-page-copy">
             Search, filter, review, and manage your catalog from one table.
           </p>
-          <p style={{ margin: "6px 0 0", color: "#0f766e", fontSize: "13px", fontWeight: 700 }}>
+          <p className="dashboard-source-message">
             {sourceMessage}
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-          <button type="button" onClick={resetFilters} style={secondaryToolbarButtonStyle}>
+        <div className="dashboard-toolbar-actions">
+          <button type="button" onClick={resetFilters} className="dashboard-secondary-button">
+            <FaUndo aria-hidden="true" />
             Reset Filters
           </button>
-          <Link to="/dashboard/products/new" style={primaryToolbarLinkStyle}>
-            Add Product
+          <Link to="/dashboard/products/inventory-manager" className="dashboard-secondary-button">
+            <FaTasks aria-hidden="true" />
+            Inventory Manager
           </Link>
+          <PermissionGate module="products" action="create">
+            <Link to="/dashboard/products/new" className="dashboard-primary-button">
+              <FaPlus aria-hidden="true" />
+              Add Product
+            </Link>
+          </PermissionGate>
         </div>
       </div>
 
-      <section style={toolbarCardStyle}>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(260px, 1.6fr) repeat(5, minmax(160px, 1fr))",
-            gap: "16px"
-          }}
-        >
+      <section className="dashboard-filter-panel">
+        <div className="dashboard-filter-grid">
           <input
             type="search"
             value={searchTerm}
@@ -242,76 +256,58 @@ export default function Products() {
           </select>
         </div>
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            <span style={summaryPillStyle}>{`Total: ${tableProducts.length}`}</span>
-            <span style={summaryPillStyle}>{`Filtered: ${filteredProducts.length}`}</span>
+        <div className="dashboard-table-summary">
+          <div className="dashboard-chip-row-tight">
+            <span style={summaryPillStyle}>{`Total: ${pagination.total}`}</span>
+            <span style={summaryPillStyle}>{`Loaded: ${filteredProducts.length}`}</span>
             <span style={summaryPillStyle}>{`Showing: ${filteredProducts.length ? `${pageStart + 1}-${pageEnd}` : "0"}`}</span>
           </div>
-          <p style={{ margin: 0, color: "#64748b", fontSize: "13px" }}>
-            Use the action buttons on each row to view, edit, or delete a product entry.
+          <p>
+            Use the action buttons available for your role to view, edit, or delete a product entry.
           </p>
         </div>
       </section>
 
-      <div
-        style={{
-          background: "#fff",
-          borderRadius: "12px",
-          boxShadow: "0 2px 10px rgba(0,0,0,0.06)",
-          overflowX: "auto"
-        }}
-      >
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "1380px" }}>
+      <div className="dashboard-table-card">
+        <table className="dashboard-data-table dashboard-products-admin-table">
           <thead>
-            <tr style={{ background: "#f8fafc" }}>
-              <th style={tableHeaderStyle}>Product</th>
-              <th style={tableHeaderStyle}>Brand</th>
-              <th style={tableHeaderStyle}>Category</th>
-              <th style={tableHeaderStyle}>SKU</th>
-              <th style={tableHeaderStyle}>Price</th>
-              <th style={tableHeaderStyle}>Stock</th>
-              <th style={tableHeaderStyle}>Stock Badge</th>
-              <th style={tableHeaderStyle}>Status</th>
-              <th style={tableHeaderStyle}>Featured</th>
-              <th style={tableHeaderStyle}>Actions</th>
+            <tr>
+              <th>Product</th>
+              <th>Brand</th>
+              <th>Category</th>
+              <th>SKU</th>
+              <th>Price</th>
+              <th>Stock</th>
+              <th>Status</th>
+              <th>Featured</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {paginatedProducts.map((product) => (
               <tr key={product.id}>
-                <td style={tableCellStyle}>
-                  <div style={{ display: "grid", gridTemplateColumns: "56px minmax(0, 1fr)", gap: "12px", alignItems: "center" }}>
-                    <img
-                      src={product.image}
-                      alt={product.name}
-                      style={{
-                        width: "56px",
-                        height: "56px",
-                        objectFit: "cover",
-                        borderRadius: "10px",
-                        background: "#f8fafc"
-                      }}
-                    />
-                    <div style={{ display: "grid", gap: "4px" }}>
+                <td>
+                  <div className="dashboard-product-cell">
+                    <ProductThumbnail src={product.image} alt={product.name} />
+                    <div className="dashboard-product-copy">
                       <strong>{product.name}</strong>
-                      <span style={{ color: "#64748b", fontSize: "12px" }}>{product.slug}</span>
+                      <span>{product.slug}</span>
                     </div>
                   </div>
                 </td>
-                <td style={tableCellStyle}>{product.brand}</td>
-                <td style={tableCellStyle}>{product.category}</td>
-                <td style={tableCellStyle}>{product.sku}</td>
-                <td style={tableCellStyle}>{formatCurrency(product.price)}</td>
-                <td style={tableCellStyle}>
-                  <div style={{ display: "grid", gap: "4px" }}>
+                <td>{product.brand}</td>
+                <td>{product.category}</td>
+                <td className="dashboard-muted-cell">{product.sku}</td>
+                <td>{formatCurrency(product.price)}</td>
+                <td>
+                  <div className="dashboard-stock-cell">
                     <strong>{product.stock}</strong>
-                    <span style={{ color: "#64748b", fontSize: "12px", textTransform: "capitalize" }}>
+                    <span>
                       {product.stockStatus.replace(/-/g, " ")}
                     </span>
                   </div>
                 </td>
-                <td style={tableCellStyle}>
+                <td>
                   <span
                     style={{
                       ...pillBaseStyle,
@@ -321,8 +317,6 @@ export default function Products() {
                   >
                     {product.stockStatus.replace(/-/g, " ")}
                   </span>
-                </td>
-                <td style={tableCellStyle}>
                   <span
                     style={{
                       ...pillBaseStyle,
@@ -333,7 +327,7 @@ export default function Products() {
                     {product.status}
                   </span>
                 </td>
-                <td style={tableCellStyle}>
+                <td>
                   <span
                     style={{
                       ...pillBaseStyle,
@@ -344,24 +338,31 @@ export default function Products() {
                     {product.featured ? "Featured" : "Standard"}
                   </span>
                 </td>
-                <td style={tableCellStyle}>
-                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                    <a href={buildStorefrontProductUrl(product.slug)} target="_blank" rel="noreferrer" style={viewActionLinkStyle}>
+                <td>
+                  <div className="dashboard-row-actions">
+                    <a href={buildStorefrontProductUrl(product.slug)} target="_blank" rel="noreferrer" className="dashboard-icon-action is-view">
+                      <FaExternalLinkAlt aria-hidden="true" />
                       View
                     </a>
-                    <Link to={`/dashboard/products/${product.slug}/edit`} style={editActionLinkStyle}>
-                      Edit
-                    </Link>
-                    <button type="button" onClick={() => handleDelete(product.id)} style={deleteActionStyle}>
-                      Delete
-                    </button>
+                    {canEditProducts ? (
+                      <Link to={`/dashboard/products/${product.slug}/edit`} className="dashboard-icon-action is-edit">
+                        <FaEdit aria-hidden="true" />
+                        Edit
+                      </Link>
+                    ) : null}
+                    {canDeleteProducts ? (
+                      <button type="button" onClick={() => handleDelete(product.id)} className="dashboard-icon-action is-delete">
+                        <FaTrash aria-hidden="true" />
+                        Delete
+                      </button>
+                    ) : null}
                   </div>
                 </td>
               </tr>
             ))}
             {!paginatedProducts.length ? (
               <tr>
-                <td colSpan="10" style={{ ...tableCellStyle, textAlign: "center", color: "#64748b", padding: "32px 16px" }}>
+                <td colSpan="9" className="dashboard-empty-table-cell">
                   No products found for the selected search and filters.
                 </td>
               </tr>
@@ -370,26 +371,22 @@ export default function Products() {
         </table>
       </div>
 
-      <section style={paginationCardStyle}>
+      <section className="dashboard-pagination-card">
         <div>
           <strong>{`Page ${safeCurrentPage} of ${totalPages}`}</strong>
-          <p style={{ margin: "6px 0 0", color: "#64748b" }}>
+          <p>
             {filteredProducts.length
-              ? `Showing products ${pageStart + 1} to ${pageEnd} out of ${filteredProducts.length}.`
+              ? `Showing products ${pageStart + 1} to ${pageEnd} out of ${pagination.total}.`
               : "No products available on this page."}
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+        <div className="dashboard-toolbar-actions">
           <button
             type="button"
             onClick={() => setCurrentPage((current) => Math.max(1, current - 1))}
             disabled={safeCurrentPage === 1}
-            style={{
-              ...paginationButtonStyle,
-              opacity: safeCurrentPage === 1 ? 0.5 : 1,
-              cursor: safeCurrentPage === 1 ? "not-allowed" : "pointer"
-            }}
+            className="dashboard-secondary-button"
           >
             Previous
           </button>
@@ -397,17 +394,13 @@ export default function Products() {
             type="button"
             onClick={() => setCurrentPage((current) => Math.min(totalPages, current + 1))}
             disabled={safeCurrentPage === totalPages}
-            style={{
-              ...paginationButtonStyle,
-              opacity: safeCurrentPage === totalPages ? 0.5 : 1,
-              cursor: safeCurrentPage === totalPages ? "not-allowed" : "pointer"
-            }}
+            className="dashboard-secondary-button"
           >
             Next
           </button>
         </div>
       </section>
-    </div>
+    </section>
   );
 }
 

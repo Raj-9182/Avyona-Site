@@ -1,6 +1,14 @@
 import jwt from "jsonwebtoken";
 import { env } from "../config/env.js";
 
+function getJwtSecret() {
+  if (env.nodeEnv === "production" && env.jwtSecret === "change_this_to_a_long_secure_secret") {
+    throw new Error("JWT_SECRET must be configured before running in production");
+  }
+
+  return env.jwtSecret;
+}
+
 export function signAdminToken(admin) {
   return jwt.sign(
     {
@@ -8,11 +16,23 @@ export function signAdminToken(admin) {
       email: admin.email,
       role: admin.role
     },
-    env.jwtSecret,
+    getJwtSecret(),
+    { expiresIn: env.jwtExpiresIn }
+  );
+}
+
+export function signCustomerToken(customer) {
+  return jwt.sign(
+    {
+      customerId: customer.id,
+      email: customer.email,
+      tokenType: "customer"
+    },
+    getJwtSecret(),
     { expiresIn: env.jwtExpiresIn }
   );
 }
 
 export function verifyToken(token) {
-  return jwt.verify(token, env.jwtSecret);
+  return jwt.verify(token, getJwtSecret());
 }

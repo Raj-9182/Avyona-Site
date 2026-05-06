@@ -83,7 +83,9 @@ export function buildProductPath(productOrSlug, variantOrKey) {
   if (!identifier) return "/product";
 
   const variantKey = typeof variantOrKey === "string" ? variantOrKey : variantOrKey?.key;
-  return variantKey ? `/product/${identifier}/${variantKey}` : `/product/${identifier}`;
+  const encodedIdentifier = encodeURIComponent(identifier);
+  const encodedVariantKey = variantKey ? encodeURIComponent(variantKey) : "";
+  return encodedVariantKey ? `/product/${encodedIdentifier}/${encodedVariantKey}` : `/product/${encodedIdentifier}`;
 }
 
 export function getStorefrontBaseUrl() {

@@ -12,5 +12,15 @@
     "status": "active",
     "isDeleted": false,
     "updatedAt": "2026-04-28T11:34:52.518Z"
+  },
+  "/uploads/1777452151103-hero-upload-check.webp": {
+    "status": "inactive",
+    "isDeleted": true,
+    "updatedAt": "2026-04-29T08:42:43.589Z"
+  },
+  "/uploads/1777452578636-hero-modal-check.webp": {
+    "status": "inactive",
+    "isDeleted": true,
+    "updatedAt": "2026-04-29T08:49:38.669Z"
   }
 }

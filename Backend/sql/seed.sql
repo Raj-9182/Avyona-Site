@@ -1,28 +1,99 @@
 USE avyona_admin;
 
-INSERT INTO admins (full_name, email, password_hash, role, is_active)
+INSERT INTO admins (full_name, email, phone, password_hash, role, status, is_active)
 VALUES (
   'Sourab Kumar',
   'sourab@thedoveberry.com',
+  '+91 98765 43210',
   '$2a$10$emBRVSUen../oAczdWrwmuNtoBBwqX2.iCirgGZ51dW5cHU4F1V9q',
   'super_admin',
+  'active',
   1
 )
 ON DUPLICATE KEY UPDATE
   full_name = VALUES(full_name),
+  phone = VALUES(phone),
   password_hash = VALUES(password_hash),
   role = VALUES(role),
+  status = VALUES(status),
   is_active = VALUES(is_active);
 
-INSERT INTO roles (name, display_name, description, status) VALUES
-  ('super_admin', 'Super Admin', 'Full control over website, dashboard, products, orders, customers, settings, and reports.', 'active'),
-  ('catalog_manager', 'Catalog Manager', 'Manage products, categories, brands, media, and homepage merchandising.', 'active'),
-  ('order_manager', 'Order Manager', 'Manage orders, payments, shipping, returns, refunds, and customer support workflows.', 'active'),
-  ('marketing_manager', 'Marketing Manager', 'Manage coupons, SEO, CMS content, leads, notifications, and analytics review.', 'active')
+INSERT INTO roles (name, display_name, description, is_system, status) VALUES
+  ('super_admin', 'Super Admin', 'Complete dashboard access including users, roles, permissions, security rules, settings, and destructive actions.', 1, 'active'),
+  ('admin', 'Admin', 'Broad dashboard management access for everyday administration, excluding highest-risk security ownership controls.', 1, 'active'),
+  ('product_manager', 'Product Manager', 'Manage products, categories, brands, variations, media, pricing, inventory, and homepage product placement.', 1, 'active'),
+  ('order_manager', 'Order Manager', 'Manage orders, status updates, fulfillment workflow, and order exports.', 1, 'active'),
+  ('marketing_manager', 'Marketing Manager', 'Manage coupons, homepage promotions, featured sections, reviews, and campaign visibility.', 1, 'active'),
+  ('support_staff', 'Support Staff', 'View and update customer support records with limited order and customer access.', 1, 'active'),
+  ('viewer', 'Viewer', 'Read-only access to dashboard records and reports.', 1, 'active')
 ON DUPLICATE KEY UPDATE
   display_name = VALUES(display_name),
   description = VALUES(description),
+  is_system = VALUES(is_system),
   status = VALUES(status);
+
+INSERT INTO permissions (permission_key, module_name, action_name, display_name, description, is_sensitive, is_available) VALUES
+  ('dashboard.view', 'dashboard', 'view', 'View Dashboard', 'View dashboard metrics and summaries.', 0, 1),
+  ('products.view', 'products', 'view', 'View Products', 'View product catalog records.', 0, 1),
+  ('products.create', 'products', 'create', 'Create Products', 'Create new product records.', 0, 1),
+  ('products.edit', 'products', 'edit', 'Edit Products', 'Edit product records.', 0, 1),
+  ('products.delete', 'products', 'delete', 'Delete Products', 'Delete product records.', 1, 1),
+  ('products.export', 'products', 'export', 'Export Products', 'Export product records.', 0, 1),
+  ('categories.view', 'categories', 'view', 'View Categories', 'View category records.', 0, 1),
+  ('categories.create', 'categories', 'create', 'Create Categories', 'Create category records.', 0, 1),
+  ('categories.edit', 'categories', 'edit', 'Edit Categories', 'Edit category records.', 0, 1),
+  ('categories.delete', 'categories', 'delete', 'Delete Categories', 'Delete category records.', 0, 1),
+  ('categories.export', 'categories', 'export', 'Export Categories', 'Export category records.', 0, 1),
+  ('brands.view', 'brands', 'view', 'View Brands', 'View brand records.', 0, 1),
+  ('brands.create', 'brands', 'create', 'Create Brands', 'Create brand records.', 0, 1),
+  ('brands.edit', 'brands', 'edit', 'Edit Brands', 'Edit brand records.', 0, 1),
+  ('brands.delete', 'brands', 'delete', 'Delete Brands', 'Delete brand records.', 0, 1),
+  ('brands.export', 'brands', 'export', 'Export Brands', 'Export brand records.', 0, 1),
+  ('variations.view', 'variations', 'view', 'View Variations', 'View variation records.', 0, 1),
+  ('variations.create', 'variations', 'create', 'Create Variations', 'Create variation records.', 0, 1),
+  ('variations.edit', 'variations', 'edit', 'Edit Variations', 'Edit variation records.', 0, 1),
+  ('variations.delete', 'variations', 'delete', 'Delete Variations', 'Delete variation records.', 0, 1),
+  ('variations.export', 'variations', 'export', 'Export Variations', 'Export variation records.', 0, 1),
+  ('orders.view', 'orders', 'view', 'View Orders', 'View order records.', 0, 1),
+  ('orders.create', 'orders', 'create', 'Create Orders', 'Create/manual order records.', 0, 1),
+  ('orders.edit', 'orders', 'edit', 'Edit Orders', 'Edit order status and fulfillment details.', 0, 1),
+  ('orders.export', 'orders', 'export', 'Export Orders', 'Export order records.', 0, 1),
+  ('customers.view', 'customers', 'view', 'View Customers', 'View customer records.', 0, 1),
+  ('customers.edit', 'customers', 'edit', 'Edit Customers', 'Edit customer records.', 0, 1),
+  ('customers.export', 'customers', 'export', 'Export Customers', 'Export customer records.', 1, 1),
+  ('coupons.view', 'coupons', 'view', 'View Coupons', 'View coupon records.', 0, 1),
+  ('coupons.create', 'coupons', 'create', 'Create Coupons', 'Create coupon records.', 0, 1),
+  ('coupons.edit', 'coupons', 'edit', 'Edit Coupons', 'Edit coupon records.', 0, 1),
+  ('coupons.delete', 'coupons', 'delete', 'Delete Coupons', 'Delete coupon records.', 0, 1),
+  ('coupons.export', 'coupons', 'export', 'Export Coupons', 'Export coupon records.', 0, 1),
+  ('homepage.view', 'homepage', 'view', 'View Homepage', 'View homepage configuration.', 0, 1),
+  ('homepage.create', 'homepage', 'create', 'Create Homepage Content', 'Create homepage content blocks.', 0, 1),
+  ('homepage.edit', 'homepage', 'edit', 'Edit Homepage', 'Edit homepage content.', 0, 1),
+  ('homepage.delete', 'homepage', 'delete', 'Delete Homepage Content', 'Delete homepage content blocks.', 0, 1),
+  ('reviews.view', 'reviews', 'view', 'View Reviews', 'View product reviews.', 0, 1),
+  ('reviews.edit', 'reviews', 'edit', 'Edit Reviews', 'Moderate or update reviews.', 0, 1),
+  ('reviews.delete', 'reviews', 'delete', 'Delete Reviews', 'Delete product reviews.', 0, 1),
+  ('reviews.export', 'reviews', 'export', 'Export Reviews', 'Export review records.', 0, 1),
+  ('settings.view', 'settings', 'view', 'View Settings', 'View dashboard settings.', 0, 1),
+  ('settings.edit', 'settings', 'edit', 'Edit Settings', 'Edit dashboard settings.', 0, 1),
+  ('sensitive.manage_admin_users', 'sensitive_access', 'manage_admin_users', 'Manage admin users', 'Invite, edit, suspend, or remove dashboard users.', 1, 1),
+  ('sensitive.manage_roles', 'sensitive_access', 'manage_roles', 'Manage roles', 'Change role structure and role-level access boundaries.', 1, 1),
+  ('sensitive.manage_payment_settings', 'sensitive_access', 'manage_payment_settings', 'Manage payment settings', 'Modify payment methods and gateway behavior.', 1, 1),
+  ('sensitive.process_refunds', 'sensitive_access', 'process_refunds', 'Process refunds', 'Trigger or approve refund-related order actions.', 1, 1),
+  ('sensitive.export_customer_data', 'sensitive_access', 'export_customer_data', 'Export customer data', 'Download customer records and personal data.', 1, 1),
+  ('sensitive.view_customer_contact', 'sensitive_access', 'view_customer_contact', 'View customer phone/email', 'View sensitive customer contact details.', 1, 1),
+  ('sensitive.delete_orders', 'sensitive_access', 'delete_orders', 'Delete orders', 'Remove order records.', 1, 1),
+  ('sensitive.change_payment_status', 'sensitive_access', 'change_payment_status', 'Change payment status', 'Alter paid, unpaid, failed, or refunded states.', 1, 1),
+  ('sensitive.publish_homepage_changes', 'sensitive_access', 'publish_homepage_changes', 'Publish homepage changes', 'Push storefront homepage changes live.', 1, 1),
+  ('sensitive.manage_api_keys', 'sensitive_access', 'manage_api_keys', 'Manage API keys', 'Create, rotate, or revoke integration keys.', 1, 1),
+  ('sensitive.view_revenue_reports', 'sensitive_access', 'view_revenue_reports', 'View revenue reports', 'Access financial reporting and revenue summaries.', 1, 1)
+ON DUPLICATE KEY UPDATE
+  module_name = VALUES(module_name),
+  action_name = VALUES(action_name),
+  display_name = VALUES(display_name),
+  description = VALUES(description),
+  is_sensitive = VALUES(is_sensitive),
+  is_available = VALUES(is_available);
 
 INSERT INTO role_permissions
   (role_id, module_name, can_view, can_create, can_edit, can_delete, can_export, can_approve)
@@ -33,14 +104,68 @@ JOIN (
   SELECT 'products' UNION ALL
   SELECT 'categories' UNION ALL
   SELECT 'brands' UNION ALL
+  SELECT 'variations' UNION ALL
   SELECT 'orders' UNION ALL
   SELECT 'customers' UNION ALL
   SELECT 'coupons' UNION ALL
   SELECT 'homepage' UNION ALL
+  SELECT 'reviews' UNION ALL
   SELECT 'settings' UNION ALL
-  SELECT 'reports'
+  SELECT 'sensitive_access'
 ) modules
 WHERE r.name = 'super_admin'
+ON DUPLICATE KEY UPDATE
+  can_view = VALUES(can_view),
+  can_create = VALUES(can_create),
+  can_edit = VALUES(can_edit),
+  can_delete = VALUES(can_delete),
+  can_export = VALUES(can_export),
+  can_approve = VALUES(can_approve);
+
+INSERT INTO role_permissions
+  (role_id, module_name, can_view, can_create, can_edit, can_delete, can_export, can_approve)
+SELECT r.id, defaults.module_name, defaults.can_view, defaults.can_create, defaults.can_edit, defaults.can_delete, defaults.can_export, defaults.can_approve
+FROM roles r
+JOIN (
+  SELECT 'admin' AS role_name, 'dashboard' AS module_name, 1 AS can_view, 0 AS can_create, 0 AS can_edit, 0 AS can_delete, 0 AS can_export, 0 AS can_approve UNION ALL
+  SELECT 'admin', 'products', 1, 1, 1, 1, 1, 0 UNION ALL
+  SELECT 'admin', 'categories', 1, 1, 1, 1, 1, 0 UNION ALL
+  SELECT 'admin', 'brands', 1, 1, 1, 1, 1, 0 UNION ALL
+  SELECT 'admin', 'variations', 1, 1, 1, 1, 1, 0 UNION ALL
+  SELECT 'admin', 'orders', 1, 1, 1, 0, 1, 0 UNION ALL
+  SELECT 'admin', 'customers', 1, 0, 1, 0, 1, 0 UNION ALL
+  SELECT 'admin', 'coupons', 1, 1, 1, 1, 1, 0 UNION ALL
+  SELECT 'admin', 'homepage', 1, 1, 1, 1, 0, 0 UNION ALL
+  SELECT 'admin', 'reviews', 1, 0, 1, 1, 1, 0 UNION ALL
+  SELECT 'admin', 'settings', 1, 0, 1, 0, 0, 0 UNION ALL
+  SELECT 'product_manager', 'dashboard', 1, 0, 0, 0, 0, 0 UNION ALL
+  SELECT 'product_manager', 'products', 1, 1, 1, 1, 1, 0 UNION ALL
+  SELECT 'product_manager', 'categories', 1, 1, 1, 1, 1, 0 UNION ALL
+  SELECT 'product_manager', 'brands', 1, 1, 1, 1, 1, 0 UNION ALL
+  SELECT 'product_manager', 'variations', 1, 1, 1, 1, 1, 0 UNION ALL
+  SELECT 'product_manager', 'homepage', 1, 0, 1, 0, 0, 0 UNION ALL
+  SELECT 'order_manager', 'dashboard', 1, 0, 0, 0, 0, 0 UNION ALL
+  SELECT 'order_manager', 'orders', 1, 1, 1, 0, 1, 0 UNION ALL
+  SELECT 'order_manager', 'customers', 1, 0, 1, 0, 0, 0 UNION ALL
+  SELECT 'marketing_manager', 'dashboard', 1, 0, 0, 0, 0, 0 UNION ALL
+  SELECT 'marketing_manager', 'coupons', 1, 1, 1, 1, 1, 0 UNION ALL
+  SELECT 'marketing_manager', 'homepage', 1, 1, 1, 1, 0, 0 UNION ALL
+  SELECT 'marketing_manager', 'reviews', 1, 0, 1, 1, 1, 0 UNION ALL
+  SELECT 'support_staff', 'dashboard', 1, 0, 0, 0, 0, 0 UNION ALL
+  SELECT 'support_staff', 'orders', 1, 0, 1, 0, 0, 0 UNION ALL
+  SELECT 'support_staff', 'customers', 1, 0, 1, 0, 0, 0 UNION ALL
+  SELECT 'viewer', 'dashboard', 1, 0, 0, 0, 0, 0 UNION ALL
+  SELECT 'viewer', 'products', 1, 0, 0, 0, 0, 0 UNION ALL
+  SELECT 'viewer', 'categories', 1, 0, 0, 0, 0, 0 UNION ALL
+  SELECT 'viewer', 'brands', 1, 0, 0, 0, 0, 0 UNION ALL
+  SELECT 'viewer', 'variations', 1, 0, 0, 0, 0, 0 UNION ALL
+  SELECT 'viewer', 'orders', 1, 0, 0, 0, 0, 0 UNION ALL
+  SELECT 'viewer', 'customers', 1, 0, 0, 0, 0, 0 UNION ALL
+  SELECT 'viewer', 'coupons', 1, 0, 0, 0, 0, 0 UNION ALL
+  SELECT 'viewer', 'homepage', 1, 0, 0, 0, 0, 0 UNION ALL
+  SELECT 'viewer', 'reviews', 1, 0, 0, 0, 0, 0 UNION ALL
+  SELECT 'viewer', 'settings', 1, 0, 0, 0, 0, 0
+) defaults ON defaults.role_name = r.name
 ON DUPLICATE KEY UPDATE
   can_view = VALUES(can_view),
   can_create = VALUES(can_create),

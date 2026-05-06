@@ -506,8 +506,9 @@ const actionRowStyle = {
   display: "flex",
   gap: "8px",
   alignItems: "center",
-  flexWrap: "wrap",
-  alignSelf: "end"
+  flexWrap: "nowrap",
+  alignSelf: "end",
+  whiteSpace: "nowrap"
 };
 
 const uploadButtonStyle = {

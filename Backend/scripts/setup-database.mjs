@@ -35,7 +35,8 @@ async function runStatements(connection, label, statements) {
     } catch (error) {
       const ignorableCodes = new Set([
         "ER_DUP_KEYNAME",
-        "ER_DUP_FIELDNAME"
+        "ER_DUP_FIELDNAME",
+        "ER_FK_DUP_NAME"
       ]);
 
       if (!ignorableCodes.has(error.code)) {

@@ -1,6 +1,8 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { deleteCategory, fetchCategories } from "../../api/adminApi";
+import { deleteCategory, fetchCategories, updateCategory } from "../../api/adminApi";
+import { useAutoRefresh } from "../../hooks/useAutoRefresh";
+import { canAccess } from "../../utils/accessControl";
 
 function getPreviewUrl(url) {
   if (!url) return "/images/optimized/digital-photo-frames.webp";
@@ -11,6 +13,7 @@ function getPreviewUrl(url) {
 
 function normalizeRow(category) {
   return {
+    raw: category,
     id: category.id,
     image: category.imageUrl || category.categoryImage || "",
     categoryName: category.name || category.categoryName || "",
@@ -23,11 +26,34 @@ function normalizeRow(category) {
   };
 }
 
+function buildCategoryPayload(category, status) {
+  return {
+    name: category.name || category.categoryName || "",
+    slug: category.slug || "",
+    parentId: category.parentId || null,
+    imageUrl: category.imageUrl || category.categoryImage || "",
+    bannerImageUrl: category.bannerImageUrl || "",
+    description: category.description || "",
+    status,
+    showInMenu: Boolean(category.showInMenu),
+    featuredCategory: Boolean(category.featuredCategory),
+    dynamicRuleJson: category.dynamicRuleJson || {},
+    sortOrder: Number(category.sortOrder || 0),
+    metaTitle: category.metaTitle || "",
+    metaDescription: category.metaDescription || "",
+    keywords: category.keywords || ""
+  };
+}
+
 export default function Categories() {
   const navigate = useNavigate();
   const [categoryRows, setCategoryRows] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
+  const [updatingCategoryId, setUpdatingCategoryId] = React.useState("");
   const [message, setMessage] = React.useState("");
+  const canCreateCategories = canAccess("categories", "create");
+  const canEditCategories = canAccess("categories", "edit");
+  const canDeleteCategories = canAccess("categories", "delete");
 
   const loadCategories = React.useCallback(async () => {
     setLoading(true);
@@ -47,6 +73,29 @@ export default function Categories() {
   React.useEffect(() => {
     loadCategories();
   }, [loadCategories]);
+
+  useAutoRefresh(loadCategories);
+
+  const handleToggleStatus = async (row) => {
+    const nextStatus = row.status === "Active" ? "inactive" : "active";
+    setUpdatingCategoryId(row.id);
+    setMessage("");
+
+    try {
+      const response = await updateCategory(row.id, buildCategoryPayload(row.raw, nextStatus));
+      const updatedCategory = response.data?.data || { ...row.raw, status: nextStatus };
+      setCategoryRows((current) =>
+        current.map((category) =>
+          category.id === row.id ? normalizeRow(updatedCategory) : category
+        )
+      );
+      setMessage(`Category marked ${nextStatus === "active" ? "active" : "inactive"}. Storefront category sections will auto-refresh.`);
+    } catch (error) {
+      setMessage(error.response?.data?.message || "Unable to update category status.");
+    } finally {
+      setUpdatingCategoryId("");
+    }
+  };
 
   const handleDelete = async (row) => {
     const confirmed = window.confirm(`Delete category "${row.categoryName}"?`);
@@ -72,7 +121,9 @@ export default function Categories() {
 
         <div style={headerActionsStyle}>
           <button type="button" style={secondaryButtonStyle} onClick={loadCategories}>Refresh</button>
-          <button type="button" style={addButtonStyle} onClick={() => navigate("/dashboard/categories/new")}>Add Category</button>
+          {canCreateCategories ? (
+            <button type="button" style={addButtonStyle} onClick={() => navigate("/dashboard/categories/new")}>Add Category</button>
+          ) : null}
         </div>
       </section>
 
@@ -87,8 +138,8 @@ export default function Categories() {
           </div>
         </div>
 
-        <div style={{ overflowX: "auto" }}>
-          <table style={tableStyle}>
+        <div className="dashboard-table-card dashboard-inline-table-card">
+          <table className="dashboard-data-table dashboard-categories-admin-table" style={tableStyle}>
             <thead>
               <tr>
                 {["Image", "Category Name", "Parent Category", "Slug", "Status", "Show in Menu", "Featured", "Sort Order", "Actions"].map((heading) => (
@@ -118,8 +169,22 @@ export default function Categories() {
                   <td style={tableCellStyle}>{row.sortOrder}</td>
                   <td style={tableCellStyle}>
                     <div style={actionsStyle}>
-                      <button type="button" style={editButtonStyle} onClick={() => navigate(`/dashboard/categories/${row.id}/edit`)}>Edit</button>
-                      <button type="button" style={deleteButtonStyle} onClick={() => handleDelete(row)}>Delete</button>
+                      {canEditCategories ? (
+                        <>
+                          <button
+                            type="button"
+                            style={row.status === "Active" ? inactiveButtonStyle : activeButtonStyle}
+                            disabled={updatingCategoryId === row.id}
+                            onClick={() => handleToggleStatus(row)}
+                          >
+                            {updatingCategoryId === row.id ? "Saving..." : row.status === "Active" ? "Inactive" : "Active"}
+                          </button>
+                          <button type="button" style={editButtonStyle} onClick={() => navigate(`/dashboard/categories/${row.id}/edit`)}>Edit</button>
+                        </>
+                      ) : null}
+                      {canDeleteCategories ? (
+                        <button type="button" style={deleteButtonStyle} onClick={() => handleDelete(row)}>Delete</button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>
@@ -140,7 +205,7 @@ export default function Categories() {
   );
 }
 
-const pageStyle = { display: "grid", gap: "16px" };
+const pageStyle = { display: "grid", gap: "16px", width: "100%" };
 
 const headerStyle = {
   background: "linear-gradient(135deg, #ffffff 0%, #f4fbf6 55%, #edf7ff 100%)",
@@ -157,14 +222,15 @@ const headerStyle = {
 
 const titleStyle = { margin: "8px 0 0", fontSize: "38px", color: "#0f172a" };
 const copyStyle = { margin: "10px 0 0", color: "#526377", maxWidth: "760px" };
-const headerActionsStyle = { display: "flex", gap: "10px", flexWrap: "wrap" };
+const headerActionsStyle = { display: "flex", gap: "10px", flexWrap: "nowrap" };
 
 const tableCardStyle = {
   background: "#ffffff",
   borderRadius: "14px",
   border: "1px solid rgba(203, 213, 225, 0.75)",
   boxShadow: "0 8px 22px rgba(174, 203, 190, 0.08)",
-  padding: "16px"
+  padding: "16px",
+  overflow: "hidden"
 };
 
 const displaySettingsIntroStyle = {
@@ -180,13 +246,13 @@ const displaySettingsIntroStyle = {
 const displayTitleStyle = { margin: "6px 0 0", color: "#0f172a", fontSize: "20px" };
 const displayCopyStyle = { margin: "8px 0 0", color: "#64748b", lineHeight: 1.55 };
 
-const tableStyle = { width: "100%", borderCollapse: "collapse", minWidth: "1040px" };
+const tableStyle = { width: "100%", borderCollapse: "collapse", tableLayout: "fixed" };
 const tableHeaderStyle = { textAlign: "left", padding: "14px 12px", fontSize: "13px", color: "#334155", borderBottom: "1px solid #e5edf5" };
 const tableCellStyle = { padding: "14px 12px", color: "#0f172a", borderBottom: "1px solid #eef2f7", verticalAlign: "middle" };
 
 const imageCellStyle = { width: "64px", height: "64px", borderRadius: "12px", overflow: "hidden", background: "#f8fafc", border: "1px solid #e5edf5" };
 const imageStyle = { width: "100%", height: "100%", objectFit: "cover", display: "block" };
-const actionsStyle = { display: "flex", gap: "8px", flexWrap: "wrap" };
+const actionsStyle = { display: "flex", gap: "8px", flexWrap: "nowrap", whiteSpace: "nowrap" };
 
 const badgeStyle = { display: "inline-flex", alignItems: "center", minHeight: "28px", padding: "0 10px", borderRadius: "999px", fontSize: "12px", fontWeight: 800 };
 const activeBadgeStyle = { background: "#dcfce7", color: "#166534" };
@@ -198,7 +264,8 @@ const neutralBadgeStyle = { background: "#f1f5f9", color: "#475569" };
 const addButtonStyle = { minHeight: "42px", padding: "0 16px", borderRadius: "9px", border: "1px solid rgba(15, 23, 42, 0.1)", background: "#16a34a", color: "#ffffff", fontWeight: 800, cursor: "pointer" };
 const secondaryButtonStyle = { minHeight: "42px", padding: "0 16px", borderRadius: "9px", border: "1px solid #cbd5e1", background: "#ffffff", color: "#0f172a", fontWeight: 800, cursor: "pointer" };
 const editButtonStyle = { minHeight: "34px", padding: "0 12px", borderRadius: "8px", border: "1px solid #cbd5e1", background: "#ffffff", color: "#0f172a", fontWeight: 800, cursor: "pointer" };
+const activeButtonStyle = { minHeight: "34px", padding: "0 12px", borderRadius: "8px", border: "1px solid #bbf7d0", background: "#dcfce7", color: "#166534", fontWeight: 800, cursor: "pointer" };
+const inactiveButtonStyle = { minHeight: "34px", padding: "0 12px", borderRadius: "8px", border: "1px solid #e5e7eb", background: "#f3f4f6", color: "#374151", fontWeight: 800, cursor: "pointer" };
 const deleteButtonStyle = { minHeight: "34px", padding: "0 12px", borderRadius: "8px", border: "1px solid #fecaca", background: "#fff1f2", color: "#b91c1c", fontWeight: 800, cursor: "pointer" };
 const feedbackStyle = { borderRadius: "12px", padding: "12px 14px", background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0", fontWeight: 800 };
 const eyebrowStyle = { color: "#0f766e", fontSize: "12px", fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" };
-

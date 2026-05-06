@@ -66,14 +66,14 @@ export default function ProfilePage({ context }) {
             <div className="profile-avatar-wrap">
               <img className="profile-avatar" src={profile.image} alt="Profile avatar" />
               <label className="profile-avatar-edit" htmlFor="profileImageInput">Edit Photo</label>
-              <input id="profileImageInput" type="file" accept="image/*" hidden onChange={updateProfileImage} />
+              <input id="profileImageInput" name="profileImage" type="file" accept="image/*" hidden onChange={updateProfileImage} />
             </div>
-            <form className="profile-form" onSubmit={saveProfile}>
+            <form id="profile-details-form" name="profileDetailsForm" className="profile-form" onSubmit={saveProfile}>
               <div className="profile-form-grid">
-                <label className="profile-field"><span>Full Name</span><input value={profile.fullName} onChange={(event) => setProfile({ ...profile, fullName: event.target.value })} required /></label>
-                <label className="profile-field"><span>Email Address</span><input type="email" value={profile.email} onChange={(event) => setProfile({ ...profile, email: event.target.value })} /></label>
-                <label className="profile-field"><span>Mobile Number</span><input value={profile.mobile} onChange={(event) => setProfile({ ...profile, mobile: event.target.value })} /></label>
-                <label className="profile-field"><span>Default Address</span><textarea rows="4" value={profile.address} onChange={(event) => setProfile({ ...profile, address: event.target.value })} /></label>
+                <label className="profile-field" htmlFor="profile-full-name"><span>Full Name</span><input id="profile-full-name" name="fullName" autoComplete="name" value={profile.fullName} onChange={(event) => setProfile({ ...profile, fullName: event.target.value })} required /></label>
+                <label className="profile-field" htmlFor="profile-email"><span>Email Address</span><input id="profile-email" name="email" type="email" autoComplete="email" value={profile.email} onChange={(event) => setProfile({ ...profile, email: event.target.value })} /></label>
+                <label className="profile-field" htmlFor="profile-mobile"><span>Mobile Number</span><input id="profile-mobile" name="mobile" autoComplete="tel" value={profile.mobile} onChange={(event) => setProfile({ ...profile, mobile: event.target.value })} /></label>
+                <label className="profile-field" htmlFor="profile-address"><span>Default Address</span><textarea id="profile-address" name="address" autoComplete="street-address" rows="4" value={profile.address} onChange={(event) => setProfile({ ...profile, address: event.target.value })} /></label>
               </div>
               <div className="profile-form-actions"><button className="primary-button" type="submit">Save Profile</button></div>
             </form>

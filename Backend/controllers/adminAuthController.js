@@ -44,12 +44,12 @@ export async function loginAdmin(request, response) {
   }
 
   const admins = await query(
-    "SELECT id, full_name AS fullName, email, password_hash AS passwordHash, role, is_active AS isActive FROM admins WHERE email = ? LIMIT 1",
+    "SELECT id, full_name AS fullName, email, password_hash AS passwordHash, role, status, is_active AS isActive FROM admins WHERE email = ? LIMIT 1",
     [String(email).toLowerCase()]
   );
   const admin = admins[0];
 
-  if (!admin || !admin.isActive) {
+  if (!admin || !admin.isActive || admin.status !== "active") {
     throw new ApiError(401, "Invalid email or password");
   }
 
@@ -57,6 +57,8 @@ export async function loginAdmin(request, response) {
   if (!isValidPassword) {
     throw new ApiError(401, "Invalid email or password");
   }
+
+  await query("UPDATE admins SET last_login_at = NOW() WHERE id = ?", [admin.id]);
 
   response.json({
     success: true,

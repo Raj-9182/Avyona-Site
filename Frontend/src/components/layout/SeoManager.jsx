@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { useLocation } from "react-router-dom";
+import { fetchPageSeo } from "../../api/seoApi";
 import { flattenCategoryTree, fallbackCategoryTree } from "../../data/category-data";
 import {
   blogEntries,
@@ -270,6 +271,33 @@ function setSchemaMarkup(schemaList) {
   script.type = "application/ld+json";
   script.text = JSON.stringify(schemaList.length === 1 ? schemaList[0] : schemaList);
   document.head.appendChild(script);
+}
+
+function applySeo(seo) {
+  document.title = seo.title;
+  setCanonical(seo.canonical);
+
+  setMeta({ name: "description", content: seo.description });
+  setMeta({ name: "robots", content: seo.robots });
+  setMeta({ name: "keywords", content: seo.keywords });
+  setMeta({ name: "author", content: SITE_NAME });
+  setMeta({ name: "application-name", content: SITE_NAME });
+  setMeta({ name: "theme-color", content: "#5db467" });
+
+  setMeta({ property: "og:site_name", content: SITE_NAME });
+  setMeta({ property: "og:locale", content: "en_IN" });
+  setMeta({ property: "og:type", content: seo.type });
+  setMeta({ property: "og:title", content: seo.title });
+  setMeta({ property: "og:description", content: seo.description });
+  setMeta({ property: "og:url", content: seo.canonical });
+  setMeta({ property: "og:image", content: seo.image });
+
+  setMeta({ name: "twitter:card", content: "summary_large_image" });
+  setMeta({ name: "twitter:title", content: seo.title });
+  setMeta({ name: "twitter:description", content: seo.description });
+  setMeta({ name: "twitter:image", content: seo.image });
+
+  setSchemaMarkup(Array.isArray(seo.schema) ? seo.schema : []);
 }
 
 function getSeoData(location) {
@@ -551,31 +579,24 @@ export default function SeoManager() {
   const location = useLocation();
 
   useEffect(() => {
-    const seo = getSeoData(location);
-    document.title = seo.title;
-    setCanonical(seo.canonical);
+    let isMounted = true;
+    const fallbackSeo = getSeoData(location);
+    applySeo(fallbackSeo);
 
-    setMeta({ name: "description", content: seo.description });
-    setMeta({ name: "robots", content: seo.robots });
-    setMeta({ name: "keywords", content: seo.keywords });
-    setMeta({ name: "author", content: SITE_NAME });
-    setMeta({ name: "application-name", content: SITE_NAME });
-    setMeta({ name: "theme-color", content: "#5db467" });
+    fetchPageSeo(`${location.pathname}${location.search}`)
+      .then((response) => {
+        if (!isMounted || !response.data) return;
+        applySeo({
+          ...fallbackSeo,
+          ...response.data,
+          schema: Array.isArray(response.data.schema) ? response.data.schema : fallbackSeo.schema
+        });
+      })
+      .catch(() => {});
 
-    setMeta({ property: "og:site_name", content: SITE_NAME });
-    setMeta({ property: "og:locale", content: "en_IN" });
-    setMeta({ property: "og:type", content: seo.type });
-    setMeta({ property: "og:title", content: seo.title });
-    setMeta({ property: "og:description", content: seo.description });
-    setMeta({ property: "og:url", content: seo.canonical });
-    setMeta({ property: "og:image", content: seo.image });
-
-    setMeta({ name: "twitter:card", content: "summary_large_image" });
-    setMeta({ name: "twitter:title", content: seo.title });
-    setMeta({ name: "twitter:description", content: seo.description });
-    setMeta({ name: "twitter:image", content: seo.image });
-
-    setSchemaMarkup(seo.schema);
+    return () => {
+      isMounted = false;
+    };
   }, [location]);
 
   return null;

@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
+import { trackAnalyticsEvent } from "../api/analyticsApi";
+import { fetchStorefrontProduct } from "../api/productApi";
 import ProductCard from "../components/product/ProductCard";
 import { allProducts, categoryRouteMap } from "../data/storefront-content";
 import {
@@ -15,7 +17,7 @@ import {
   readStorage,
   writeStorage
 } from "../utils/storefront";
-import { couponRules, validateCoupon } from "../../../shared/coupons";
+import { validateCoupon } from "../../../shared/coupons";
 
 const PAYMENT_LOGOS = [
   { src: getOptimizedAssetPath("/images/payment 1.png"), alt: "Payment option 1" },
@@ -56,6 +58,46 @@ const POLICY_SECTIONS = [
     title: "COD Information"
   }
 ];
+
+function normalizeBackendProduct(product) {
+  const price = Number(product.price || 0);
+  const mrp = Number(product.mrp || price || 0);
+  const stockQuantity = Number(product.stockQuantity || 0);
+  const discount = mrp > price && price > 0 ? Math.round(((mrp - price) / mrp) * 100) : 0;
+  const gallery = Array.isArray(product.galleryUrls) && product.galleryUrls.length ? product.galleryUrls : [product.imageUrl || "/images/optimized/frame-1.webp"];
+
+  return {
+    asin: product.asin,
+    sku: product.asin || product.sku,
+    slug: product.slug,
+    name: product.name,
+    brand: product.brand,
+    category: product.categoryName || "Products",
+    collectionSlug: product.categorySlug || "",
+    price,
+    mrp,
+    discount,
+    image: gallery[0],
+    gallery,
+    highlights: [product.shortDescription || "New Avyona product"].filter(Boolean),
+    description: product.description ? String(product.description).split(/\n+/).filter(Boolean) : [product.shortDescription || "Product details will be updated soon."],
+    rating: Number(product.rating || 0),
+    reviewCount: Number(product.reviewCount || 0),
+    availableStock: stockQuantity,
+    stockTone: stockQuantity > 0 ? "in-stock" : "out-of-stock",
+    stockNote: stockQuantity > 0 ? "Available for dispatch" : "Out of stock",
+    variantGroupId: product.variantGroupId || "",
+    variantGroupName: product.variantGroupName || "",
+    variantType: product.variantType || "",
+    variantValue: product.variantValue || product.name,
+    variants: [],
+    specGroups: [],
+    reviews: [],
+    faqs: [],
+    warrantySummary: "",
+    returnSummary: ""
+  };
+}
 
 function renderStars(rating) {
   const filled = Math.round(Number(rating || 0));
@@ -137,12 +179,15 @@ export default function ProductPage({ context }) {
   const { slug: productKey, variantKey } = useParams();
   const navigate = useNavigate();
   const productCatalog = context.allProducts && context.allProducts.length ? context.allProducts : allProducts;
-  const product = productCatalog.find((item) => item.slug === productKey || String(item.asin || "") === String(productKey || "")) || null;
+  const [fetchedProduct, setFetchedProduct] = useState(null);
+  const [isFetchingProduct, setIsFetchingProduct] = useState(false);
+  const product = productCatalog.find((item) => item.slug === productKey || String(item.asin || "") === String(productKey || "")) || fetchedProduct;
   const stageRef = useRef(null);
   const imageRef = useRef(null);
   const previewRef = useRef(null);
   const mobileZoomTimerRef = useRef(null);
   const mobileZoomTouchRef = useRef(null);
+  const productViewKeyRef = useRef("");
 
   const [galleryIndex, setGalleryIndex] = useState(0);
   const [quantity, setQuantity] = useState(1);
@@ -191,6 +236,30 @@ export default function ProductPage({ context }) {
   }, [product, productCatalog]);
 
   useEffect(() => {
+    if (productCatalog.some((item) => item.slug === productKey || String(item.asin || "") === String(productKey || ""))) {
+      setFetchedProduct(null);
+      return undefined;
+    }
+
+    let isMounted = true;
+    setIsFetchingProduct(true);
+    fetchStorefrontProduct(productKey)
+      .then((response) => {
+        if (isMounted) setFetchedProduct(response.data ? normalizeBackendProduct(response.data) : null);
+      })
+      .catch(() => {
+        if (isMounted) setFetchedProduct(null);
+      })
+      .finally(() => {
+        if (isMounted) setIsFetchingProduct(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [productCatalog, productKey]);
+
+  useEffect(() => {
     if (!product) return;
     setGalleryIndex(0);
     setQuantity(1);
@@ -235,6 +304,23 @@ export default function ProductPage({ context }) {
   }, []);
 
   useEffect(() => {
+    if (!product) return;
+    const viewKey = `${product.slug || product.asin}:${selectedVariant?.key || ""}`;
+    if (productViewKeyRef.current === viewKey) return;
+    productViewKeyRef.current = viewKey;
+    trackAnalyticsEvent({
+      eventType: "product_view",
+      productAsin: product.asin,
+      productSlug: product.slug,
+      metadata: {
+        productName: product.name,
+        brand: product.brand,
+        variantLabel: selectedVariant?.label || ""
+      }
+    });
+  }, [product, selectedVariant?.key]);
+
+  useEffect(() => {
     if (!lightboxOpen) return undefined;
 
     const previousOverflow = document.body.style.overflow;
@@ -268,6 +354,16 @@ export default function ProductPage({ context }) {
       document.body.style.touchAction = previousTouchAction;
     };
   }, [mobileZoomActive]);
+
+  if (!product && (context.isProductCatalogLoading || isFetchingProduct)) {
+    return (
+      <main className="container product-page-main">
+        <div className="avy-surface-card" style={{ padding: "2rem", color: "#475569", fontWeight: 700 }}>
+          Loading product details...
+        </div>
+      </main>
+    );
+  }
 
   if (!product) return <Navigate to="/" replace />;
 
@@ -322,7 +418,7 @@ export default function ProductPage({ context }) {
     const result = validateCoupon(productCouponCode, {
       items: [{ ...product, price: salePrice, quantity: safeQuantity }],
       subtotal: salePrice * safeQuantity,
-      coupons: couponRules
+      coupons: context.coupons || []
     });
 
     setProductCouponMessage(result.message);

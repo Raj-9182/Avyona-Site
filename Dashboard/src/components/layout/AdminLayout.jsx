@@ -11,6 +11,21 @@ const pageMeta = [
     subtitle: "Create a new product for the Avyona ecommerce website."
   },
   {
+    path: "/dashboard/products/inventory-manager",
+    title: "Inventory Manager",
+    subtitle: "Import, validate, update, and export product inventory in bulk."
+  },
+  {
+    path: "/dashboard/homepage/:section",
+    title: "Homepage",
+    subtitle: "Configure storefront homepage sections, ordering, media, and product placement."
+  },
+  {
+    path: "/dashboard/homepage",
+    title: "Homepage",
+    subtitle: "Manage homepage sections, banners, categories, products, and featured content."
+  },
+  {
     path: "/dashboard/products",
     title: "Products",
     subtitle: "Manage your catalog, pricing, inventory, and product visibility."
@@ -21,9 +36,19 @@ const pageMeta = [
     subtitle: "Manage product variants such as color, size, finish, price, and stock combinations."
   },
   {
+    path: "/dashboard/coupons",
+    title: "Coupons",
+    subtitle: "Create, review, and manage promotional coupon rules."
+  },
+  {
     path: "/dashboard/categories",
     title: "Categories",
     subtitle: "Manage category structure used across the storefront and backend."
+  },
+  {
+    path: "/dashboard/website-images",
+    title: "Website Images",
+    subtitle: "Manage reusable storefront images, media placement, and uploaded assets."
   },
   {
     path: "/dashboard/orders",

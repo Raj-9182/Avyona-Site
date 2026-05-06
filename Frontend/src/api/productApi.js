@@ -11,3 +11,13 @@ export async function fetchStorefrontProducts(params = {}) {
 
   return response.json();
 }
+
+export async function fetchStorefrontProduct(productId) {
+  const response = await fetch(`${API_BASE_URL}/products/${encodeURIComponent(productId)}`);
+
+  if (!response.ok) {
+    throw new Error("Unable to fetch product");
+  }
+
+  return response.json();
+}

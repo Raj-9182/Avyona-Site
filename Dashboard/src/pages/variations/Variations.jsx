@@ -1,6 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { createVariantGroup, fetchVariantGroups } from "../../api/adminApi";
-import { allProducts } from "../../data/storefront-content";
+import {
+  createVariantGroup,
+  deleteVariantGroup,
+  fetchProducts,
+  fetchVariantGroups,
+  updateVariantGroup
+} from "../../api/adminApi";
+import { allProducts as fallbackProducts } from "../../data/storefront-content";
+import { canAccess } from "../../utils/accessControl";
 
 const variantTypeOptions = ["Color", "Size", "Storage", "Material", "Bundle", "Finish"];
 
@@ -11,27 +18,34 @@ function getCleanGroupName(product) {
 
 export default function Variations() {
   const [formOpen, setFormOpen] = useState(false);
+  const [editingGroupId, setEditingGroupId] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [variantType, setVariantType] = useState("Color");
   const [selectedProducts, setSelectedProducts] = useState([]);
+  const [catalogProducts, setCatalogProducts] = useState(fallbackProducts);
   const [savedGroups, setSavedGroups] = useState([]);
   const [feedback, setFeedback] = useState({ type: "", message: "" });
+  const canCreateVariations = canAccess("variations", "create");
+  const canEditVariations = canAccess("variations", "edit");
+  const canDeleteVariations = canAccess("variations", "delete");
+
+  const catalogCount = catalogProducts.length || fallbackProducts.length;
 
   const filteredProducts = useMemo(() => {
     const normalized = searchTerm.trim().toLowerCase();
 
-    return allProducts.filter((product) => {
+    return catalogProducts.filter((product) => {
       if (!normalized) return true;
       return (
         String(product.name || "").toLowerCase().includes(normalized) ||
         String(product.asin || "").toLowerCase().includes(normalized)
       );
     });
-  }, [searchTerm]);
+  }, [catalogProducts, searchTerm]);
 
   const selectedProductRecords = useMemo(
-    () => allProducts.filter((product) => selectedProducts.includes(product.slug)),
-    [selectedProducts]
+    () => catalogProducts.filter((product) => selectedProducts.includes(String(product.asin || ""))),
+    [catalogProducts, selectedProducts]
   );
 
   const autoGroupName = useMemo(() => {
@@ -39,16 +53,17 @@ export default function Variations() {
     return getCleanGroupName(selectedProductRecords[0]);
   }, [selectedProductRecords]);
 
-  const toggleProduct = (slug) => {
+  const toggleProduct = (asin) => {
     setFeedback({ type: "", message: "" });
     setSelectedProducts((current) => (
-      current.includes(slug)
-        ? current.filter((item) => item !== slug)
-        : [...current, slug]
+      current.includes(asin)
+        ? current.filter((item) => item !== asin)
+        : [...current, asin]
     ));
   };
 
   const resetForm = () => {
+    setEditingGroupId("");
     setSearchTerm("");
     setVariantType("Color");
     setSelectedProducts([]);
@@ -64,26 +79,33 @@ export default function Variations() {
   useEffect(() => {
     let isMounted = true;
 
-    async function loadVariantGroups() {
+    async function loadDashboardData() {
       try {
-        const response = await fetchVariantGroups();
+        const [productsResponse, groupsResponse] = await Promise.all([
+          fetchProducts(),
+          fetchVariantGroups()
+        ]);
         if (!isMounted) return;
-        const rows = Array.isArray(response.data?.data) ? response.data.data : [];
-        setSavedGroups(rows);
+        const productRows = Array.isArray(productsResponse.data?.data) ? productsResponse.data.data : [];
+        const groupRows = Array.isArray(groupsResponse.data?.data) ? groupsResponse.data.data : [];
+
+        setCatalogProducts(productRows.length ? productRows : fallbackProducts);
+        setSavedGroups(groupRows);
         setFeedback({
           type: "success",
-          message: rows.length ? "Variant groups loaded from backend." : "No backend variant groups yet."
+          message: groupRows.length ? "Variant groups loaded from backend." : "No backend variant groups yet."
         });
       } catch {
         if (!isMounted) return;
+        setCatalogProducts(fallbackProducts);
         setFeedback({
           type: "error",
-          message: "Backend variant groups are unavailable. You can still preview groups locally after login/database setup."
+          message: "Backend data is unavailable. Static products are shown until the API is ready."
         });
       }
     }
 
-    loadVariantGroups();
+    loadDashboardData();
 
     return () => {
       isMounted = false;
@@ -98,26 +120,63 @@ export default function Variations() {
     const payload = buildGroupPayload(status);
 
     try {
-      const response = await createVariantGroup(payload);
+      const response = editingGroupId
+        ? await updateVariantGroup(editingGroupId, payload)
+        : await createVariantGroup(payload);
       const createdGroup = response.data?.data || {
         ...payload,
-        groupId: `LOCAL-${Date.now()}`
+        groupId: editingGroupId || `LOCAL-${Date.now()}`
       };
-      setSavedGroups((current) => [createdGroup, ...current]);
+      setSavedGroups((current) => [createdGroup, ...current.filter((group) => group.groupId !== createdGroup.groupId)]);
       setFeedback({
         type: "success",
-        message: status === "draft" ? "Variant group draft saved to backend." : "Variant group saved to backend."
+        message: editingGroupId
+          ? "Variant group updated. The linked products will now show together on the frontend."
+          : "Variant group saved. The linked products will now show together on the frontend."
       });
     } catch {
-      setSavedGroups((current) => [{ ...payload, groupId: `LOCAL-${Date.now()}` }, ...current]);
       setFeedback({
         type: "error",
-        message: "Backend save is unavailable, so this variant group was added locally for preview."
+        message: "Variant group could not be saved. Check product ASINs, login status, and backend/database availability."
       });
+      return;
     }
 
     resetForm();
     setFormOpen(false);
+  };
+
+  const handleEdit = (group) => {
+    setEditingGroupId(group.groupId || "");
+    setVariantType(group.variantType || "Color");
+    setSelectedProducts((group.products || []).map((asin) => String(asin)));
+    setSearchTerm("");
+    setFormOpen(true);
+    setFeedback({ type: "", message: "" });
+  };
+
+  const handleDelete = async (group) => {
+    if (!group?.groupId) return;
+    const confirmed = window.confirm(`Delete variant group ${group.groupName || group.groupId}?`);
+    if (!confirmed) return;
+
+    try {
+      await deleteVariantGroup(group.groupId);
+      setSavedGroups((current) => current.filter((item) => item.groupId !== group.groupId));
+      if (editingGroupId === group.groupId) {
+        resetForm();
+        setFormOpen(false);
+      }
+      setFeedback({
+        type: "success",
+        message: "Variant group deleted. Its products are no longer linked as frontend variants."
+      });
+    } catch {
+      setFeedback({
+        type: "error",
+        message: "Variant group could not be deleted. Check backend availability and login status."
+      });
+    }
   };
 
   const handleClose = () => {
@@ -139,12 +198,24 @@ export default function Variations() {
         </div>
 
         <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-          <span style={pillStyle}>{`Catalog Products: ${allProducts.length}`}</span>
+          <span style={pillStyle}>{`Catalog Products: ${catalogCount}`}</span>
           <span style={pillStyle}>{`Selected: ${selectedProducts.length}`}</span>
           <span style={pillStyle}>{`Groups: ${savedGroups.length}`}</span>
-          <button type="button" style={primaryButtonStyle} onClick={() => setFormOpen((current) => !current)}>
-            {formOpen ? "Close Variant Group" : "+ Create Variant Group"}
-          </button>
+          {canCreateVariations || canEditVariations ? (
+            <button
+              type="button"
+              style={primaryButtonStyle}
+              onClick={() => {
+                if (formOpen) {
+                  handleClose();
+                  return;
+                }
+                setFormOpen(true);
+              }}
+            >
+              {formOpen ? "Close Variant Group" : "+ Create Variant Group"}
+            </button>
+          ) : null}
         </div>
       </section>
 
@@ -164,7 +235,9 @@ export default function Variations() {
           <div style={sectionHeadStyle}>
             <div>
               <span style={eyebrowStyle}>Variant Group Form</span>
-              <h3 style={{ margin: "8px 0 0", color: "#0f172a", fontSize: "30px" }}>Create Variant Group</h3>
+              <h3 style={{ margin: "8px 0 0", color: "#0f172a", fontSize: "30px" }}>
+                {editingGroupId ? "Edit Variant Group" : "Create Variant Group"}
+              </h3>
               <p style={{ margin: "10px 0 0", color: "#526377", maxWidth: "760px" }}>
                 Select multiple products by product name or ASIN, then choose the variant type for the group.
               </p>
@@ -217,13 +290,14 @@ export default function Variations() {
 
               <div style={pickerListStyle}>
                 {filteredProducts.map((product) => {
-                  const isSelected = selectedProducts.includes(product.slug);
+                  const productAsin = String(product.asin || "");
+                  const isSelected = selectedProducts.includes(productAsin);
 
                   return (
                     <button
-                      key={product.slug}
+                      key={product.slug || product.asin}
                       type="button"
-                      onClick={() => toggleProduct(product.slug)}
+                      onClick={() => toggleProduct(productAsin)}
                       style={{
                         ...productPickerItemStyle,
                         ...(isSelected ? productPickerSelectedStyle : null)
@@ -251,7 +325,7 @@ export default function Variations() {
               {selectedProductRecords.length ? (
                 <div style={selectedListStyle}>
                   {selectedProductRecords.map((product) => (
-                  <div key={product.slug} style={selectedCardStyle}>
+                    <div key={product.slug || product.asin} style={selectedCardStyle}>
                       <div style={{ display: "grid", gap: "4px" }}>
                         <strong style={{ color: "#0f172a" }}>{product.name}</strong>
                         <span style={{ color: "#526377", fontSize: "13px" }}>{`ASIN: ${product.asin}`}</span>
@@ -260,7 +334,7 @@ export default function Variations() {
                           <span style={{ color: "#0f766e", fontSize: "13px", fontWeight: 700 }}>{`Group Name: ${autoGroupName}`}</span>
                         ) : null}
                       </div>
-                      <button type="button" onClick={() => toggleProduct(product.slug)} style={removeButtonStyle}>
+                      <button type="button" onClick={() => toggleProduct(String(product.asin || ""))} style={removeButtonStyle}>
                         Remove
                       </button>
                     </div>
@@ -298,7 +372,7 @@ export default function Variations() {
               onClick={() => handleSave("saved")}
               disabled={selectedProductRecords.length < 2 || !autoGroupName}
             >
-              Save
+              {editingGroupId ? "Update" : "Save"}
             </button>
             <button type="button" style={ghostButtonStyle} onClick={handleClose}>
               Close
@@ -329,6 +403,18 @@ export default function Variations() {
                 <span style={group.status === "draft" ? draftBadgeStyle : selectedBadgeStyle}>
                   {group.status === "draft" ? "Draft" : "Saved"}
                 </span>
+                <div style={savedGroupActionStyle}>
+                  {canEditVariations ? (
+                    <button type="button" onClick={() => handleEdit(group)} style={secondaryButtonStyle}>
+                      Edit
+                    </button>
+                  ) : null}
+                  {canDeleteVariations ? (
+                    <button type="button" onClick={() => handleDelete(group)} style={dangerButtonStyle}>
+                      Delete
+                    </button>
+                  ) : null}
+                </div>
               </div>
             ))}
           </div>
@@ -482,11 +568,19 @@ const savedGroupCardStyle = {
   background: "#ffffff"
 };
 
+const savedGroupActionStyle = {
+  display: "flex",
+  gap: "8px",
+  flexWrap: "nowrap",
+  justifyContent: "flex-end",
+  whiteSpace: "nowrap"
+};
+
 const actionRowStyle = {
   display: "flex",
   gap: "12px",
   justifyContent: "flex-end",
-  flexWrap: "wrap"
+  flexWrap: "nowrap"
 };
 
 const feedbackBannerStyle = {
@@ -574,6 +668,18 @@ const removeButtonStyle = {
   background: "#fff1f2",
   color: "#b91c1c",
   fontWeight: 700,
+  cursor: "pointer"
+};
+
+const dangerButtonStyle = {
+  minHeight: "42px",
+  padding: "0 16px",
+  borderRadius: "999px",
+  border: "1px solid #fecaca",
+  background: "#fff1f2",
+  color: "#b91c1c",
+  fontWeight: 800,
+  fontSize: "13px",
   cursor: "pointer"
 };
 

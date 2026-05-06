@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
+import { fetchStorefrontProducts } from "../../api/productApi";
 import { flattenCategoryTree } from "../../data/category-data";
 import { getSuggestionEntries, getSuggestionScore } from "../../utils/storefront";
 
@@ -7,6 +8,7 @@ export default function SiteHeader({ context, allProducts }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
+  const [serverSuggestions, setServerSuggestions] = useState([]);
   const siteSettings = context.siteSettings || {};
   const general = siteSettings.general || {};
   const shipping = siteSettings.shipping || {};
@@ -25,12 +27,22 @@ export default function SiteHeader({ context, allProducts }) {
 
   const suggestions = useMemo(() => {
     if (!searchFocused || !query.trim()) return [];
-    return suggestionEntries
+    const localSuggestions = suggestionEntries
       .map((entry) => ({ entry, score: getSuggestionScore(query, entry) }))
       .filter((item) => item.score > 0)
       .sort((left, right) => right.score - left.score || left.entry.label.localeCompare(right.entry.label))
-      .slice(0, 6);
-  }, [query, searchFocused, suggestionEntries]);
+      .map(({ entry }) => entry);
+    const merged = new Map();
+
+    serverSuggestions.forEach((entry) => {
+      merged.set(`${entry.type}:${entry.label}`, entry);
+    });
+    localSuggestions.forEach((entry) => {
+      merged.set(`${entry.type}:${entry.label}`, entry);
+    });
+
+    return [...merged.values()].slice(0, 6);
+  }, [query, searchFocused, serverSuggestions, suggestionEntries]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -45,6 +57,50 @@ export default function SiteHeader({ context, allProducts }) {
   useEffect(() => {
     setMenuOpen(false);
   }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    const searchTerm = query.trim();
+    if (!searchFocused || searchTerm.length < 2) {
+      setServerSuggestions([]);
+      return undefined;
+    }
+
+    let isMounted = true;
+    const timerId = window.setTimeout(async () => {
+      try {
+        const response = await fetchStorefrontProducts({
+          status: "active",
+          search: searchTerm,
+          sort: "relevance",
+          limit: 6
+        });
+        if (!isMounted) return;
+
+        const rows = Array.isArray(response.data) ? response.data : [];
+        const nextSuggestions = rows.flatMap((product) => {
+          const entries = [
+            { label: product.name, type: "Product" },
+            { label: product.brand, type: "Brand" },
+            { label: product.modelNumber, type: "Model" },
+            { label: product.sku || product.asin, type: "SKU" }
+          ];
+
+          return entries
+            .map((entry) => ({ ...entry, label: String(entry.label || "").trim() }))
+            .filter((entry) => entry.label);
+        });
+
+        setServerSuggestions(nextSuggestions);
+      } catch {
+        if (isMounted) setServerSuggestions([]);
+      }
+    }, 180);
+
+    return () => {
+      isMounted = false;
+      window.clearTimeout(timerId);
+    };
+  }, [query, searchFocused]);
 
   const submitSearch = (value) => {
     const safeQuery = value.trim();
@@ -71,8 +127,8 @@ export default function SiteHeader({ context, allProducts }) {
           <Link className="brand-lockup" to="/" aria-label={`${general.storeName || "Avyona"} home`}>
             <img className="brand-logo" src={general.logoUrl || "/images/optimized/avyona-logo.webp"} alt={`${general.storeName || "Avyona"} logo`} fetchPriority="high" />
           </Link>
-          <label className="header-search" aria-label="Search Avyona products">
-            <span className="search-icon" aria-hidden="true">&#8981;</span>
+          <form className="header-search" role="search" aria-label="Search Avyona products" onSubmit={(event) => { event.preventDefault(); submitSearch(query); }}>
+            <button className="search-icon search-submit-button" type="submit" aria-label="Search">&#8981;</button>
             <input
               type="search"
               value={query}
@@ -91,15 +147,15 @@ export default function SiteHeader({ context, allProducts }) {
             />
             {suggestions.length ? (
               <div className="search-suggestion-list">
-                {suggestions.map(({ entry }) => (
-                  <button key={`${entry.type}:${entry.label}`} className="search-suggestion-item" type="button" onClick={() => submitSearch(entry.label)}>
+                {suggestions.map((entry) => (
+                  <button key={`${entry.type}:${entry.label}`} className="search-suggestion-item" type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => submitSearch(entry.label)}>
                     <strong>{entry.label}</strong>
                     <span>{entry.type}</span>
                   </button>
                 ))}
               </div>
             ) : null}
-          </label>
+          </form>
           <div className="header-utilities">
             <Link className="icon-link" to={context.authUser ? "/profile" : "/account"} aria-label="Account">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-3.86 0-7 2.24-7 5v1h14v-1c0-2.76-3.14-5-7-5Z" /></svg>

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
+import { loginCustomer, signupCustomer } from "../api/customerApi";
 import { getOptimizedAssetPath } from "../utils/storefront";
 
 export default function AccountPage({ context }) {
@@ -20,22 +21,32 @@ export default function AccountPage({ context }) {
 
   if (context.authUser) return <Navigate to="/profile" replace />;
 
-  const submitLogin = (event) => {
+  function applyCustomerSession(customer) {
+    context.setAuthUser({ id: customer.id, fullName: customer.fullName, email: customer.email, mobile: customer.mobile });
+    context.setCustomerProfile({
+      firstName: customer.firstName || String(customer.fullName || "").split(" ")[0] || "",
+      lastName: customer.lastName || String(customer.fullName || "").split(" ").slice(1).join(" "),
+      contact: customer.email,
+      phone: customer.mobile
+    });
+  }
+
+  const submitLogin = async (event) => {
     event.preventDefault();
     const identity = loginIdentity.trim().toLowerCase();
-    const matched = context.accounts.find((account) => String(account.email || "").toLowerCase() === identity || String(account.mobile || "").toLowerCase() === identity);
-    if (!matched || matched.password !== loginPassword) {
-      setError("We could not match those account details.");
-      return;
+    try {
+      const response = await loginCustomer({ identity, password: loginPassword });
+      const customer = response.data?.customer;
+      if (!customer) throw new Error("We could not match those account details.");
+      applyCustomerSession(customer);
+      context.notify("Login successful");
+      navigate("/profile");
+    } catch (error) {
+      setError(error.message || "We could not match those account details.");
     }
-    context.setAuthUser({ fullName: matched.fullName, email: matched.email, mobile: matched.mobile });
-    const [firstName, ...lastParts] = matched.fullName.split(" ");
-    context.setCustomerProfile({ firstName, lastName: lastParts.join(" "), contact: matched.email, phone: matched.mobile });
-    context.notify("Login successful");
-    navigate("/profile");
   };
 
-  const submitSignup = (event) => {
+  const submitSignup = async (event) => {
     event.preventDefault();
     if (!signup.fullName || !signup.email || !signup.mobile || !signup.password || !signup.confirmPassword) {
       setError("Please complete all account details.");
@@ -49,18 +60,22 @@ export default function AccountPage({ context }) {
       setError("Please agree to the terms before creating an account.");
       return;
     }
-    const exists = context.accounts.some((account) => String(account.email).toLowerCase() === signup.email.toLowerCase());
-    if (exists) {
-      setError("An account with that email already exists.");
-      return;
+
+    try {
+      const response = await signupCustomer({
+        fullName: signup.fullName.trim(),
+        email: signup.email.trim(),
+        mobile: signup.mobile.trim(),
+        password: signup.password
+      });
+      const customer = response.data?.customer;
+      if (!customer) throw new Error("Account could not be created.");
+      applyCustomerSession(customer);
+      context.notify("Account created");
+      navigate("/profile");
+    } catch (error) {
+      setError(error.message || "Account could not be created.");
     }
-    const nextAccount = { fullName: signup.fullName.trim(), email: signup.email.trim(), mobile: signup.mobile.trim(), password: signup.password };
-    context.setAccounts([nextAccount, ...context.accounts]);
-    context.setAuthUser({ fullName: nextAccount.fullName, email: nextAccount.email, mobile: nextAccount.mobile });
-    const [firstName, ...lastParts] = nextAccount.fullName.split(" ");
-    context.setCustomerProfile({ firstName, lastName: lastParts.join(" "), contact: nextAccount.email, phone: nextAccount.mobile });
-    context.notify("Account created");
-    navigate("/profile");
   };
 
   const submitForgot = (event) => {
@@ -75,15 +90,23 @@ export default function AccountPage({ context }) {
     setError("");
   };
 
-  const signInGoogle = () => {
+  const signInGoogle = async () => {
     const demoUser = { fullName: "Google Customer", email: "google.customer@avyona.example", mobile: "9999999999", password: "google-auth" };
-    if (!context.accounts.some((account) => account.email === demoUser.email)) {
-      context.setAccounts([demoUser, ...context.accounts]);
+    try {
+      let response;
+      try {
+        response = await signupCustomer(demoUser);
+      } catch {
+        response = await loginCustomer({ identity: demoUser.email, password: demoUser.password });
+      }
+      const customer = response.data?.customer;
+      if (!customer) throw new Error("Google sign in failed.");
+      applyCustomerSession(customer);
+      context.notify("Signed in with Google");
+      navigate("/profile");
+    } catch (error) {
+      setError(error.message || "Google sign in failed.");
     }
-    context.setAuthUser({ fullName: demoUser.fullName, email: demoUser.email, mobile: demoUser.mobile });
-    context.setCustomerProfile({ firstName: "Google", lastName: "Customer", contact: demoUser.email, phone: demoUser.mobile });
-    context.notify("Signed in with Google");
-    navigate("/profile");
   };
 
   return (
@@ -106,9 +129,9 @@ export default function AccountPage({ context }) {
           {mode === "login" ? (
             <div className="account-panel active">
               {!forgotOpen ? (
-                <form className="account-form" onSubmit={submitLogin}>
-                  <label className="account-field"><span>Email Address or Mobile Number</span><input value={loginIdentity} onChange={(event) => setLoginIdentity(event.target.value)} required /></label>
-                  <label className="account-field"><span>Password</span><input type="password" value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} required /></label>
+                <form id="account-login-form" name="accountLoginForm" className="account-form" onSubmit={submitLogin}>
+                  <label className="account-field" htmlFor="account-login-identity"><span>Email Address or Mobile Number</span><input id="account-login-identity" name="loginIdentity" autoComplete="username" value={loginIdentity} onChange={(event) => setLoginIdentity(event.target.value)} required /></label>
+                  <label className="account-field" htmlFor="account-login-password"><span>Password</span><input id="account-login-password" name="loginPassword" type="password" autoComplete="current-password" value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} required /></label>
                   <div className="account-form-meta"><button className="account-text-link" type="button" onClick={() => { setForgotOpen(true); setError(""); }}>Forgot Password?</button></div>
                   <button className="primary-button account-submit" type="submit">Login</button>
                   <div className="account-social-block"><div className="account-divider"><span>or</span></div><button className="account-google-button" type="button" onClick={signInGoogle}><span className="account-google-icon">G</span><span>Sign in with Google</span></button></div>
@@ -116,8 +139,8 @@ export default function AccountPage({ context }) {
                   {error ? <p className="account-form-error">{error}</p> : null}
                 </form>
               ) : (
-                <form className="account-form" onSubmit={submitForgot}>
-                  <label className="account-field"><span>Email Address or Mobile Number</span><input value={forgotIdentity} onChange={(event) => setForgotIdentity(event.target.value)} required /></label>
+                <form id="account-forgot-password-form" name="accountForgotPasswordForm" className="account-form" onSubmit={submitForgot}>
+                  <label className="account-field" htmlFor="account-forgot-identity"><span>Email Address or Mobile Number</span><input id="account-forgot-identity" name="forgotIdentity" autoComplete="username" value={forgotIdentity} onChange={(event) => setForgotIdentity(event.target.value)} required /></label>
                   <button className="primary-button account-submit" type="submit">Send Reset Link</button>
                   <p className="account-switch-copy">Remembered your password? <button className="account-inline-switch" type="button" onClick={() => setForgotOpen(false)}>Back to Login</button></p>
                   {error ? <p className="account-form-error">{error}</p> : null}
@@ -126,14 +149,14 @@ export default function AccountPage({ context }) {
             </div>
           ) : (
             <div className="account-panel active">
-              <form className="account-form" onSubmit={submitSignup}>
-                <label className="account-field"><span>Full Name</span><input value={signup.fullName} onChange={(event) => setSignup({ ...signup, fullName: event.target.value })} required /></label>
-                <label className="account-field"><span>Email Address</span><input type="email" value={signup.email} onChange={(event) => setSignup({ ...signup, email: event.target.value })} required /></label>
-                <label className="account-field"><span>Mobile Number</span><input value={signup.mobile} onChange={(event) => setSignup({ ...signup, mobile: event.target.value })} required /></label>
-                <label className="account-field"><span>Password</span><input type="password" value={signup.password} onChange={(event) => setSignup({ ...signup, password: event.target.value })} required /></label>
-                <label className="account-field"><span>Confirm Password</span><input type="password" value={signup.confirmPassword} onChange={(event) => setSignup({ ...signup, confirmPassword: event.target.value })} required /></label>
-                <label className="account-checkbox">
-                  <input type="checkbox" checked={signupConsent} onChange={(event) => setSignupConsent(event.target.checked)} />
+              <form id="account-signup-form" name="accountSignupForm" className="account-form" onSubmit={submitSignup}>
+                <label className="account-field" htmlFor="account-signup-full-name"><span>Full Name</span><input id="account-signup-full-name" name="fullName" autoComplete="name" value={signup.fullName} onChange={(event) => setSignup({ ...signup, fullName: event.target.value })} required /></label>
+                <label className="account-field" htmlFor="account-signup-email"><span>Email Address</span><input id="account-signup-email" name="email" type="email" autoComplete="email" value={signup.email} onChange={(event) => setSignup({ ...signup, email: event.target.value })} required /></label>
+                <label className="account-field" htmlFor="account-signup-mobile"><span>Mobile Number</span><input id="account-signup-mobile" name="mobile" autoComplete="tel" value={signup.mobile} onChange={(event) => setSignup({ ...signup, mobile: event.target.value })} required /></label>
+                <label className="account-field" htmlFor="account-signup-password"><span>Password</span><input id="account-signup-password" name="password" type="password" autoComplete="new-password" value={signup.password} onChange={(event) => setSignup({ ...signup, password: event.target.value })} required /></label>
+                <label className="account-field" htmlFor="account-signup-confirm-password"><span>Confirm Password</span><input id="account-signup-confirm-password" name="confirmPassword" type="password" autoComplete="new-password" value={signup.confirmPassword} onChange={(event) => setSignup({ ...signup, confirmPassword: event.target.value })} required /></label>
+                <label className="account-checkbox" htmlFor="account-signup-consent">
+                  <input id="account-signup-consent" name="signupConsent" type="checkbox" checked={signupConsent} onChange={(event) => setSignupConsent(event.target.checked)} />
                   <span>I agree to the Terms of Service and Privacy Policy</span>
                 </label>
                 <button className="primary-button account-submit" type="submit">Create Account</button>

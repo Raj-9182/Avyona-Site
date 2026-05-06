@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { trackAnalyticsEvent } from "../api/analyticsApi";
 import {
   formatCurrency,
   getCheckoutPaymentMethods,
@@ -14,6 +15,7 @@ import { createStorefrontOrder } from "../api/orderApi";
 
 export default function CheckoutPage({ context }) {
   const navigate = useNavigate();
+  const availableCoupons = context.coupons?.length ? context.coupons : couponRules;
   const siteSettings = context.siteSettings || {};
   const general = siteSettings.general || {};
   const paymentSettings = siteSettings.payment || {};
@@ -49,11 +51,12 @@ export default function CheckoutPage({ context }) {
   const [appliedCoupon, setAppliedCoupon] = useState(null);
   const [couponMessage, setCouponMessage] = useState("");
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+  const checkoutTrackedRef = useRef(false);
   const subtotal = context.cart.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 1), 0);
   const selectedShipping = shippingOptions.find((option) => option.id === form.shippingMethod) || shippingOptions[0];
   const shipping = Number(selectedShipping?.price || 0);
   const appliedCouponResult = appliedCoupon
-    ? validateCoupon(appliedCoupon.code, { items: context.cart, subtotal, coupons: couponRules })
+    ? validateCoupon(appliedCoupon.code, { items: context.cart, subtotal, coupons: availableCoupons })
     : { valid: false, discount: 0 };
   const discount = appliedCouponResult.valid ? Number(appliedCouponResult.discount || 0) : 0;
   const total = Math.max(0, subtotal - discount) + shipping;
@@ -63,6 +66,18 @@ export default function CheckoutPage({ context }) {
     document.body.classList.add("checkout-page");
     return () => document.body.classList.remove("checkout-page");
   }, []);
+
+  useEffect(() => {
+    if (checkoutTrackedRef.current || !context.cart.length) return;
+    checkoutTrackedRef.current = true;
+    trackAnalyticsEvent({
+      eventType: "checkout_start",
+      cartValue: subtotal,
+      metadata: {
+        itemCount: context.cart.reduce((sum, item) => sum + Number(item.quantity || 1), 0)
+      }
+    });
+  }, [context.cart, subtotal]);
 
   useEffect(() => {
     if (!context.authUser) return;
@@ -98,16 +113,16 @@ export default function CheckoutPage({ context }) {
 
   useEffect(() => {
     if (!couponCode || appliedCoupon || couponMessage || !subtotal) return;
-    const result = validateCoupon(couponCode, { items: context.cart, subtotal, coupons: couponRules });
+    const result = validateCoupon(couponCode, { items: context.cart, subtotal, coupons: availableCoupons });
     if (!result.valid) return;
     setAppliedCoupon(result.coupon);
     setCouponCode(result.coupon.code);
     setCouponMessage(result.message);
-  }, [appliedCoupon, context.cart, couponCode, couponMessage, subtotal]);
+  }, [appliedCoupon, availableCoupons, context.cart, couponCode, couponMessage, subtotal]);
 
   const applyCoupon = (event) => {
     event.preventDefault();
-    const result = validateCoupon(couponCode, { items: context.cart, subtotal, coupons: couponRules });
+    const result = validateCoupon(couponCode, { items: context.cart, subtotal, coupons: availableCoupons });
     setCouponMessage(result.message);
 
     if (!result.valid) {
@@ -173,6 +188,15 @@ export default function CheckoutPage({ context }) {
       });
 
       orderNumber = response.data?.orderNumber || orderNumber;
+      trackAnalyticsEvent({
+        eventType: "purchase",
+        orderNumber,
+        cartValue: total,
+        metadata: {
+          itemCount: context.cart.reduce((sum, item) => sum + Number(item.quantity || 1), 0),
+          paymentMethod: form.paymentMethod
+        }
+      });
     } catch {
       context.notify("Backend order save is unavailable, so this order is saved locally for preview.");
     }
@@ -358,7 +382,7 @@ export default function CheckoutPage({ context }) {
                       {couponMessage ? <p className={appliedCoupon ? "coupon-message success" : "coupon-message"}>{couponMessage}</p> : null}
                     </form>
                     <div className="checkout-coupon-suggestions">
-                      {couponRules.slice(0, 3).map((coupon) => (
+                      {availableCoupons.slice(0, 3).map((coupon) => (
                         <button key={coupon.code} type="button" onClick={() => setCouponCode(coupon.code)}>
                           {coupon.code}
                         </button>

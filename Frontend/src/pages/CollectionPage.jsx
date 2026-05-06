@@ -1,19 +1,58 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
+import { trackAnalyticsEvent } from "../api/analyticsApi";
+import { fetchStorefrontProducts } from "../api/productApi";
 import ProductCard from "../components/product/ProductCard";
 import { flattenCategoryTree, fallbackCategoryTree } from "../data/category-data";
 import { allProducts } from "../data/storefront-content";
 import { formatCurrency } from "../utils/storefront";
 
+function normalizeBackendProduct(product) {
+  const price = Number(product.price || 0);
+  const mrp = Number(product.mrp || price || 0);
+  const stockQuantity = Number(product.stockQuantity || 0);
+  const discount = mrp > price && price > 0 ? Math.round(((mrp - price) / mrp) * 100) : 0;
+  const gallery = Array.isArray(product.galleryUrls) && product.galleryUrls.length ? product.galleryUrls : [product.imageUrl || "/images/optimized/frame-1.webp"];
+
+  return {
+    asin: product.asin,
+    sku: product.asin || product.sku,
+    slug: product.slug,
+    name: product.name,
+    brand: product.brand,
+    category: product.categoryName || "Products",
+    collectionSlug: product.categorySlug || "",
+    price,
+    mrp,
+    discount,
+    image: gallery[0],
+    gallery,
+    highlights: [product.shortDescription || "New Avyona product"].filter(Boolean),
+    description: product.description ? String(product.description).split(/\n+/).filter(Boolean) : [product.shortDescription || "Product details will be updated soon."],
+    rating: Number(product.rating || 0),
+    reviewCount: Number(product.reviewCount || 0),
+    availableStock: stockQuantity,
+    stockTone: stockQuantity > 0 ? "in-stock" : "out-of-stock",
+    variants: [],
+    specGroups: [],
+    reviews: [],
+    faqs: []
+  };
+}
+
 function collectCategoryProducts(category, categoryLookup, productCatalog) {
   const directSlugs = new Set(category.productSlugs || []);
-  const childCategories = [...(category.children || [])];
   const collectionSlugs = new Set([category.slug]);
 
-  childCategories.forEach((child) => {
-    (child.productSlugs || []).forEach((slug) => directSlugs.add(slug));
-    collectionSlugs.add(child.slug);
-  });
+  function includeCategoryTree(item) {
+    (item.children || []).forEach((child) => {
+      (child.productSlugs || []).forEach((productSlug) => directSlugs.add(productSlug));
+      collectionSlugs.add(child.slug);
+      includeCategoryTree(child);
+    });
+  }
+
+  includeCategoryTree(category);
 
   const matched = productCatalog.filter((product) =>
     directSlugs.has(product.slug) || collectionSlugs.has(product.collectionSlug)
@@ -38,6 +77,8 @@ function getCategoryTreeFromContext(context) {
 export default function CollectionPage({ context }) {
   const { slug } = useParams();
   const pageRef = useRef(null);
+  const trackedCategoryRef = useRef("");
+  const trackedFilterRef = useRef("");
   const categoryTree = getCategoryTreeFromContext(context);
   const productCatalog = context.allProducts && context.allProducts.length ? context.allProducts : allProducts;
   const flatCategories = useMemo(() => flattenCategoryTree(categoryTree), [categoryTree]);
@@ -51,11 +92,16 @@ export default function CollectionPage({ context }) {
   const [sortBy, setSortBy] = useState("featured");
   const [filterOpen, setFilterOpen] = useState(false);
   const [animationSeed, setAnimationSeed] = useState(0);
+  const [serverProducts, setServerProducts] = useState([]);
+  const [serverUnavailable, setServerUnavailable] = useState(false);
+  const [pagination, setPagination] = useState({ page: 1, limit: 24, total: 0, totalPages: 1 });
+  const [page, setPage] = useState(1);
 
-  const baseProducts = useMemo(() => {
+  const fallbackBaseProducts = useMemo(() => {
     if (!currentCategory) return [];
     return collectCategoryProducts(currentCategory, categoryLookup, productCatalog);
   }, [currentCategory, categoryLookup, productCatalog]);
+  const baseProducts = serverUnavailable ? fallbackBaseProducts : serverProducts;
 
   const productsWithSubcategory = useMemo(() => {
     if (!currentCategory) return [];
@@ -116,7 +162,47 @@ export default function CollectionPage({ context }) {
     setSortBy("featured");
     setPriceRange([minPrice, maxPrice]);
     setFilterOpen(false);
+    setPage(1);
   }, [slug, minPrice, maxPrice]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [selectedBrands, availability, sortBy, rating, priceRange]);
+
+  useEffect(() => {
+    if (!currentCategory) return undefined;
+    let isMounted = true;
+
+    async function loadCategoryProducts() {
+      try {
+        const response = await fetchStorefrontProducts({
+          status: "active",
+          categorySlug: currentCategory.slug,
+          brand: selectedBrands.length === 1 ? selectedBrands[0] : "",
+          availability: availability.length === 1 ? availability[0] : "",
+          minPrice: priceRange[0] || "",
+          maxPrice: priceRange[1] || "",
+          sort: sortBy === "featured" ? "newest" : sortBy,
+          page,
+          limit: 24
+        });
+        if (!isMounted) return;
+        setServerProducts((Array.isArray(response.data) ? response.data : []).map(normalizeBackendProduct));
+        setPagination(response.pagination || { page, limit: 24, total: 0, totalPages: 1 });
+        setServerUnavailable(false);
+      } catch {
+        if (isMounted) {
+          setServerUnavailable(true);
+        }
+      }
+    }
+
+    loadCategoryProducts();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [availability, currentCategory, page, priceRange, selectedBrands, sortBy]);
 
   useEffect(() => {
     document.body.classList.add("collection-page");
@@ -128,6 +214,7 @@ export default function CollectionPage({ context }) {
   }, [filterOpen]);
 
   useEffect(() => {
+    if (!currentCategory) return undefined;
     if (!pageRef.current || typeof window === "undefined" || !("IntersectionObserver" in window)) return undefined;
 
     const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -149,13 +236,85 @@ export default function CollectionPage({ context }) {
     animatedItems.forEach((item) => observer.observe(item));
 
     return () => observer.disconnect();
-  }, [slug]);
+  }, [currentCategory, filtered.length, slug]);
 
   useEffect(() => {
     setAnimationSeed((current) => current + 1);
   }, [slug, selectedSubcategories, selectedBrands, availability, rating, sortBy, priceRange]);
 
+  useEffect(() => {
+    if (!currentCategory || trackedCategoryRef.current === currentCategory.slug) return;
+    trackedCategoryRef.current = currentCategory.slug;
+
+    trackAnalyticsEvent({
+      eventType: "category_view",
+      categoryId: currentCategory.id,
+      categorySlug: currentCategory.slug,
+      metadata: {
+        categoryId: currentCategory.id,
+        categoryName: currentCategory.name,
+        categorySlug: currentCategory.slug,
+        productCount: totalProductCount
+      }
+    });
+  }, [currentCategory, totalProductCount]);
+
+  useEffect(() => {
+    if (!currentCategory) return;
+
+    const hasFilter = selectedSubcategories.length
+      || selectedBrands.length
+      || availability.length
+      || rating
+      || sortBy !== "featured"
+      || priceRange[0] !== minPrice
+      || priceRange[1] !== maxPrice;
+    if (!hasFilter) return;
+
+    const filterKey = JSON.stringify({
+      category: currentCategory.slug,
+      selectedSubcategories,
+      selectedBrands,
+      availability,
+      rating,
+      sortBy,
+      priceRange
+    });
+    if (trackedFilterRef.current === filterKey) return;
+    trackedFilterRef.current = filterKey;
+
+    trackAnalyticsEvent({
+      eventType: "filter_applied",
+      categoryId: currentCategory.id,
+      categorySlug: currentCategory.slug,
+      metadata: {
+        surface: "collection",
+        categorySlug: currentCategory.slug,
+        filters: {
+          selectedSubcategories,
+          selectedBrands,
+          availability,
+          rating,
+          sortBy,
+          minPrice: priceRange[0],
+          maxPrice: priceRange[1]
+        },
+        resultCount: filtered.length
+      }
+    });
+  }, [availability, currentCategory, filtered.length, maxPrice, minPrice, priceRange, rating, selectedBrands, selectedSubcategories, sortBy]);
+
   if (!currentCategory) {
+    if (context.isCategoryCatalogLoading) {
+      return (
+        <main className="container">
+          <section className="section-block">
+            <div className="collection-empty-state">Loading collection...</div>
+          </section>
+        </main>
+      );
+    }
+
     return <Navigate to="/collections" replace />;
   }
 
@@ -303,7 +462,7 @@ export default function CollectionPage({ context }) {
             <div className="collection-results-content">
               <div className="collection-toolbar collection-filter-toolbar">
                 <div className="collection-results-meta">
-                  <span>{filtered.length} matching products</span>
+                  <span>{serverUnavailable ? `${filtered.length} matching products` : `${pagination.total} matching products`}</span>
                 </div>
               </div>
               <div className="product-grid">
@@ -318,6 +477,13 @@ export default function CollectionPage({ context }) {
                 ))}
               </div>
               {!filtered.length ? <div className="collection-empty-state">No products match the selected filters.</div> : null}
+              {!serverUnavailable && pagination.totalPages > 1 ? (
+                <div className="dashboard-toolbar-actions" style={{ justifyContent: "center", marginTop: "24px" }}>
+                  <button className="collection-reset-button" type="button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
+                  <span>{`Page ${pagination.page} of ${pagination.totalPages}`}</span>
+                  <button className="collection-reset-button" type="button" disabled={!pagination.hasNextPage} onClick={() => setPage((current) => current + 1)}>Next</button>
+                </div>
+              ) : null}
             </div>
           </section>
         </div>

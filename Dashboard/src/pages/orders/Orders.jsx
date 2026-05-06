@@ -2,6 +2,7 @@ import React from "react";
 import { Link } from "react-router-dom";
 import orders from "../../data/orders";
 import { fetchOrders } from "../../api/adminApi";
+import { canAccess } from "../../utils/accessControl";
 import { formatCurrency } from "../../utils/storefront";
 import { formatOrderStatusLabel } from "../../../../shared/orderStatusFlow";
 
@@ -82,6 +83,8 @@ export default function Orders() {
   const [paymentStatusFilter, setPaymentStatusFilter] = React.useState("all");
   const [dateFrom, setDateFrom] = React.useState("");
   const [dateTo, setDateTo] = React.useState("");
+  const canEditOrders = canAccess("orders", "edit");
+  const canDeleteOrders = canAccess("orders", "delete");
 
   const orderStatuses = React.useMemo(
     () => ["all", ...new Set(orderRows.map((order) => order.orderStatus))],
@@ -243,7 +246,7 @@ export default function Orders() {
       </section>
 
       <div style={tableCardStyle}>
-        <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, minWidth: "1280px" }}>
+        <table className="dashboard-data-table dashboard-orders-admin-table" style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed" }}>
           <thead>
             <tr style={{ background: "#f8fafc" }}>
               <th style={tableHeaderStyle}>Order ID</th>
@@ -306,19 +309,23 @@ export default function Orders() {
                     <Link to={`/dashboard/orders/${order.id}`} style={actionLinkStyle}>
                       View
                     </Link>
-                    <Link to={`/dashboard/orders/${order.id}`} style={secondaryActionLinkStyle}>
-                      Edit Status
-                    </Link>
+                    {canEditOrders ? (
+                      <Link to={`/dashboard/orders/${order.id}`} style={secondaryActionLinkStyle}>
+                        Edit Status
+                      </Link>
+                    ) : null}
                     <button type="button" style={mutedActionButtonStyle} disabled title="Invoice and packing slip printing is not available in this dashboard preview yet.">
                       Print
                     </button>
-                    <button
-                      type="button"
-                      style={dangerActionButtonStyle}
-                      onClick={() => handleDeleteOrder(order.id)}
-                    >
-                      Delete
-                    </button>
+                    {canDeleteOrders ? (
+                      <button
+                        type="button"
+                        style={dangerActionButtonStyle}
+                        onClick={() => handleDeleteOrder(order.id)}
+                      >
+                        Delete
+                      </button>
+                    ) : null}
                   </div>
                 </td>
               </tr>
@@ -472,7 +479,8 @@ const actionGroupStyle = {
   display: "flex",
   alignItems: "center",
   gap: "8px",
-  flexWrap: "wrap"
+  flexWrap: "nowrap",
+  whiteSpace: "nowrap"
 };
 
 const secondaryButtonStyle = {
