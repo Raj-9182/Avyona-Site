@@ -46,10 +46,12 @@ function normalizeBackendProduct(product) {
   const discount = mrp > price && price > 0 ? Math.round(((mrp - price) / mrp) * 100) : 0;
   const collectionSlug = product.categorySlug || String(product.categoryName || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   const gallery = Array.isArray(product.galleryUrls) && product.galleryUrls.length
-    ? product.galleryUrls
-    : [product.imageUrl || "/images/optimized/frame-1.webp"];
+    ? product.galleryUrls.filter(Boolean)
+    : [];
+  const primaryImage = gallery[0] || product.imageUrl || "";
 
   return {
+    id: product.id,
     asin: product.asin,
     sku: product.asin,
     slug: product.slug,
@@ -60,7 +62,7 @@ function normalizeBackendProduct(product) {
     price,
     mrp,
     discount,
-    image: gallery[0],
+    image: primaryImage,
     gallery,
     highlights: [product.shortDescription || "New Avyona product"].filter(Boolean),
     description: product.description ? String(product.description).split(/\n+/).filter(Boolean) : [product.shortDescription || "Product details will be updated soon."],
@@ -375,12 +377,15 @@ function App() {
     };
   }, []);
 
-  const notify = (message) => {
+  const notify = (message, options = {}) => {
     const id = Date.now() + Math.random();
-    setToasts((current) => [...current, { id, message }]);
+    const toast = typeof message === "object"
+      ? { id, ...message }
+      : { id, message, ...options };
+    setToasts((current) => [...current, toast]);
     window.setTimeout(() => {
       setToasts((current) => current.filter((item) => item.id !== id));
-    }, 2200);
+    }, toast.duration || 2200);
   };
 
   const addToCart = (product, variant, quantity = 1, triggerElement = null) => {
@@ -420,7 +425,8 @@ function App() {
     const cartButton = typeof document !== "undefined"
       ? document.querySelector("[data-cart-target='true']")
       : null;
-    if (cartButton) {
+    const animationImage = safeVariant?.image || product.image || "";
+    if (cartButton && animationImage) {
       const triggerRect = triggerElement?.getBoundingClientRect?.();
       const cartRect = cartButton.getBoundingClientRect();
       const startSize = triggerRect ? Math.max(82, Math.min(132, triggerRect.height + 54)) : 108;
@@ -428,7 +434,7 @@ function App() {
 
       setCartAnimation({
         key: `${product.slug}-${Date.now()}`,
-        image: safeVariant?.image || product.image,
+        image: animationImage,
         active: false,
         startX: triggerRect ? (triggerRect.left + (triggerRect.width / 2) - (startSize / 2)) : ((window.innerWidth / 2) - (startSize / 2)),
         startY: triggerRect ? (triggerRect.top + (triggerRect.height / 2) - (startSize / 2)) : ((window.innerHeight / 2) - (startSize / 2)),
@@ -593,7 +599,13 @@ function App() {
       </Routes>
       <div className="toast-stack">
         {toasts.map((toast) => (
-          <div key={toast.id} className="toast-chip">{toast.message}</div>
+          <div key={toast.id} className={`toast-chip ${toast.variant ? `toast-chip-${toast.variant}` : ""}`}>
+            {toast.variant === "success" ? <span className="toast-icon" aria-hidden="true">✓</span> : null}
+            <div>
+              {toast.title ? <strong>{toast.title}</strong> : null}
+              <span>{toast.message}</span>
+            </div>
+          </div>
         ))}
       </div>
       {cartAnimation ? (

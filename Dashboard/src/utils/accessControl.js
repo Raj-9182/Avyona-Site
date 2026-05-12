@@ -14,7 +14,7 @@ const rolePermissionMap = {
     customers: ["view", "edit", "export"],
     coupons: ["view", "create", "edit", "delete", "export"],
     homepage: ["view", "create", "edit", "delete"],
-    reviews: ["view", "edit", "delete", "export"],
+    reviews: ["view", "create", "edit", "delete", "export"],
     settings: ["view", "edit"]
   },
   product_manager: {
@@ -34,7 +34,7 @@ const rolePermissionMap = {
     dashboard: ["view"],
     coupons: ["view", "create", "edit", "delete", "export"],
     homepage: ["view", "create", "edit", "delete"],
-    reviews: ["view", "edit", "delete", "export"]
+    reviews: ["view", "create", "edit", "delete", "export"]
   },
   support_staff: {
     dashboard: ["view"],

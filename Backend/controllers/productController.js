@@ -861,8 +861,30 @@ function getRequiredInventoryColumns(templateType) {
 }
 
 function isValidNumberText(value) {
-  if (value === "") return false;
-  return Number.isFinite(Number(value));
+  const normalized = normalizeInventoryNumberText(value);
+  if (normalized === "") return false;
+  return Number.isFinite(Number(normalized));
+}
+
+function normalizeInventoryNumberText(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  const normalized = text
+    .replace(/,/g, "")
+    .replace(/[₹$€£]/g, "")
+    .replace(/%/g, "")
+    .replace(/\s+/g, "")
+    .replace(/[^\d.-]/g, "");
+
+  if (!normalized || normalized === "-" || normalized === "." || normalized === "-.") return "";
+  return normalized;
+}
+
+function parseInventoryNumber(value, fallback = 0) {
+  const normalized = normalizeInventoryNumberText(value);
+  if (normalized === "") return fallback;
+  const number = Number(normalized);
+  return Number.isFinite(number) ? number : fallback;
 }
 
 function isValidUrlText(value) {
@@ -921,10 +943,28 @@ function normalizeBooleanCell(value) {
   return ["yes", "true", "1", "on"].includes(text) ? 1 : 0;
 }
 
+function normalizeBooleanFlag(value) {
+  if (typeof value === "boolean") return value;
+  const text = String(value || "").trim().toLowerCase();
+  return ["yes", "true", "1", "on"].includes(text);
+}
+
 function normalizeInventoryDbStatus(value) {
   const status = normalizeProductStatus(value);
   if (status === "inactive") return "draft";
   return ["draft", "active", "archived", "out_of_stock"].includes(status) ? status : "draft";
+}
+
+function getInventoryLookupValues(values = []) {
+  return [...new Set([...values].flatMap((value) => {
+    const text = String(value || "").trim();
+    if (!text) return [];
+    return [text, slugify(text)];
+  }).filter(Boolean))];
+}
+
+function normalizeInventoryLookupKey(value) {
+  return slugify(String(value || "").trim()).toLowerCase();
 }
 
 async function getOrCreateCategoryId(name, parentId = null, autoCreate = false) {
@@ -939,7 +979,9 @@ async function getOrCreateCategoryId(name, parentId = null, autoCreate = false) 
   if (!autoCreate) return null;
 
   const result = await query(
-    "INSERT INTO categories (name, slug, parent_id, status, is_active) VALUES (?, ?, ?, 'active', 1)",
+    `INSERT INTO categories (name, slug, parent_id, status, is_active)
+     VALUES (?, ?, ?, 'active', 1)
+     ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)`,
     [categoryName, slugify(categoryName), parentId]
   );
   return result.insertId;
@@ -989,7 +1031,9 @@ async function getOrCreateBrandForInventoryRow(row, autoCreate = false) {
   if (!autoCreate) return { brandId: null, brandName };
 
   const result = await query(
-    "INSERT INTO brands (name, slug, status, is_authorized) VALUES (?, ?, 'active', 1)",
+    `INSERT INTO brands (name, slug, status, is_authorized)
+     VALUES (?, ?, 'active', 1)
+     ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)`,
     [brandName, slugify(brandName)]
   );
   return { brandId: result.insertId, brandName };
@@ -998,7 +1042,8 @@ async function getOrCreateBrandForInventoryRow(row, autoCreate = false) {
 async function processInventoryRow(row, updateControls = {}) {
   await ensureInventoryRelationshipTables();
   const asin = getInventoryValue(row, ["ASIN"]);
-  const sku = getInventoryValue(row, ["SKU"]);
+  const rowSku = getInventoryValue(row, ["SKU"]);
+  const sku = rowSku || asin;
   const existing = await findProductByMasterKey({ asin, sku });
   const categoryId = await getCategoryIdForInventoryRow(row, updateControls.autoCreateMissingCategoryBrand);
   const effectiveCategoryId = categoryId || existing?.categoryId || null;
@@ -1024,9 +1069,9 @@ async function processInventoryRow(row, updateControls = {}) {
       assignments.push("asin = ?");
       values.push(asin);
     }
-    if (sku && normalizedSku !== sku.toLowerCase()) {
+    if (rowSku && normalizedSku !== rowSku.toLowerCase()) {
       assignments.push("sku = ?");
-      values.push(sku);
+      values.push(rowSku);
     }
 
     if (updateControls.basicInfo) {
@@ -1054,24 +1099,24 @@ async function processInventoryRow(row, updateControls = {}) {
     if (updateControls.pricing) {
       if (sellingPrice !== "") {
         assignments.push("price = ?");
-        values.push(Number(sellingPrice));
+        values.push(parseInventoryNumber(sellingPrice));
       }
       if (mrp !== "") {
         assignments.push("mrp = ?");
-        values.push(Number(mrp));
+        values.push(parseInventoryNumber(mrp));
       }
       assignments.push("tax_included = ?");
       values.push(normalizeBooleanCell(getInventoryValue(row, ["Tax Included"])));
       const taxRate = getInventoryValue(row, ["Tax Percentage"]);
       if (taxRate !== "") {
         assignments.push("tax_rate = ?");
-        values.push(Number(taxRate));
+        values.push(parseInventoryNumber(taxRate));
       }
     }
 
     if (updateControls.stock && stockQuantity !== "") {
       assignments.push("stock_quantity = ?");
-      values.push(Number(stockQuantity));
+      values.push(parseInventoryNumber(stockQuantity));
     }
 
     if (updateControls.description) {
@@ -1122,11 +1167,11 @@ async function processInventoryRow(row, updateControls = {}) {
       brandInfo.brandName || "Unknown",
       getInventoryValue(row, ["Short Description"]),
       getInventoryValue(row, ["Description"]),
-      Number(sellingPrice || 0),
-      Number(mrp || sellingPrice || 0),
+      parseInventoryNumber(sellingPrice, 0),
+      parseInventoryNumber(mrp, parseInventoryNumber(sellingPrice, 0)),
       normalizeBooleanCell(getInventoryValue(row, ["Tax Included"])),
-      Number(getInventoryValue(row, ["Tax Percentage"]) || 0),
-      Number(stockQuantity || 0),
+      parseInventoryNumber(getInventoryValue(row, ["Tax Percentage"]), 0),
+      parseInventoryNumber(stockQuantity, 0),
       imageUrl,
       normalizeInventoryDbStatus(status || "draft")
     ]
@@ -1818,7 +1863,7 @@ async function runInventoryValidation({ rows = [], templateType = "full-product"
 
   rows.forEach((row) => {
     const asin = getInventoryValue(row, ["ASIN"]);
-    const sku = getInventoryValue(row, ["SKU"]);
+    const sku = getInventoryValue(row, ["SKU"]) || asin;
     if (asin) asinCounts.set(asin.toLowerCase(), (asinCounts.get(asin.toLowerCase()) || 0) + 1);
     if (sku) skuCounts.set(sku.toLowerCase(), (skuCounts.get(sku.toLowerCase()) || 0) + 1);
   });
@@ -1832,7 +1877,7 @@ async function runInventoryValidation({ rows = [], templateType = "full-product"
 
   rows.forEach((row) => {
     const asin = getInventoryValue(row, ["ASIN"]);
-    const sku = getInventoryValue(row, ["SKU"]);
+    const sku = getInventoryValue(row, ["SKU"]) || asin;
     if (asin || sku) productKeys.push({ asin, sku });
     const category = getInventoryValue(row, ["Category"]);
     const subcategory = getInventoryValue(row, ["Subcategory"]);
@@ -1858,19 +1903,22 @@ async function runInventoryValidation({ rows = [], templateType = "full-product"
   ) : [];
   const existingByAsin = new Map(existingProducts.map((product) => [String(product.asin || "").toLowerCase(), product]));
   const existingBySku = new Map(existingProducts.map((product) => [String(product.sku || "").toLowerCase(), product]));
-  const categoryRows = categoryNames.size ? await query(
+  const categoryLookupValues = getInventoryLookupValues(categoryNames);
+  const brandLookupValues = getInventoryLookupValues(brandNames);
+
+  const categoryRows = categoryLookupValues.length ? await query(
     `SELECT id, name, slug FROM categories
-     WHERE LOWER(name) IN (${[...categoryNames].map(() => "LOWER(?)").join(",")})
-        OR LOWER(slug) IN (${[...categoryNames].map(() => "LOWER(?)").join(",")})`,
-    [...categoryNames, ...categoryNames]
+     WHERE LOWER(name) IN (${categoryLookupValues.map(() => "LOWER(?)").join(",")})
+        OR LOWER(slug) IN (${categoryLookupValues.map(() => "LOWER(?)").join(",")})`,
+    [...categoryLookupValues, ...categoryLookupValues]
   ) : [];
-  const brandRows = brandNames.size ? await query(
+  const brandRows = brandLookupValues.length ? await query(
     `SELECT name AS brand FROM brands
-     WHERE LOWER(name) IN (${[...brandNames].map(() => "LOWER(?)").join(",")})
+     WHERE LOWER(name) IN (${brandLookupValues.map(() => "LOWER(?)").join(",")})
      UNION
      SELECT DISTINCT brand FROM products
-     WHERE LOWER(brand) IN (${[...brandNames].map(() => "LOWER(?)").join(",")})`,
-    [...brandNames, ...brandNames]
+     WHERE LOWER(brand) IN (${brandLookupValues.map(() => "LOWER(?)").join(",")})`,
+    [...brandLookupValues, ...brandLookupValues]
   ) : [];
   const relatedRows = relatedKeys.size ? await query(
     `SELECT asin, sku FROM products
@@ -1879,8 +1927,8 @@ async function runInventoryValidation({ rows = [], templateType = "full-product"
         OR LOWER(sku) IN (${[...relatedKeys].map(() => "LOWER(?)").join(",")}))`,
     [...relatedKeys, ...relatedKeys]
   ) : [];
-  const categoryKeys = new Set(categoryRows.flatMap((category) => [category.name, category.slug].map((value) => String(value || "").toLowerCase())));
-  const brandKeys = new Set(brandRows.map((brand) => String(brand.brand || "").toLowerCase()));
+  const categoryKeys = new Set(categoryRows.flatMap((category) => [category.name, category.slug].map(normalizeInventoryLookupKey)));
+  const brandKeys = new Set(brandRows.map((brand) => normalizeInventoryLookupKey(brand.brand)));
   const existingRelatedKeys = new Set(relatedRows.flatMap((product) => [product.asin, product.sku].map((value) => String(value || "").toLowerCase()).filter(Boolean)));
   const slugValues = rows.map((row) => getInventoryValue(row, ["Product Slug"])).filter(Boolean);
   const existingSlugs = slugValues.length ? await query(
@@ -1905,7 +1953,7 @@ async function runInventoryValidation({ rows = [], templateType = "full-product"
     });
 
     const asin = getInventoryValue(row, ["ASIN"]);
-    const sku = getInventoryValue(row, ["SKU"]);
+    const sku = getInventoryValue(row, ["SKU"]) || asin;
     const matchingByAsin = asin ? existingByAsin.get(asin.toLowerCase()) : null;
     const matchingBySku = sku ? existingBySku.get(sku.toLowerCase()) : null;
     const existingProduct = matchingByAsin || matchingBySku || null;
@@ -1928,9 +1976,9 @@ async function runInventoryValidation({ rows = [], templateType = "full-product"
     const brand = getInventoryValue(row, ["Brand"]);
     if (templateType === "full-product" && !existingProduct && !category) errors.push("Category is required for new products");
     if (templateType === "full-product" && !brand) errors.push("Brand is required");
-    if (!autoCreateMissingCategoryBrand && templateType === "full-product" && category && !categoryKeys.has(category.toLowerCase())) errors.push("Category does not exist");
-    if (!autoCreateMissingCategoryBrand && templateType === "full-product" && subcategory && !categoryKeys.has(subcategory.toLowerCase())) errors.push("Subcategory does not exist");
-    if (!autoCreateMissingCategoryBrand && templateType === "full-product" && brand && !brandKeys.has(brand.toLowerCase())) errors.push("Brand does not exist");
+    if (!autoCreateMissingCategoryBrand && templateType === "full-product" && category && !categoryKeys.has(normalizeInventoryLookupKey(category))) errors.push("Category does not exist");
+    if (!autoCreateMissingCategoryBrand && templateType === "full-product" && subcategory && !categoryKeys.has(normalizeInventoryLookupKey(subcategory))) errors.push("Subcategory does not exist");
+    if (!autoCreateMissingCategoryBrand && templateType === "full-product" && brand && !brandKeys.has(normalizeInventoryLookupKey(brand))) errors.push("Brand does not exist");
 
     const sellingPrice = getInventoryValue(row, ["Selling Price"]);
     const mrp = getInventoryValue(row, ["MRP"]);
@@ -1999,7 +2047,7 @@ export async function validateInventoryImport(request, response) {
     rows: Array.isArray(request.body?.rows) ? request.body.rows : [],
     templateType: String(request.body?.templateType || "full-product").trim(),
     importType: String(request.body?.importType || "create-update").trim(),
-    autoCreateMissingCategoryBrand: Boolean(request.body?.autoCreateMissingCategoryBrand)
+    autoCreateMissingCategoryBrand: normalizeBooleanFlag(request.body?.autoCreateMissingCategoryBrand)
   });
 
   response.json({
@@ -2020,7 +2068,7 @@ export async function createInventoryImportJob(request, response) {
   const updateControls = typeof request.body?.updateControls === "string"
     ? JSON.parse(request.body.updateControls || "{}")
     : request.body?.updateControls || {};
-  const autoCreateMissingCategoryBrand = String(request.body?.autoCreateMissingCategoryBrand || "") === "true";
+  const autoCreateMissingCategoryBrand = normalizeBooleanFlag(request.body?.autoCreateMissingCategoryBrand);
   const validation = await runInventoryValidation({
     rows,
     templateType,
@@ -2232,7 +2280,7 @@ export async function retryInventoryImportFailedRows(request, response) {
     rows,
     templateType: sourceRows[0].templateType,
     importType: sourceRows[0].importType,
-    autoCreateMissingCategoryBrand: Boolean(request.body?.autoCreateMissingCategoryBrand)
+    autoCreateMissingCategoryBrand: normalizeBooleanFlag(request.body?.autoCreateMissingCategoryBrand)
   });
   const jobId = `inv-${Date.now()}-${Math.round(Math.random() * 1e9)}`;
   const job = {
@@ -2242,7 +2290,7 @@ export async function retryInventoryImportFailedRows(request, response) {
     originalFileName: `retry-${sourceRows[0].fileName}`,
     templateType: sourceRows[0].templateType,
     importType: sourceRows[0].importType,
-    autoCreateMissingCategoryBrand: Boolean(request.body?.autoCreateMissingCategoryBrand),
+    autoCreateMissingCategoryBrand: normalizeBooleanFlag(request.body?.autoCreateMissingCategoryBrand),
     updateControls: request.body?.updateControls || {},
     validation,
     validRows: validation.validRowDetails || [],

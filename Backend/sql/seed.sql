@@ -71,6 +71,7 @@ INSERT INTO permissions (permission_key, module_name, action_name, display_name,
   ('homepage.edit', 'homepage', 'edit', 'Edit Homepage', 'Edit homepage content.', 0, 1),
   ('homepage.delete', 'homepage', 'delete', 'Delete Homepage Content', 'Delete homepage content blocks.', 0, 1),
   ('reviews.view', 'reviews', 'view', 'View Reviews', 'View product reviews.', 0, 1),
+  ('reviews.create', 'reviews', 'create', 'Create Reviews', 'Create admin review records.', 0, 1),
   ('reviews.edit', 'reviews', 'edit', 'Edit Reviews', 'Moderate or update reviews.', 0, 1),
   ('reviews.delete', 'reviews', 'delete', 'Delete Reviews', 'Delete product reviews.', 0, 1),
   ('reviews.export', 'reviews', 'export', 'Export Reviews', 'Export review records.', 0, 1),
@@ -136,7 +137,7 @@ JOIN (
   SELECT 'admin', 'customers', 1, 0, 1, 0, 1, 0 UNION ALL
   SELECT 'admin', 'coupons', 1, 1, 1, 1, 1, 0 UNION ALL
   SELECT 'admin', 'homepage', 1, 1, 1, 1, 0, 0 UNION ALL
-  SELECT 'admin', 'reviews', 1, 0, 1, 1, 1, 0 UNION ALL
+  SELECT 'admin', 'reviews', 1, 1, 1, 1, 1, 0 UNION ALL
   SELECT 'admin', 'settings', 1, 0, 1, 0, 0, 0 UNION ALL
   SELECT 'product_manager', 'dashboard', 1, 0, 0, 0, 0, 0 UNION ALL
   SELECT 'product_manager', 'products', 1, 1, 1, 1, 1, 0 UNION ALL
@@ -150,7 +151,7 @@ JOIN (
   SELECT 'marketing_manager', 'dashboard', 1, 0, 0, 0, 0, 0 UNION ALL
   SELECT 'marketing_manager', 'coupons', 1, 1, 1, 1, 1, 0 UNION ALL
   SELECT 'marketing_manager', 'homepage', 1, 1, 1, 1, 0, 0 UNION ALL
-  SELECT 'marketing_manager', 'reviews', 1, 0, 1, 1, 1, 0 UNION ALL
+  SELECT 'marketing_manager', 'reviews', 1, 1, 1, 1, 1, 0 UNION ALL
   SELECT 'support_staff', 'dashboard', 1, 0, 0, 0, 0, 0 UNION ALL
   SELECT 'support_staff', 'orders', 1, 0, 1, 0, 0, 0 UNION ALL
   SELECT 'support_staff', 'customers', 1, 0, 1, 0, 0, 0 UNION ALL

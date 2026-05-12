@@ -31,6 +31,11 @@ const homepageSections = [
     title: "Featured Brands",
     path: "/dashboard/homepage/featured-brands",
     description: "Select brand highlights and logo placements for the homepage."
+  },
+  {
+    title: "Reviews",
+    path: "/dashboard/reviews",
+    description: "Manage customer reviews and testimonials displayed on the homepage."
   }
 ];
 

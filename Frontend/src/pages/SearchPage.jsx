@@ -12,7 +12,8 @@ function normalizeBackendProduct(product) {
   const stockQuantity = Number(product.stockQuantity || 0);
   const discount = mrp > price && price > 0 ? Math.round(((mrp - price) / mrp) * 100) : 0;
   const collectionSlug = product.categorySlug || String(product.categoryName || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  const gallery = Array.isArray(product.galleryUrls) && product.galleryUrls.length ? product.galleryUrls : [product.imageUrl || "/images/optimized/frame-1.webp"];
+  const gallery = Array.isArray(product.galleryUrls) && product.galleryUrls.length ? product.galleryUrls.filter(Boolean) : [];
+  const primaryImage = gallery[0] || product.imageUrl || "";
 
   return {
     id: product.id,
@@ -26,7 +27,7 @@ function normalizeBackendProduct(product) {
     price,
     mrp,
     discount,
-    image: gallery[0],
+    image: primaryImage,
     gallery,
     highlights: [product.shortDescription || "New Avyona product"].filter(Boolean),
     description: product.description ? String(product.description).split(/\n+/).filter(Boolean) : [product.shortDescription || "Product details will be updated soon."],

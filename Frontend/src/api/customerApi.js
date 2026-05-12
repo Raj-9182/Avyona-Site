@@ -85,3 +85,35 @@ export function syncCustomerWishlist(items) {
 export function fetchCustomerOrders() {
   return customerRequest("/customer/orders");
 }
+
+export function fetchMyReviews() {
+  return customerRequest("/customer/reviews");
+}
+
+export function submitCustomerReview(payload) {
+  return customerRequest("/customer/reviews", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function uploadCustomerReviewMedia(file) {
+  const token = getCustomerToken();
+  const formData = new FormData();
+  formData.append("media", file);
+
+  const response = await fetch(`${API_BASE_URL}/customer/reviews/media`, {
+    method: "POST",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    body: formData
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.message || "Unable to upload review media");
+  }
+
+  return response.json();
+}

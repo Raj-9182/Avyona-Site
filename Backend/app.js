@@ -45,8 +45,8 @@ app.get("/", (_request, response) => {
     success: true,
     message: "Avyona backend API is running",
     links: {
-      dashboard: "http://localhost:5173",
-      frontend: "http://localhost:5174",
+      frontend: "http://localhost:5173",
+      dashboard: "http://localhost:5174",
       health: "/api/v1/health",
       apiBase: "/api/v1"
     }

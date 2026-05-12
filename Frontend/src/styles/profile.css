@@ -246,6 +246,21 @@ body.profile-page {
   background: linear-gradient(135deg, #edf4f1, #dfeee7);
 }
 
+.profile-no-image {
+  width: 84px;
+  height: 84px;
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  border: 1px dashed rgba(93, 180, 103, 0.36);
+  border-radius: 16px;
+  background: linear-gradient(135deg, #f8fbf8, #edf4f1);
+  color: #4d5667;
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-align: center;
+}
+
 .profile-item-copy {
   display: grid;
   gap: 6px;

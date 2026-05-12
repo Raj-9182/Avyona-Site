@@ -54,6 +54,45 @@ function getCategoryKey(category) {
   return String(category.id ?? category.slug ?? category.name ?? "");
 }
 
+function normalizeCardsPerRow(value) {
+  const count = Number(value);
+  return Number.isFinite(count) ? Math.min(10, Math.max(1, Math.floor(count))) : 4;
+}
+
+function normalizeMobileCardsPerRow(value) {
+  const count = Number(value);
+  return Number.isFinite(count) ? Math.min(3, Math.max(1, Math.floor(count))) : 1;
+}
+
+function getBrowseCategoriesSettings(homepageSettings = {}) {
+  const settings = homepageSettings.browseCategoriesSettings || {};
+  return {
+    enabled: settings.enabled !== false,
+    title: String(settings.title || "Shop by Category").trim(),
+    subtitle: String(settings.subtitle || "").trim(),
+    cardsPerRow: normalizeCardsPerRow(settings.cardsPerRow),
+    mobileCardsPerRow: normalizeMobileCardsPerRow(settings.mobileCardsPerRow)
+  };
+}
+
+function getHomepageSectionSettings(homepageSettings = {}, key, fallback) {
+  const settings = homepageSettings[key] || {};
+  return {
+    ...fallback,
+    ...settings,
+    enabled: settings.enabled !== false,
+    title: String(settings.title || fallback.title).trim(),
+    subtitle: String(settings.subtitle || "").trim(),
+    cardsPerRow: normalizeCardsPerRow(settings.cardsPerRow ?? fallback.cardsPerRow),
+    mobileCardsPerRow: normalizeMobileCardsPerRow(settings.mobileCardsPerRow ?? fallback.mobileCardsPerRow),
+    sortOrder: Number.isFinite(Number(settings.sortOrder)) ? Number(settings.sortOrder) : fallback.sortOrder
+  };
+}
+
+function isActiveProduct(product) {
+  return String(product?.status || "active").toLowerCase() === "active";
+}
+
 function getHomepageBrowseCategories(siteCategories, homepageSettings) {
   const flatCategories = flattenCategoryTree(siteCategories).filter((category) => !category.parentId && category.status === "active");
   const configured = Array.isArray(homepageSettings.browseCategories) ? homepageSettings.browseCategories : [];
@@ -65,7 +104,7 @@ function getHomepageBrowseCategories(siteCategories, homepageSettings) {
   }
 
   return configured
-    .filter((entry) => entry.status !== "inactive")
+    .filter((entry) => entry.status !== "inactive" && entry.showOnHomepage !== false)
     .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0))
     .map((entry) => {
       const entryKey = getHomepageBrowseEntryKey(entry);
@@ -131,6 +170,31 @@ export default function Home({ context }) {
   const [isMobileHeroViewport, setIsMobileHeroViewport] = useState(false);
   const [failedBannerMedia, setFailedBannerMedia] = useState({});
   const homepageSettings = context.siteSettings?.homepage || {};
+  const browseCategoriesSettings = getBrowseCategoriesSettings(homepageSettings);
+  const ourProductsSettings = getHomepageSectionSettings(homepageSettings, "ourProductsSettings", {
+    enabled: true,
+    title: "Our Products",
+    subtitle: "",
+    cardsPerRow: 4,
+    mobileCardsPerRow: 2,
+    sortOrder: 20
+  });
+  const bestSellerProductsSettings = getHomepageSectionSettings(homepageSettings, "bestSellerProductsSettings", {
+    enabled: true,
+    title: "Best Sellers and Trending",
+    subtitle: "",
+    cardsPerRow: 4,
+    mobileCardsPerRow: 2,
+    sortOrder: 40
+  });
+  const newArrivalProductsSettings = getHomepageSectionSettings(homepageSettings, "newArrivalProductsSettings", {
+    enabled: true,
+    title: "New Arrivals",
+    subtitle: "",
+    cardsPerRow: 3,
+    mobileCardsPerRow: 2,
+    sortOrder: 60
+  });
   const mainCategories = getHomepageBrowseCategories(siteCategories, homepageSettings);
   const activeTopCategories = flattenCategoryTree(siteCategories)
     .filter((category) => !category.parentId && category.status === "active")
@@ -221,7 +285,10 @@ export default function Home({ context }) {
     ? homepageSettings[key]
         .filter((entry) => entry.status !== "inactive")
         .sort((left, right) => Number(left.slotNumber || left.sortOrder || 0) - Number(right.slotNumber || right.sortOrder || 0))
-        .map((entry) => findProductByIdentifier(entry.productAsin || entry.productSlug))
+        .map((entry) => {
+          const product = findProductByIdentifier(entry.productAsin || entry.productSlug);
+          return product ? { ...product, ...entry } : null;
+        })
         .filter(Boolean)
     : [];
   const hasBestSellerCategoryConfig = Array.isArray(homepageSettings.bestSellerCategories);
@@ -231,19 +298,23 @@ export default function Home({ context }) {
   const configuredOurProducts = Array.isArray(homepageSettings.ourProducts)
     ? getConfiguredHomepageProducts("ourProducts")
     : [];
-  const homepageOurProducts = configuredOurProducts.length ? configuredOurProducts : frameProducts;
+  const homepageOurProducts = (configuredOurProducts.length ? configuredOurProducts : frameProducts)
+    .filter((product) => isActiveProduct(product) && product.showInOurProducts !== false);
   const configuredBestSellerProducts = getConfiguredHomepageProducts("bestSellerProducts");
   const allowBestSellerCategory = (product) =>
     !hasBestSellerCategoryConfig || selectedBestSellerCategories.includes(product.collectionSlug);
   const bestSellerCategoryTabs = hasBestSellerCategoryConfig
     ? activeTopCategories.filter((category) => selectedBestSellerCategories.includes(category.slug))
     : activeTopCategories;
-  const bestSellerSourceProducts = (configuredBestSellerProducts.length ? configuredBestSellerProducts : featuredProducts).filter(allowBestSellerCategory);
+  const bestSellerSourceProducts = (configuredBestSellerProducts.length ? configuredBestSellerProducts : featuredProducts)
+    .filter(allowBestSellerCategory)
+    .filter((product) => isActiveProduct(product) && product.bestSeller !== false && product.trending !== false);
   const homepageBestSellerProducts = activeCategory === "all"
     ? bestSellerSourceProducts
     : bestSellerSourceProducts.filter((product) => product.collectionSlug === activeCategory);
   const configuredNewArrivalProducts = getConfiguredHomepageProducts("newArrivalProducts");
-  const homepageNewArrivalProducts = configuredNewArrivalProducts.length ? configuredNewArrivalProducts : arrivalProducts;
+  const homepageNewArrivalProducts = (configuredNewArrivalProducts.length ? configuredNewArrivalProducts : arrivalProducts)
+    .filter((product) => isActiveProduct(product) && product.newArrival !== false);
   const configuredFeaturedBrands = Array.isArray(homepageSettings.featuredBrands)
     ? homepageSettings.featuredBrands
         .filter((brand) => brand.status !== "inactive" && (brand.logoUrl || brand.name))
@@ -330,38 +401,67 @@ export default function Home({ context }) {
         ) : null}
       </section>
 
-      <section className="section-block category-section">
-        <div className="section-heading section-heading-centered"><div><p className="eyebrow category-heading-tag">Browse</p><h2>Shop by Category</h2></div></div>
-        <div className="category-grid">
-          {mainCategories.map((category) => {
-            const homepageRule = getCategoryHomepageRule(category);
-            const buttonText = homepageRule.homepageButtonText || "Explore Now";
-            const buttonLink = homepageRule.homepageButtonLink || `/category/${category.slug}`;
-            const categoryImage = resolveStorefrontMediaUrl(category.imageUrl || category.bannerImageUrl);
+      {browseCategoriesSettings.enabled ? (
+        <section className="section-block category-section">
+          <div className="section-heading section-heading-centered">
+            <div>
+              <p className="eyebrow category-heading-tag">Browse</p>
+              <h2>{browseCategoriesSettings.title}</h2>
+              {browseCategoriesSettings.subtitle ? <p>{browseCategoriesSettings.subtitle}</p> : null}
+            </div>
+          </div>
+          <div
+            className="category-grid"
+            style={{
+              "--category-cards-per-row": browseCategoriesSettings.cardsPerRow,
+              "--category-mobile-cards-per-row": browseCategoriesSettings.mobileCardsPerRow
+            }}
+          >
+            {mainCategories.map((category) => {
+              const homepageRule = getCategoryHomepageRule(category);
+              const buttonText = homepageRule.homepageButtonText || "Explore Now";
+              const buttonLink = homepageRule.homepageButtonLink || `/category/${category.slug}`;
+              const categoryImage = resolveStorefrontMediaUrl(category.imageUrl || category.bannerImageUrl);
 
-            return (
-              <Link key={category.slug} className="category-card category-card-link" to={buttonLink}>
-                <div className="category-art">
-                  <img src={categoryImage} alt={category.name} loading="lazy" decoding="async" onError={handleCategoryImageError} />
-                </div>
-                <div className="category-copy">
-                  <h3>{category.name}</h3>
-                  <p>{category.description}</p>
-                </div>
-                <div className="category-meta">
-                  <span className="category-meta-label">{`${Number(category.productCount ?? category.productSlugs?.length ?? 0)} Products`}</span>
-                  <span className="category-action-chip">{buttonText}</span>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
-      </section>
+              return (
+                <Link key={category.slug} className="category-card category-card-link" to={buttonLink}>
+                  <div className="category-art">
+                    <img src={categoryImage} alt={category.name} loading="lazy" decoding="async" onError={handleCategoryImageError} />
+                  </div>
+                  <div className="category-copy">
+                    <h3>{category.name}</h3>
+                    <p>{category.description}</p>
+                  </div>
+                  <div className="category-meta">
+                    <span className="category-meta-label">{`${Number(category.productCount ?? category.productSlugs?.length ?? 0)} Products`}</span>
+                    <span className="category-action-chip">{buttonText}</span>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
-      <section className="section-block spotlight-block">
-        <div className="section-heading section-heading-centered"><div><h3 className="section-title-large section-title-accent">Our Products</h3></div></div>
-        <div className="product-grid">{homepageOurProducts.map((product) => <ProductCard key={product.slug} product={product} context={context} />)}</div>
-      </section>
+      {ourProductsSettings.enabled ? (
+        <section className="section-block spotlight-block">
+          <div className="section-heading section-heading-centered">
+            <div>
+              <h3 className="section-title-large section-title-accent">{ourProductsSettings.title}</h3>
+              {ourProductsSettings.subtitle ? <p>{ourProductsSettings.subtitle}</p> : null}
+            </div>
+          </div>
+          <div
+            className="product-grid homepage-dynamic-grid"
+            style={{
+              "--homepage-cards-per-row": ourProductsSettings.cardsPerRow,
+              "--homepage-mobile-cards-per-row": ourProductsSettings.mobileCardsPerRow
+            }}
+          >
+            {homepageOurProducts.map((product) => <ProductCard key={product.slug} product={product} context={context} />)}
+          </div>
+        </section>
+      ) : null}
 
       <section className="trust-section">
         <div className="section-heading section-heading-centered"><div><h4 className="section-title-medium">Why Shop With Avyona</h4></div></div>
@@ -373,17 +473,32 @@ export default function Home({ context }) {
         </div>
       </section>
 
-      <section className="section-block">
-        <div className="section-heading section-heading-centered catalog-heading"><div><h4 className="section-title-medium">Best Sellers and Trending</h4></div></div>
-        <div className="catalog-tabs">
-          {["all", ...bestSellerCategoryTabs.map((category) => category.slug)].map((categorySlug) => (
-            <button key={categorySlug} className={`catalog-tab ${activeCategory === categorySlug ? "active" : ""}`} type="button" onClick={() => setActiveCategory(categorySlug)}>
-              {categorySlug === "all" ? "All" : (bestSellerCategoryTabs.find((category) => category.slug === categorySlug)?.name || categorySlug)}
-            </button>
-          ))}
-        </div>
-        <div className="product-grid">{homepageBestSellerProducts.map((product) => <ProductCard key={product.slug} product={product} context={context} />)}</div>
-      </section>
+      {bestSellerProductsSettings.enabled ? (
+        <section className="section-block">
+          <div className="section-heading section-heading-centered catalog-heading">
+            <div>
+              <h4 className="section-title-medium">{bestSellerProductsSettings.title}</h4>
+              {bestSellerProductsSettings.subtitle ? <p>{bestSellerProductsSettings.subtitle}</p> : null}
+            </div>
+          </div>
+          <div className="catalog-tabs">
+            {["all", ...bestSellerCategoryTabs.map((category) => category.slug)].map((categorySlug) => (
+              <button key={categorySlug} className={`catalog-tab ${activeCategory === categorySlug ? "active" : ""}`} type="button" onClick={() => setActiveCategory(categorySlug)}>
+                {categorySlug === "all" ? "All" : (bestSellerCategoryTabs.find((category) => category.slug === categorySlug)?.name || categorySlug)}
+              </button>
+            ))}
+          </div>
+          <div
+            className="product-grid homepage-dynamic-grid"
+            style={{
+              "--homepage-cards-per-row": bestSellerProductsSettings.cardsPerRow,
+              "--homepage-mobile-cards-per-row": bestSellerProductsSettings.mobileCardsPerRow
+            }}
+          >
+            {homepageBestSellerProducts.map((product) => <ProductCard key={product.slug} product={product} context={context} eyebrow="Best Seller / Trending" />)}
+          </div>
+        </section>
+      ) : null}
 
       <section className="section-block limited-offers-section">
         <div className="offers-showcase">
@@ -409,10 +524,25 @@ export default function Home({ context }) {
         </div>
       </section>
 
-      <section className="section-block">
-        <div className="section-heading section-heading-centered arrival-heading"><div><p className="eyebrow">New Arrivals</p></div></div>
-        <div className="mini-grid">{homepageNewArrivalProducts.map((product) => <ProductCard key={product.slug} product={product} context={context} />)}</div>
-      </section>
+      {newArrivalProductsSettings.enabled ? (
+        <section className="section-block">
+          <div className="section-heading section-heading-centered arrival-heading">
+            <div>
+              <p className="eyebrow">{newArrivalProductsSettings.title}</p>
+              {newArrivalProductsSettings.subtitle ? <p>{newArrivalProductsSettings.subtitle}</p> : null}
+            </div>
+          </div>
+          <div
+            className="mini-grid homepage-dynamic-grid"
+            style={{
+              "--homepage-cards-per-row": newArrivalProductsSettings.cardsPerRow,
+              "--homepage-mobile-cards-per-row": newArrivalProductsSettings.mobileCardsPerRow
+            }}
+          >
+            {homepageNewArrivalProducts.map((product) => <ProductCard key={product.slug} product={product} context={context} eyebrow="New Arrival" />)}
+          </div>
+        </section>
+      ) : null}
 
       <section className="section-block blog-section">
         <div className="section-heading"><div><p className="eyebrow">Latest from Avyona Blog</p><h2>Buying guides and electronics insights that support discovery</h2></div></div>

@@ -7,13 +7,19 @@ export default function ProductCard({ product, context, eyebrow, actionLabel = "
   const ratingValue = Number(product.rating || 0);
   const ratingPercent = `${Math.max(0, Math.min(100, (ratingValue / 5) * 100))}%`;
   const productPath = buildProductPath(product, firstVariant);
+  const displayImage = firstVariant?.image || product.image || "";
+  const hasImage = Boolean(String(displayImage || "").trim());
 
   return (
     <article className="product-card">
       <span className="card-discount-badge">{product.discount}% OFF</span>
       <Link className="product-card-link" to={productPath} onClick={() => onProductClick?.(product)}>
         <div className="product-art">
-          <img src={product.image} alt={product.name} loading="lazy" />
+          {hasImage ? (
+            <img src={displayImage} alt={product.name} loading="lazy" />
+          ) : (
+            <span className="product-no-image">No image</span>
+          )}
         </div>
         <p className="product-topline">{eyebrow || product.brand}</p>
         <h3>{product.name}</h3>

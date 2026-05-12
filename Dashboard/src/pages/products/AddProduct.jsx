@@ -650,7 +650,7 @@ export default function AddProduct({ initialProductData = null, mode = "add" }) 
     const productCategorySlug = basicInfo.subcategory || basicInfo.category;
     const categoryRecord = backendCategories.find((category) => category.slug === productCategorySlug);
     const productImageUrls = await uploadProductImages();
-    const primaryImageUrl = productImageUrls[0] || "/images/optimized/frame-1.webp";
+    const primaryImageUrl = productImageUrls[0] || "";
     const cleanedHighlights = highlights.map((item) => String(item || "").trim()).filter(Boolean);
     const descriptionText = String(descriptionData.content || "").trim();
     const shortDescription = cleanedHighlights[0] || descriptionText.split(/\n+/)[0] || "";

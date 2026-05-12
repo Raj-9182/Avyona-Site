@@ -17,6 +17,7 @@ const AddProduct = React.lazy(() => import("../pages/products/AddProduct"));
 const EditProduct = React.lazy(() => import("../pages/products/EditProduct"));
 const InventoryManager = React.lazy(() => import("../pages/products/InventoryManager"));
 const Products = React.lazy(() => import("../pages/products/Products"));
+const Reviews = React.lazy(() => import("../pages/reviews/Reviews"));
 const Settings = React.lazy(() => import("../pages/settings/Settings"));
 const Variations = React.lazy(() => import("../pages/variations/Variations"));
 const WebsiteImages = React.lazy(() => import("../pages/images/WebsiteImages"));
@@ -58,6 +59,7 @@ export default function AppRoutes({ context, allProducts }) {
           <Route path="homepage/best-sellers" element={<HomepageConfigurePage sectionKey="best-sellers" />} />
           <Route path="homepage/new-arrivals" element={<HomepageConfigurePage sectionKey="new-arrivals" />} />
           <Route path="homepage/featured-brands" element={<HomepageConfigurePage sectionKey="featured-brands" />} />
+          <Route path="homepage/reviews" element={<Navigate to="/dashboard/reviews" replace />} />
           <Route path="products" element={<Products />} />
           <Route path="products/new" element={<AddProduct />} />
           <Route path="products/inventory-manager" element={<InventoryManager />} />
@@ -72,6 +74,8 @@ export default function AppRoutes({ context, allProducts }) {
           <Route path="orders/:orderId" element={<OrderDetails />} />
           <Route path="customers" element={<Customers />} />
           <Route path="customers/:customerId" element={<CustomerDetails />} />
+          <Route path="reviews" element={<Reviews />} />
+          <Route path="reviews/new" element={<Reviews />} />
           <Route path="settings" element={<Settings />} />
           <Route path="settings/manage-access" element={<Navigate to="/dashboard/settings" replace />} />
         </Route>

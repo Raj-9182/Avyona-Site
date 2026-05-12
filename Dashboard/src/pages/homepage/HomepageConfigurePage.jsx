@@ -1,11 +1,12 @@
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { fetchAdminSettings, fetchCategories, fetchProducts, updateAdminSettings, updateCategory, uploadAdminImage, uploadAdminMedia } from "../../api/adminApi";
+import { fetchAdminSettings, fetchBrowseCategoriesSettings, fetchCategories, fetchHomepageSectionSettings, fetchProducts, updateAdminSettings, updateBrowseCategoriesSettings, updateCategory, updateHomepageSectionSettings, uploadAdminImage, uploadAdminMedia } from "../../api/adminApi";
 import { compressImageFile, getStorefrontBaseUrl } from "../../utils/storefront";
 import { fallbackCategoryTree, flattenCategoryTree } from "../../data/category-data";
 import { allProducts } from "../../data/storefront-content";
 import { useAutoRefresh } from "../../hooks/useAutoRefresh";
 import { cloneSettings, DEFAULT_APP_SETTINGS, mergeSettings } from "../../../../shared/appSettings";
+import { REVIEW_TYPE_OPTIONS, REVIEW_VISIBILITY_STATUS_OPTIONS } from "../../../../shared/reviewTypes";
 
 export const homepageConfigureSections = {
   "hero-banner": {
@@ -31,6 +32,10 @@ export const homepageConfigureSections = {
   "featured-brands": {
     title: "Featured Brands",
     description: "Configure brand logo cards and featured brand ordering."
+  },
+  reviews: {
+    title: "Reviews",
+    description: "Configure customer reviews and testimonials shown on the homepage."
   }
 };
 
@@ -107,6 +112,7 @@ export default function HomepageConfigurePage({ sectionKey }) {
   const section = homepageConfigureSections[sectionKey] || homepageConfigureSections["hero-banner"];
   const [refreshToken, setRefreshToken] = React.useState(0);
   useAutoRefresh(() => setRefreshToken((current) => current + 1));
+  const placeholderGroups = sectionKey === "reviews" ? reviewPlaceholderGroups : defaultPlaceholderGroups;
 
   if (sectionKey === "hero-banner") {
     return <HeroBannerConfigure section={section} refreshToken={refreshToken} />;
@@ -149,26 +155,57 @@ export default function HomepageConfigurePage({ sectionKey }) {
           </p>
         </div>
 
-        <div style={placeholderGridStyle}>
-          <div style={placeholderCardStyle}>
-            <strong>Content</strong>
-            <span>Titles, subtitles, labels, and display text.</span>
+        {placeholderGroups.map((group) => (
+          <div key={group.title} style={placeholderGroupStyle}>
+            <h4 style={placeholderGroupTitleStyle}>{group.title}</h4>
+            <div style={placeholderGridStyle}>
+              {group.items.map((item) => (
+                <div key={item.value || item.label} style={placeholderCardStyle}>
+                  <strong>{item.label}</strong>
+                  <span>{item.description}</span>
+                  {item.value ? <code style={placeholderCodeStyle}>{item.value}</code> : null}
+                </div>
+              ))}
+            </div>
           </div>
-          <div style={placeholderCardStyle}>
-            <strong>Media</strong>
-            <span>Images, banners, thumbnails, and brand visuals.</span>
-          </div>
-          <div style={placeholderCardStyle}>
-            <strong>Visibility</strong>
-            <span>Enable, disable, sort, and schedule homepage placement.</span>
-          </div>
-        </div>
+        ))}
 
         <Link to="/dashboard/homepage" style={backButtonStyle}>Back to Homepage Sections</Link>
       </div>
     </section>
   );
 }
+
+const defaultPlaceholderGroups = [
+  {
+    title: "Section Controls",
+    items: [
+      {
+        label: "Content",
+        description: "Titles, subtitles, labels, and display text."
+      },
+      {
+        label: "Media",
+        description: "Images, banners, thumbnails, and brand visuals."
+      },
+      {
+        label: "Visibility",
+        description: "Enable, disable, sort, and schedule homepage placement."
+      }
+    ]
+  }
+];
+
+const reviewPlaceholderGroups = [
+  {
+    title: "Review Types",
+    items: REVIEW_TYPE_OPTIONS
+  },
+  {
+    title: "Visibility Statuses",
+    items: REVIEW_VISIBILITY_STATUS_OPTIONS
+  }
+];
 
 function normalizeCategoryRow(category) {
   const dynamicRuleJson = parseDynamicRuleJson(category.dynamicRuleJson);
@@ -256,6 +293,61 @@ function getBrowseEntryKey(entry) {
   return String(entry.categoryId ?? entry.categorySlug ?? entry.id ?? "");
 }
 
+function normalizeBrowseCategoryCardCount(value) {
+  const count = Number(value);
+  return Number.isFinite(count) ? Math.min(10, Math.max(1, Math.floor(count))) : DEFAULT_APP_SETTINGS.homepage.browseCategoryCardCount;
+}
+
+function normalizeCardsPerRow(value) {
+  const count = Number(value);
+  return Number.isFinite(count) ? Math.min(10, Math.max(1, Math.floor(count))) : DEFAULT_APP_SETTINGS.homepage.browseCategoriesSettings.cardsPerRow;
+}
+
+function normalizeMobileCardsPerRow(value) {
+  const count = Number(value);
+  return Number.isFinite(count) ? Math.min(3, Math.max(1, Math.floor(count))) : DEFAULT_APP_SETTINGS.homepage.browseCategoriesSettings.mobileCardsPerRow;
+}
+
+function normalizeBrowseCategoriesSettings(value = {}) {
+  return {
+    ...DEFAULT_APP_SETTINGS.homepage.browseCategoriesSettings,
+    ...(value || {}),
+    enabled: value.enabled !== false,
+    title: String(value.title || DEFAULT_APP_SETTINGS.homepage.browseCategoriesSettings.title).trim(),
+    subtitle: String(value.subtitle || "").trim(),
+    cardsPerRow: normalizeCardsPerRow(value.cardsPerRow),
+    mobileCardsPerRow: normalizeMobileCardsPerRow(value.mobileCardsPerRow)
+  };
+}
+
+const homepageSectionConfigBySettingsKey = {
+  ourProducts: {
+    routeKey: "our-products",
+    settingsKey: "ourProductsSettings"
+  },
+  bestSellerProducts: {
+    routeKey: "best-sellers",
+    settingsKey: "bestSellerProductsSettings"
+  },
+  newArrivalProducts: {
+    routeKey: "new-arrivals",
+    settingsKey: "newArrivalProductsSettings"
+  }
+};
+
+function normalizeHomepageSectionSettings(value = {}, fallback = DEFAULT_APP_SETTINGS.homepage.ourProductsSettings) {
+  return {
+    ...fallback,
+    ...(value || {}),
+    enabled: value.enabled !== false,
+    title: String(value.title || fallback.title || "").trim(),
+    subtitle: String(value.subtitle || "").trim(),
+    cardsPerRow: normalizeCardsPerRow(value.cardsPerRow ?? fallback.cardsPerRow),
+    mobileCardsPerRow: normalizeMobileCardsPerRow(value.mobileCardsPerRow ?? fallback.mobileCardsPerRow),
+    sortOrder: Number.isFinite(Number(value.sortOrder)) ? Math.floor(Number(value.sortOrder)) : fallback.sortOrder
+  };
+}
+
 function normalizeBrowseCategoryEntries(settings, categories) {
   const configured = Array.isArray(settings.homepage?.browseCategories) ? settings.homepage.browseCategories : [];
   const fallbackEntries = categories
@@ -268,7 +360,8 @@ function normalizeBrowseCategoryEntries(settings, categories) {
       id: entry.id || `homepage-category-${entry.categoryId || entry.categorySlug || index}`,
       categoryId: entry.categoryId ?? null,
       categorySlug: entry.categorySlug || "",
-      status: String(entry.status || "active").toLowerCase() === "inactive" ? "inactive" : "active",
+      status: entry.showOnHomepage === false || String(entry.status || "active").toLowerCase() === "inactive" ? "inactive" : "active",
+      showOnHomepage: entry.showOnHomepage !== false && String(entry.status || "active").toLowerCase() !== "inactive",
       sortOrder: Number(entry.sortOrder || index + 1),
       imageUrl: String(entry.imageUrl || "").trim(),
       buttonText: String(entry.buttonText || "Explore Now").trim(),
@@ -302,6 +395,7 @@ function mergeBrowseCategoryEntry(entry, category) {
 function BrowseCategoriesConfigure({ section, refreshToken = 0 }) {
   const [categories, setCategories] = React.useState(getFallbackHomepageCategories);
   const [settings, setSettings] = React.useState(() => cloneSettings(DEFAULT_APP_SETTINGS));
+  const [browseSectionSettings, setBrowseSectionSettings] = React.useState(() => normalizeBrowseCategoriesSettings(DEFAULT_APP_SETTINGS.homepage.browseCategoriesSettings));
   const [browseEntries, setBrowseEntries] = React.useState([]);
   const [expandedCategoryId, setExpandedCategoryId] = React.useState("");
   const [selectedCategoryId, setSelectedCategoryId] = React.useState("");
@@ -320,9 +414,10 @@ function BrowseCategoriesConfigure({ section, refreshToken = 0 }) {
       setIsLoading(true);
 
       try {
-        const [categoryResponse, settingsResponse] = await Promise.all([
+        const [categoryResponse, settingsResponse, browseSettingsResponse] = await Promise.all([
           fetchCategories(),
-          fetchAdminSettings()
+          fetchAdminSettings(),
+          fetchBrowseCategoriesSettings()
         ]);
         if (!isMounted) return;
 
@@ -335,7 +430,9 @@ function BrowseCategoriesConfigure({ section, refreshToken = 0 }) {
 
         const nextCategories = mainCategories.length ? mainCategories : getFallbackHomepageCategories();
         const nextEntries = normalizeBrowseCategoryEntries(mergedSettings, nextCategories);
+        const nextBrowseSettings = normalizeBrowseCategoriesSettings(browseSettingsResponse.data?.data || mergedSettings.homepage?.browseCategoriesSettings);
         setSettings(mergedSettings);
+        setBrowseSectionSettings(nextBrowseSettings);
         setCategories(nextCategories);
         setBrowseEntries(nextEntries);
         setExpandedCategoryId("");
@@ -348,6 +445,7 @@ function BrowseCategoriesConfigure({ section, refreshToken = 0 }) {
         const fallbackSettings = cloneSettings(DEFAULT_APP_SETTINGS);
         const nextEntries = normalizeBrowseCategoryEntries(fallbackSettings, nextCategories);
         setSettings(fallbackSettings);
+        setBrowseSectionSettings(normalizeBrowseCategoriesSettings(fallbackSettings.homepage.browseCategoriesSettings));
         setCategories(nextCategories);
         setBrowseEntries(nextEntries);
         setExpandedCategoryId("");
@@ -385,6 +483,7 @@ function BrowseCategoriesConfigure({ section, refreshToken = 0 }) {
           categoryId: category?.id ?? entry.categoryId ?? null,
           categorySlug: category?.slug || entry.categorySlug || "",
           status: entry.status === "inactive" ? "inactive" : "active",
+          showOnHomepage: entry.status !== "inactive",
           sortOrder: Number(entry.sortOrder || index + 1),
           imageUrl: String(entry.imageUrl || "").trim(),
           buttonText: String(entry.buttonText || "Explore Now").trim(),
@@ -457,6 +556,49 @@ function BrowseCategoriesConfigure({ section, refreshToken = 0 }) {
     setIsAutoSavingSort(true);
     await persistBrowseEntries(nextEntries, `Category marked ${status}.`);
     setIsAutoSavingSort(false);
+  };
+
+  const handleBrowseCardCountChange = async (value) => {
+    setBrowseSectionSettings((current) => ({ ...current, cardsPerRow: normalizeCardsPerRow(value) }));
+  };
+
+  const updateBrowseSectionField = (key, value) => {
+    setBrowseSectionSettings((current) => ({
+      ...current,
+      [key]: key === "cardsPerRow"
+        ? normalizeCardsPerRow(value)
+        : key === "mobileCardsPerRow"
+          ? normalizeMobileCardsPerRow(value)
+          : value
+    }));
+    setMessage("");
+  };
+
+  const saveBrowseSectionSettings = async () => {
+    const payload = normalizeBrowseCategoriesSettings(browseSectionSettings);
+    setIsSaving(true);
+
+    try {
+      const response = await updateBrowseCategoriesSettings(payload);
+      const saved = normalizeBrowseCategoriesSettings(response.data?.data || payload);
+      const nextSettings = mergeSettings(settings, {
+        homepage: {
+          ...(settings.homepage || {}),
+          browseCategoriesSettings: saved,
+          browseCategoryCardCount: saved.cardsPerRow
+        }
+      });
+      setBrowseSectionSettings(saved);
+      setSettings(nextSettings);
+      setMessage("Browse Categories section settings saved.");
+      setMessageTone("success");
+    } catch (error) {
+      const messageText = error.response?.data?.message || "Browse Categories settings could not be saved.";
+      setMessage(messageText);
+      setMessageTone("warning");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const saveBrowseEntryOrder = async (nextEntries, messageText = "Category order saved.") => {
@@ -608,6 +750,63 @@ function BrowseCategoriesConfigure({ section, refreshToken = 0 }) {
             {message}
           </div>
         ) : null}
+
+        <div style={browseSettingsPanelStyle}>
+          <label style={checkboxFieldStyle}>
+            <input
+              type="checkbox"
+              checked={browseSectionSettings.enabled}
+              onChange={(event) => updateBrowseSectionField("enabled", event.target.checked)}
+            />
+            <span>Section Enable / Disable</span>
+          </label>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>Section Title</span>
+            <input
+              value={browseSectionSettings.title}
+              onChange={(event) => updateBrowseSectionField("title", event.target.value)}
+              style={inputStyle}
+            />
+          </label>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>Section Subtitle</span>
+            <input
+              value={browseSectionSettings.subtitle}
+              onChange={(event) => updateBrowseSectionField("subtitle", event.target.value)}
+              style={inputStyle}
+              placeholder="Optional helper text below the section title"
+            />
+          </label>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>Cards Per Row</span>
+            <select
+              value={browseSectionSettings.cardsPerRow}
+              onChange={(event) => handleBrowseCardCountChange(event.target.value)}
+              style={inputStyle}
+            >
+              {Array.from({ length: 10 }, (_, index) => index + 1).map((count) => (
+                <option key={count} value={count}>{count}</option>
+              ))}
+            </select>
+          </label>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>Mobile Cards Per Row</span>
+            <select
+              value={browseSectionSettings.mobileCardsPerRow}
+              onChange={(event) => updateBrowseSectionField("mobileCardsPerRow", event.target.value)}
+              style={inputStyle}
+            >
+              {[1, 2, 3].map((count) => (
+                <option key={count} value={count}>{count}</option>
+              ))}
+            </select>
+          </label>
+          <div style={settingsSaveActionStyle}>
+            <button type="button" onClick={saveBrowseSectionSettings} disabled={isSaving || isLoading} style={saveButtonStyle}>
+              {isSaving ? "Saving..." : "Save Settings"}
+            </button>
+          </div>
+        </div>
 
         <div style={homepageCategorySelectorStyle}>
           <div>
@@ -848,6 +1047,11 @@ function normalizeHomepageProducts(settings, settingsKey = "ourProducts", fallba
         productAsin: entry.productAsin || product?.asin || "",
         productSlug: entry.productSlug || product?.slug || "",
         status: String(entry.status || "active").toLowerCase() === "inactive" ? "inactive" : "active",
+        showOnHomepage: entry.showOnHomepage !== false && String(entry.status || "active").toLowerCase() !== "inactive",
+        showInOurProducts: entry.showInOurProducts !== false,
+        bestSeller: entry.bestSeller !== false,
+        trending: entry.trending !== false,
+        newArrival: entry.newArrival !== false,
         sortOrder: Number(entry.sortOrder || index + 1),
         slotNumber: Number(entry.slotNumber || entry.sortOrder || index + 1)
       };
@@ -919,7 +1123,9 @@ function getConfiguredCategorySlugs(settings, categorySettingsKey, categoryOptio
 
 function ProductArrangementConfigure({ section, settingsKey, categorySettingsKey = "", sectionLabel, enableCategoryControls = false, fallbackMode = "", refreshToken = 0 }) {
   const navigate = useNavigate();
+  const sectionConfig = homepageSectionConfigBySettingsKey[settingsKey] || homepageSectionConfigBySettingsKey.ourProducts;
   const [settings, setSettings] = React.useState(() => cloneSettings(DEFAULT_APP_SETTINGS));
+  const [sectionSettings, setSectionSettings] = React.useState(() => normalizeHomepageSectionSettings(DEFAULT_APP_SETTINGS.homepage[sectionConfig.settingsKey], DEFAULT_APP_SETTINGS.homepage[sectionConfig.settingsKey]));
   const [productSource, setProductSource] = React.useState(() => mergeProductSources());
   const fallbackProducts = fallbackMode === "arrivals"
     ? [...productSource].sort((left, right) => Number(right.rating || 0) - Number(left.rating || 0)).slice(0, 4)
@@ -954,10 +1160,11 @@ function ProductArrangementConfigure({ section, settingsKey, categorySettingsKey
     async function loadSettings() {
       setIsLoading(true);
       try {
-        const [settingsResponse, productsResponse, categoriesResponse] = await Promise.all([
+        const [settingsResponse, productsResponse, categoriesResponse, sectionSettingsResponse] = await Promise.all([
           fetchAdminSettings(),
           fetchProducts({ status: "active" }),
-          enableCategoryControls ? fetchCategories() : Promise.resolve({ data: { data: [] } })
+          enableCategoryControls ? fetchCategories() : Promise.resolve({ data: { data: [] } }),
+          fetchHomepageSectionSettings(sectionConfig.routeKey)
         ]);
         if (!isMounted) return;
 
@@ -972,9 +1179,11 @@ function ProductArrangementConfigure({ section, settingsKey, categorySettingsKey
         const nextBackendCategoryOptions = getBackendCategoryOptions(liveCategories);
         const nextCategoryOptions = mergeCategoryOptions(nextBackendCategoryOptions, getProductCategoryOptions(nextProductSource));
         const mergedSettings = mergeSettings(DEFAULT_APP_SETTINGS, settingsResponse.data?.data || {});
+        const nextSectionSettings = normalizeHomepageSectionSettings(sectionSettingsResponse.data?.data || mergedSettings.homepage?.[sectionConfig.settingsKey], DEFAULT_APP_SETTINGS.homepage[sectionConfig.settingsKey]);
         setProductSource(nextProductSource);
         setBackendCategoryOptions(nextBackendCategoryOptions);
         setSettings(mergedSettings);
+        setSectionSettings(nextSectionSettings);
         setHomepageProducts(normalizeHomepageProducts(mergedSettings, settingsKey, nextFallbackProducts, nextProductSource));
         if (enableCategoryControls) {
           setVisibleCategorySlugs(getConfiguredCategorySlugs(mergedSettings, categorySettingsKey, nextCategoryOptions));
@@ -989,6 +1198,7 @@ function ProductArrangementConfigure({ section, settingsKey, categorySettingsKey
         setProductSource(fallbackProductSource);
         setBackendCategoryOptions([]);
         setSettings(fallbackSettings);
+        setSectionSettings(normalizeHomepageSectionSettings(fallbackSettings.homepage[sectionConfig.settingsKey], DEFAULT_APP_SETTINGS.homepage[sectionConfig.settingsKey]));
         setHomepageProducts(normalizeHomepageProducts(fallbackSettings, settingsKey, fallbackProducts, fallbackProductSource));
         if (enableCategoryControls) {
           setVisibleCategorySlugs(getConfiguredCategorySlugs(fallbackSettings, categorySettingsKey, fallbackCategoryOptions));
@@ -1089,6 +1299,11 @@ function ProductArrangementConfigure({ section, settingsKey, categorySettingsKey
         productAsin: String(entry.productAsin || "").trim(),
         productSlug: String(entry.productSlug || "").trim(),
         status: entry.status === "inactive" ? "inactive" : "active",
+        showOnHomepage: entry.status !== "inactive",
+        showInOurProducts: settingsKey === "ourProducts" ? entry.status !== "inactive" : Boolean(entry.showInOurProducts),
+        bestSeller: settingsKey === "bestSellerProducts" ? entry.status !== "inactive" : Boolean(entry.bestSeller),
+        trending: settingsKey === "bestSellerProducts" ? entry.status !== "inactive" : Boolean(entry.trending),
+        newArrival: settingsKey === "newArrivalProducts" ? entry.status !== "inactive" : Boolean(entry.newArrival),
         sortOrder: Number(entry.sortOrder || index + 1),
         slotNumber: Number(entry.slotNumber || entry.sortOrder || index + 1)
       }))
@@ -1233,6 +1448,45 @@ function ProductArrangementConfigure({ section, settingsKey, categorySettingsKey
     setIsSaving(false);
   };
 
+  const updateSectionSettingsField = (key, value) => {
+    setSectionSettings((current) => ({
+      ...current,
+      [key]: key === "cardsPerRow"
+        ? normalizeCardsPerRow(value)
+        : key === "mobileCardsPerRow"
+          ? normalizeMobileCardsPerRow(value)
+          : key === "sortOrder"
+            ? Number(value || 0)
+            : value
+    }));
+    setMessage("");
+  };
+
+  const saveSectionSettings = async () => {
+    const payload = normalizeHomepageSectionSettings(sectionSettings, DEFAULT_APP_SETTINGS.homepage[sectionConfig.settingsKey]);
+    setIsSaving(true);
+
+    try {
+      const response = await updateHomepageSectionSettings(sectionConfig.routeKey, payload);
+      const saved = normalizeHomepageSectionSettings(response.data?.data || payload, DEFAULT_APP_SETTINGS.homepage[sectionConfig.settingsKey]);
+      const nextSettings = mergeSettings(settings, {
+        homepage: {
+          ...(settings.homepage || {}),
+          [sectionConfig.settingsKey]: saved
+        }
+      });
+      setSectionSettings(saved);
+      setSettings(nextSettings);
+      setMessage(`${sectionLabel} section settings saved.`);
+      setMessageTone("success");
+    } catch (error) {
+      setMessage(error.response?.data?.message || `${sectionLabel} section settings could not be saved.`);
+      setMessageTone("warning");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
     <section className="dashboard-page-shell">
       <div style={heroStyle}>
@@ -1268,6 +1522,46 @@ function ProductArrangementConfigure({ section, settingsKey, categorySettingsKey
             {message}
           </div>
         ) : null}
+
+        <div style={browseSettingsPanelStyle}>
+          <label style={checkboxFieldStyle}>
+            <input
+              type="checkbox"
+              checked={sectionSettings.enabled}
+              onChange={(event) => updateSectionSettingsField("enabled", event.target.checked)}
+            />
+            <span>Section Enable / Disable</span>
+          </label>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>Section Title</span>
+            <input value={sectionSettings.title} onChange={(event) => updateSectionSettingsField("title", event.target.value)} style={inputStyle} />
+          </label>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>Section Subtitle</span>
+            <input value={sectionSettings.subtitle} onChange={(event) => updateSectionSettingsField("subtitle", event.target.value)} style={inputStyle} placeholder="Optional helper text" />
+          </label>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>Cards Per Row</span>
+            <select value={sectionSettings.cardsPerRow} onChange={(event) => updateSectionSettingsField("cardsPerRow", event.target.value)} style={inputStyle}>
+              {Array.from({ length: 10 }, (_, index) => index + 1).map((count) => <option key={count} value={count}>{count}</option>)}
+            </select>
+          </label>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>Mobile Cards Per Row</span>
+            <select value={sectionSettings.mobileCardsPerRow} onChange={(event) => updateSectionSettingsField("mobileCardsPerRow", event.target.value)} style={inputStyle}>
+              {[1, 2, 3].map((count) => <option key={count} value={count}>{count}</option>)}
+            </select>
+          </label>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>Sort Order</span>
+            <input type="number" value={sectionSettings.sortOrder} onChange={(event) => updateSectionSettingsField("sortOrder", event.target.value)} style={inputStyle} />
+          </label>
+          <div style={settingsSaveActionStyle}>
+            <button type="button" onClick={saveSectionSettings} disabled={isSaving || isLoading} style={saveButtonStyle}>
+              {isSaving ? "Saving..." : "Save Settings"}
+            </button>
+          </div>
+        </div>
 
         {enableCategoryControls ? (
           <div style={categoryFilterPanelStyle}>
@@ -3112,6 +3406,17 @@ const placeholderGridStyle = {
   gap: "14px"
 };
 
+const placeholderGroupStyle = {
+  display: "grid",
+  gap: "12px"
+};
+
+const placeholderGroupTitleStyle = {
+  margin: 0,
+  color: "#0f172a",
+  fontSize: "16px"
+};
+
 const placeholderCardStyle = {
   display: "grid",
   gap: "8px",
@@ -3120,6 +3425,16 @@ const placeholderCardStyle = {
   borderRadius: "16px",
   background: "#f8fafc",
   color: "#526377"
+};
+
+const placeholderCodeStyle = {
+  width: "fit-content",
+  padding: "4px 8px",
+  borderRadius: "8px",
+  background: "#e8f5eb",
+  color: "#1f7a36",
+  fontSize: "12px",
+  fontWeight: 800
 };
 
 const backButtonStyle = {
@@ -3164,6 +3479,35 @@ const summaryPillStyle = {
   color: "#475569",
   fontSize: "12px",
   fontWeight: 800
+};
+
+const cardCountControlStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "8px",
+  minHeight: "36px",
+  padding: "0 10px 0 12px",
+  borderRadius: "999px",
+  background: "#ffffff",
+  border: "1px solid #d9e4dd",
+  color: "#475569",
+  fontSize: "12px",
+  fontWeight: 900,
+  textTransform: "uppercase",
+  letterSpacing: "0.06em"
+};
+
+const cardCountSelectStyle = {
+  minWidth: "56px",
+  minHeight: "26px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "999px",
+  background: "#f8fafc",
+  color: "#0f172a",
+  fontSize: "12px",
+  fontWeight: 900,
+  cursor: "pointer",
+  textAlign: "center"
 };
 
 const secondaryButtonStyle = {
@@ -3746,6 +4090,37 @@ const categoryManageListStyle = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 520px), 1fr))",
   gap: "14px"
+};
+
+const browseSettingsPanelStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 180px), 1fr))",
+  gap: "12px",
+  alignItems: "end",
+  padding: "16px",
+  borderRadius: "14px",
+  border: "1px solid #dbe6ef",
+  background: "#ffffff"
+};
+
+const checkboxFieldStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: "10px",
+  minHeight: "42px",
+  padding: "0 12px",
+  borderRadius: "10px",
+  border: "1px solid #cbd5e1",
+  background: "#f8fafc",
+  color: "#0f172a",
+  fontSize: "13px",
+  fontWeight: 900
+};
+
+const settingsSaveActionStyle = {
+  display: "flex",
+  justifyContent: "flex-end",
+  alignItems: "end"
 };
 
 const homepageCategorySelectorStyle = {

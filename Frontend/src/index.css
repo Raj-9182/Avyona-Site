@@ -105,11 +105,49 @@ video {
 }
 
 .toast-chip {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.75rem;
   background: #0f172a;
   color: #fff;
-  padding: 0.8rem 1rem;
-  border-radius: 14px;
+  padding: 0.9rem 1rem;
+  border-radius: 16px;
   box-shadow: 0 18px 36px rgba(15, 23, 42, 0.24);
+}
+
+.toast-chip div {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.toast-chip strong {
+  font-size: 0.96rem;
+  line-height: 1.2;
+}
+
+.toast-chip span {
+  line-height: 1.45;
+}
+
+.toast-icon {
+  display: grid;
+  place-items: center;
+  width: 2.15rem;
+  height: 2.15rem;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  font-weight: 900;
+}
+
+.toast-chip-success {
+  border: 1px solid rgba(93, 180, 103, 0.42);
+  background:
+    linear-gradient(135deg, #2f8f46, #53b866),
+    #43a054;
+  box-shadow: 0 20px 44px rgba(47, 143, 70, 0.28);
 }
 
 .cart-remove-button {
@@ -692,7 +730,6 @@ body.checkout-page {
     line-height: 1.15;
   }
 
-  .category-grid,
   .spotlight-grid,
   .product-grid,
   .mini-grid,
@@ -703,7 +740,8 @@ body.checkout-page {
   }
 
   .category-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(var(--category-mobile-cards-per-row, 1), minmax(0, 1fr));
+    gap: 10px;
   }
 
   .review-grid,
@@ -731,10 +769,15 @@ body.checkout-page {
     padding: 10px;
   }
 
+  .homepage-dynamic-grid,
+  .mini-grid.homepage-dynamic-grid {
+    grid-template-columns: repeat(var(--homepage-mobile-cards-per-row, 2), minmax(0, 1fr));
+  }
+
   .product-art,
   .mini-art,
   .collection-results-content .product-art {
-    min-height: 150px;
+    min-height: 0;
     padding: 6px;
     border-radius: 10px;
   }
@@ -742,7 +785,7 @@ body.checkout-page {
   .product-art img,
   .mini-art img,
   .collection-results-content .product-art img {
-    transform: scale(1.18);
+    transform: none;
   }
 
   .product-topline {
@@ -882,7 +925,7 @@ body.checkout-page {
   }
 
   .category-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(var(--category-mobile-cards-per-row, 1), minmax(0, 1fr));
   }
 
   .product-card,
@@ -890,9 +933,14 @@ body.checkout-page {
     padding: 8px;
   }
 
+  .homepage-dynamic-grid,
+  .mini-grid.homepage-dynamic-grid {
+    grid-template-columns: repeat(var(--homepage-mobile-cards-per-row, 2), minmax(0, 1fr));
+  }
+
   .product-art,
   .mini-art,
   .collection-results-content .product-art {
-    min-height: 136px;
+    min-height: 0;
   }
 }

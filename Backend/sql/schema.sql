@@ -495,6 +495,43 @@ CREATE TABLE IF NOT EXISTS order_status_timeline (
   CONSTRAINT fk_order_status_timeline_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS reviews (
+  review_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  product_id INT UNSIGNED NOT NULL,
+  customer_id INT UNSIGNED NULL,
+  order_id INT UNSIGNED NULL,
+  reviewer_name VARCHAR(160) NOT NULL,
+  reviewer_email VARCHAR(190) NULL,
+  rating TINYINT UNSIGNED NOT NULL,
+  review_title VARCHAR(180) NOT NULL,
+  review_text TEXT NOT NULL,
+  review_type ENUM('customer_review', 'guest_review', 'admin_review') NOT NULL DEFAULT 'guest_review',
+  is_verified_purchase TINYINT(1) NOT NULL DEFAULT 0,
+  is_anonymous TINYINT(1) NOT NULL DEFAULT 0,
+  visibility_status ENUM('public', 'hidden', 'private_to_reviewer', 'deleted') NOT NULL DEFAULT 'hidden',
+  admin_reply TEXT NULL,
+  admin_reply_at DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT chk_reviews_rating CHECK (rating BETWEEN 1 AND 5),
+  CONSTRAINT fk_reviews_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+  CONSTRAINT fk_reviews_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
+  CONSTRAINT fk_reviews_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL
+);
+
+ALTER TABLE reviews ADD COLUMN admin_reply TEXT NULL;
+ALTER TABLE reviews ADD COLUMN admin_reply_at DATETIME NULL;
+
+CREATE TABLE IF NOT EXISTS review_media (
+  media_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  review_id BIGINT UNSIGNED NOT NULL,
+  media_type ENUM('image', 'video') NOT NULL,
+  media_url VARCHAR(500) NOT NULL,
+  sort_order INT UNSIGNED NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_review_media_review FOREIGN KEY (review_id) REFERENCES reviews(review_id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS analytics_events (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   source_queue_id BIGINT UNSIGNED NULL,
@@ -1129,6 +1166,10 @@ CREATE INDEX idx_carts_customer_status ON carts(customer_id, status);
 CREATE INDEX idx_cart_items_cart ON cart_items(cart_id);
 CREATE INDEX idx_wishlists_customer ON wishlists(customer_id);
 CREATE INDEX idx_product_reviews_product_status ON product_reviews(product_id, status);
+CREATE INDEX idx_reviews_product_visibility ON reviews(product_id, visibility_status);
+CREATE INDEX idx_reviews_customer_created ON reviews(customer_id, created_at);
+CREATE INDEX idx_reviews_order ON reviews(order_id);
+CREATE INDEX idx_review_media_review_sort ON review_media(review_id, sort_order);
 CREATE INDEX idx_product_search_filter ON product_search_attributes(filter_group, filter_value);
 CREATE INDEX idx_payments_order_status ON payments(order_id, payment_status);
 CREATE INDEX idx_shipments_order_status ON shipments(order_id, shipping_status);

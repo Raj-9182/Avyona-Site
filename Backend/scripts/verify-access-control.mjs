@@ -62,6 +62,7 @@ check("Order Manager frontend can update orders", canAccess("orders", "edit", "o
 check("Order Manager frontend cannot edit products", !canAccess("products", "edit", "order_manager"));
 check("Marketing Manager frontend can manage homepage", canAccess("homepage", "edit", "marketing_manager"));
 check("Marketing Manager frontend can manage coupons", canAccess("coupons", "edit", "marketing_manager"));
+check("Marketing Manager frontend can create reviews", canAccess("reviews", "create", "marketing_manager"));
 check("Support Staff frontend can view customers", canAccess("customers", "view", "support_staff"));
 check("Support Staff frontend cannot delete customers", !canAccess("customers", "delete", "support_staff"));
 check("Admin frontend cannot access Sensitive Access", !canAccess("sensitive_access", "manage_admin_users", "admin"));
@@ -74,6 +75,7 @@ check("Order Manager backend can edit orders", await checkBackend("order_manager
 check("Order Manager backend cannot edit products", !(await checkBackend("order_manager", "products", "edit")));
 check("Marketing Manager backend can edit homepage", await checkBackend("marketing_manager", "homepage", "edit"));
 check("Marketing Manager backend can edit coupons", await checkBackend("marketing_manager", "coupons", "edit"));
+check("Marketing Manager backend can create reviews", await checkBackend("marketing_manager", "reviews", "create"));
 check("Support Staff backend can view customers", await checkBackend("support_staff", "customers", "view"));
 check("Support Staff backend cannot delete customers", !(await checkBackend("support_staff", "customers", "delete")));
 check("Admin backend cannot access Manage Access sensitive controls", !(await checkBackend("admin", "sensitive_access", "manage_admin_users")));

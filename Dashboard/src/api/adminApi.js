@@ -2,6 +2,12 @@ import axios from "axios";
 
 const ADMIN_TOKEN_KEY = "avyonaAdminToken";
 const ADMIN_AUTH_EVENT = "avyonaAdminAuthChanged";
+const LOCAL_DEV_ADMIN_TOKEN = "local-dev-admin-token";
+
+function getLocalDevAdminToken() {
+  if (import.meta.env?.PROD) return "";
+  return LOCAL_DEV_ADMIN_TOKEN;
+}
 
 function notifyAuthChanged() {
   if (typeof window !== "undefined") {
@@ -11,7 +17,7 @@ function notifyAuthChanged() {
 
 export function getAdminToken() {
   if (typeof window === "undefined") return "";
-  return window.localStorage.getItem(ADMIN_TOKEN_KEY) || "";
+  return window.localStorage.getItem(ADMIN_TOKEN_KEY) || getLocalDevAdminToken();
 }
 
 export function setAdminToken(token) {
@@ -110,6 +116,22 @@ export function updateAdminSettings(payload) {
   return adminApi.put("/settings", payload);
 }
 
+export function fetchBrowseCategoriesSettings() {
+  return adminApi.get("/settings/homepage/browse-categories");
+}
+
+export function updateBrowseCategoriesSettings(payload) {
+  return adminApi.put("/settings/homepage/browse-categories", payload);
+}
+
+export function fetchHomepageSectionSettings(sectionKey) {
+  return adminApi.get(`/settings/homepage/sections/${sectionKey}`);
+}
+
+export function updateHomepageSectionSettings(sectionKey, payload) {
+  return adminApi.put(`/settings/homepage/sections/${sectionKey}`, payload);
+}
+
 export function fetchProducts(params) {
   return adminApi.get("/products", { params });
 }
@@ -192,6 +214,30 @@ export function updateProduct(productId, payload) {
 
 export function deleteProduct(productId) {
   return adminApi.delete(`/products/${productId}`);
+}
+
+export function createAdminReview(payload) {
+  return adminApi.post("/reviews", payload);
+}
+
+export function fetchReviews() {
+  return adminApi.get("/reviews");
+}
+
+export function updateReview(reviewId, payload) {
+  return adminApi.patch(`/reviews/${reviewId}`, payload);
+}
+
+export function updateReviewReply(reviewId, adminReply) {
+  return adminApi.patch(`/reviews/${reviewId}/reply`, { adminReply });
+}
+
+export function updateReviewVisibility(reviewId, visibilityStatus) {
+  return adminApi.patch(`/reviews/${reviewId}/visibility`, { visibilityStatus });
+}
+
+export function deleteReview(reviewId) {
+  return adminApi.delete(`/reviews/${reviewId}`);
 }
 
 export function fetchCategories() {

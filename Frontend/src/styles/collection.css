@@ -401,7 +401,8 @@ body.collection-page {
 }
 
 .collection-results-content .product-art {
-  min-height: 15rem;
+  min-height: 0;
+  aspect-ratio: 1 / 1;
   border-radius: 1.3rem;
   transition: transform 320ms ease;
 }
@@ -685,12 +686,12 @@ body.collection-page {
   }
 
   .collection-results-content .product-art {
-    min-height: 150px;
+    min-height: 0;
     border-radius: 10px;
   }
 
   .collection-results-content .product-art img {
-    transform: scale(1.18);
+    transform: none;
   }
 
   .collection-page .filter-panel.is-open {

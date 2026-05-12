@@ -137,7 +137,40 @@ export const DEFAULT_APP_SETTINGS = {
       buttonText: "Shop Now",
       buttonLink: "/collections"
     },
+    browseCategoriesSettings: {
+      enabled: true,
+      title: "Shop by Category",
+      subtitle: "",
+      cardsPerRow: 4,
+      mobileCardsPerRow: 1,
+      sortOrder: 10
+    },
+    ourProductsSettings: {
+      enabled: true,
+      title: "Our Products",
+      subtitle: "",
+      cardsPerRow: 4,
+      mobileCardsPerRow: 2,
+      sortOrder: 20
+    },
+    bestSellerProductsSettings: {
+      enabled: true,
+      title: "Best Sellers and Trending",
+      subtitle: "",
+      cardsPerRow: 4,
+      mobileCardsPerRow: 2,
+      sortOrder: 40
+    },
+    newArrivalProductsSettings: {
+      enabled: true,
+      title: "New Arrivals",
+      subtitle: "",
+      cardsPerRow: 3,
+      mobileCardsPerRow: 2,
+      sortOrder: 60
+    },
     browseCategories: [],
+    browseCategoryCardCount: 6,
     ourProducts: [],
     bestSellerCategories: [
       "personal-audio",
@@ -426,6 +459,23 @@ export function setSettingValue(settings, path, value) {
   return next;
 }
 
+function normalizePublicHomepageSectionSettings(value = {}, fallback = {}) {
+  const cardsPerRow = Number(value?.cardsPerRow);
+  const mobileCardsPerRow = Number(value?.mobileCardsPerRow);
+  const sortOrder = Number(value?.sortOrder);
+
+  return {
+    ...fallback,
+    ...(value || {}),
+    enabled: value?.enabled !== false,
+    title: String(value?.title || fallback.title || "").trim(),
+    subtitle: String(value?.subtitle || fallback.subtitle || "").trim(),
+    cardsPerRow: Number.isInteger(cardsPerRow) ? Math.min(10, Math.max(1, cardsPerRow)) : fallback.cardsPerRow,
+    mobileCardsPerRow: Number.isInteger(mobileCardsPerRow) ? Math.min(3, Math.max(1, mobileCardsPerRow)) : fallback.mobileCardsPerRow,
+    sortOrder: Number.isFinite(sortOrder) ? Math.floor(sortOrder) : fallback.sortOrder
+  };
+}
+
 export function getPublicSettings(settings = DEFAULT_APP_SETTINGS) {
   const now = new Date();
   const publicHeroBanners = Array.isArray(settings.homepage?.heroBanners)
@@ -495,6 +545,22 @@ export function getPublicSettings(settings = DEFAULT_APP_SETTINGS) {
       browseCategories: Array.isArray(settings.homepage?.browseCategories)
         ? settings.homepage.browseCategories
         : DEFAULT_APP_SETTINGS.homepage.browseCategories,
+      browseCategoriesSettings: {
+        ...DEFAULT_APP_SETTINGS.homepage.browseCategoriesSettings,
+        ...(settings.homepage?.browseCategoriesSettings || {}),
+        cardsPerRow: Number.isInteger(Number(settings.homepage?.browseCategoriesSettings?.cardsPerRow))
+          ? Math.min(10, Math.max(1, Number(settings.homepage.browseCategoriesSettings.cardsPerRow)))
+          : DEFAULT_APP_SETTINGS.homepage.browseCategoriesSettings.cardsPerRow,
+        mobileCardsPerRow: Number.isInteger(Number(settings.homepage?.browseCategoriesSettings?.mobileCardsPerRow))
+          ? Math.min(3, Math.max(1, Number(settings.homepage.browseCategoriesSettings.mobileCardsPerRow)))
+          : DEFAULT_APP_SETTINGS.homepage.browseCategoriesSettings.mobileCardsPerRow
+      },
+      ourProductsSettings: normalizePublicHomepageSectionSettings(settings.homepage?.ourProductsSettings, DEFAULT_APP_SETTINGS.homepage.ourProductsSettings),
+      bestSellerProductsSettings: normalizePublicHomepageSectionSettings(settings.homepage?.bestSellerProductsSettings, DEFAULT_APP_SETTINGS.homepage.bestSellerProductsSettings),
+      newArrivalProductsSettings: normalizePublicHomepageSectionSettings(settings.homepage?.newArrivalProductsSettings, DEFAULT_APP_SETTINGS.homepage.newArrivalProductsSettings),
+      browseCategoryCardCount: Number.isInteger(Number(settings.homepage?.browseCategoryCardCount))
+        ? Math.min(10, Math.max(1, Number(settings.homepage.browseCategoryCardCount)))
+        : DEFAULT_APP_SETTINGS.homepage.browseCategoryCardCount,
       ourProducts: Array.isArray(settings.homepage?.ourProducts)
         ? settings.homepage.ourProducts
         : DEFAULT_APP_SETTINGS.homepage.ourProducts,

@@ -314,7 +314,7 @@ export default function InventoryManager() {
     file: null,
     importType: "create-update",
     templateType: "full-product",
-    autoCreateMissingCategoryBrand: false,
+    autoCreateMissingCategoryBrand: true,
     updateControls: {
       basicInfo: true,
       pricing: true,
@@ -485,6 +485,12 @@ export default function InventoryManager() {
     }
     setValidationMessage("");
     updateUploadConfig("file", file);
+  };
+
+  const openInventoryFilePicker = () => {
+    if (!fileInputRef.current) return;
+    fileInputRef.current.value = "";
+    fileInputRef.current.click();
   };
 
   const handleDropInventoryFile = (event) => {
@@ -763,9 +769,12 @@ export default function InventoryManager() {
                   <div
                     role="button"
                     tabIndex={0}
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={openInventoryFilePicker}
                     onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") fileInputRef.current?.click();
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openInventoryFilePicker();
+                      }
                     }}
                     onDragEnter={(event) => {
                       event.preventDefault();
@@ -786,6 +795,7 @@ export default function InventoryManager() {
                       ref={fileInputRef}
                       type="file"
                       accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                      onClick={(event) => event.stopPropagation()}
                       onChange={(event) => selectInventoryFile(event.target.files?.[0] || null)}
                       style={hiddenFileInputStyle}
                     />

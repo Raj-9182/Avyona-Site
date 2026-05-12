@@ -9,7 +9,9 @@ import {
   syncCustomerCart,
   syncCustomerWishlist
 } from "../../controllers/customerAccountController.js";
+import { getMyReviews, submitCustomerReview, uploadCustomerReviewMedia } from "../../controllers/reviewController.js";
 import { requireCustomerAuth } from "../../middlewares/authMiddleware.js";
+import { uploadMedia } from "../../middlewares/upload.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 
 const router = Router();
@@ -22,5 +24,8 @@ router.put("/cart", asyncHandler(requireCustomerAuth), asyncHandler(syncCustomer
 router.get("/wishlist", asyncHandler(requireCustomerAuth), asyncHandler(getCustomerWishlist));
 router.put("/wishlist", asyncHandler(requireCustomerAuth), asyncHandler(syncCustomerWishlist));
 router.get("/orders", asyncHandler(requireCustomerAuth), asyncHandler(getCustomerOrders));
+router.get("/reviews", asyncHandler(requireCustomerAuth), asyncHandler(getMyReviews));
+router.post("/reviews", asyncHandler(requireCustomerAuth), asyncHandler(submitCustomerReview));
+router.post("/reviews/media", asyncHandler(requireCustomerAuth), uploadMedia.single("media"), asyncHandler(uploadCustomerReviewMedia));
 
 export default router;

@@ -1,7 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { trackAnalyticsEvent } from "../api/analyticsApi";
-import { fetchStorefrontProduct } from "../api/productApi";
+import {
+  fetchProductReviewMediaGallery,
+  fetchStorefrontProduct,
+  fetchStorefrontProductReviews,
+  submitGuestReview as submitGuestReviewApi
+} from "../api/productApi";
+import { getCustomerToken, submitCustomerReview as submitCustomerReviewApi, uploadCustomerReviewMedia } from "../api/customerApi";
 import ProductCard from "../components/product/ProductCard";
 import { allProducts, categoryRouteMap } from "../data/storefront-content";
 import {
@@ -18,6 +24,7 @@ import {
   writeStorage
 } from "../utils/storefront";
 import { validateCoupon } from "../../../shared/coupons";
+import { REVIEW_TYPES, REVIEW_VISIBILITY_STATUSES } from "../../../shared/reviewTypes";
 
 const PAYMENT_LOGOS = [
   { src: getOptimizedAssetPath("/images/payment 1.png"), alt: "Payment option 1" },
@@ -35,6 +42,26 @@ const TRUST_POINTS = [
 ];
 
 const MOBILE_ZOOM_HOLD_MS = 700;
+const REVIEW_PAGE_SIZE = 5;
+const REVIEW_SORT_OPTIONS = [
+  { label: "Top reviews", value: "recent" },
+  { label: "Highest Rating", value: "highest" },
+  { label: "Lowest Rating", value: "lowest" },
+  { label: "With Photos/Videos", value: "media" },
+  { label: "Verified Purchase Only", value: "verified" }
+];
+const REVIEW_FILTER_OPTIONS = [
+  { label: "All stars", value: "all" },
+  { label: "5 star only", value: "5" },
+  { label: "4 star only", value: "4" },
+  { label: "3 star only", value: "3" },
+  { label: "2 star only", value: "2" },
+  { label: "1 star only", value: "1" }
+];
+const REVIEWER_FILTER_OPTIONS = [
+  { label: "All reviewers", value: "all" },
+  { label: "Verified purchase only", value: "verified" }
+];
 
 const POLICY_SECTIONS = [
   {
@@ -64,9 +91,10 @@ function normalizeBackendProduct(product) {
   const mrp = Number(product.mrp || price || 0);
   const stockQuantity = Number(product.stockQuantity || 0);
   const discount = mrp > price && price > 0 ? Math.round(((mrp - price) / mrp) * 100) : 0;
-  const gallery = Array.isArray(product.galleryUrls) && product.galleryUrls.length ? product.galleryUrls : [product.imageUrl || "/images/optimized/frame-1.webp"];
+  const gallery = Array.isArray(product.galleryUrls) && product.galleryUrls.length ? product.galleryUrls.filter(hasMediaUrl) : [];
 
   return {
+    id: product.id,
     asin: product.asin,
     sku: product.asin || product.sku,
     slug: product.slug,
@@ -77,7 +105,7 @@ function normalizeBackendProduct(product) {
     price,
     mrp,
     discount,
-    image: gallery[0],
+    image: gallery[0] || product.imageUrl || "",
     gallery,
     highlights: [product.shortDescription || "New Avyona product"].filter(Boolean),
     description: product.description ? String(product.description).split(/\n+/).filter(Boolean) : [product.shortDescription || "Product details will be updated soon."],
@@ -99,19 +127,43 @@ function normalizeBackendProduct(product) {
   };
 }
 
+function resolveReviewMediaUrl(url) {
+  const value = String(url || "").trim();
+  if (!value || value.startsWith("http") || value.startsWith("data:")) return value;
+  const apiBase = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000/api/v1";
+  const assetBase = apiBase.replace(/\/api\/v1\/?$/, "");
+  return `${assetBase}${value.startsWith("/") ? value : `/${value}`}`;
+}
+
 function renderStars(rating) {
   const filled = Math.round(Number(rating || 0));
   return `${"\u2605".repeat(filled)}${"\u2606".repeat(Math.max(0, 5 - filled))}`;
 }
 
+function hasMediaUrl(value) {
+  return Boolean(String(value || "").trim());
+}
+
+function isVideoUrl(value) {
+  return /\.(mp4|webm|ogg)(\?.*)?$/i.test(String(value || "").trim());
+}
+
+function ProductMediaFallback({ compact = false }) {
+  return (
+    <span className={`avy-no-image-placeholder ${compact ? "is-compact" : ""}`}>
+      <span>No image</span>
+    </span>
+  );
+}
+
 function getGalleryItems(product, selectedVariant) {
   const sourceGallery = selectedVariant?.gallery?.length ? selectedVariant.gallery : product.gallery || [product.image];
   const items = sourceGallery.map((entry, index) => ({
-    type: entry.endsWith(".mp4") ? "video" : "image",
+    type: isVideoUrl(entry) ? "video" : "image",
     src: entry,
-    thumb: entry.endsWith(".mp4") ? product.videoPoster || product.image : entry,
+    thumb: isVideoUrl(entry) ? product.videoPoster || product.image : entry,
     alt: `${product.name} ${index + 1}`
-  }));
+  })).filter((item) => hasMediaUrl(item.src));
 
   if (product.video && !items.some((item) => item.src === product.video)) {
     items.push({
@@ -120,6 +172,15 @@ function getGalleryItems(product, selectedVariant) {
       thumb: product.videoPoster || product.image,
       alt: `${product.name} video`
     });
+  }
+
+  if (!items.length) {
+    return [{
+      type: "placeholder",
+      src: "",
+      thumb: "",
+      alt: "No image available"
+    }];
   }
 
   return items;
@@ -148,31 +209,125 @@ function getReviewStats(reviews, fallbackAverage) {
   };
 }
 
-function getCustomerMedia(product, reviews, galleryItems) {
+function formatReviewDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value || "";
+  return date.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric"
+  });
+}
+
+function getReviewDisplayName(review) {
+  if (review.isAnonymous || review.name === "Anonymous") {
+    return review.reviewType === REVIEW_TYPES.GUEST ? "Anonymous Guest" : "Anonymous Customer";
+  }
+  return review.name || "Avyona Customer";
+}
+
+function isReviewVerifiedPurchase(review) {
+  if (review.reviewType === REVIEW_TYPES.GUEST) return false;
+  return Boolean(review.isVerifiedPurchase || review.is_verified_purchase);
+}
+
+function isReviewVisibleToCurrentUser(review, authUser) {
+  if (!review.visibilityStatus) return true;
+  if (review.visibilityStatus === REVIEW_VISIBILITY_STATUSES.PUBLIC) return true;
+  if (!authUser) return false;
+  return review.visibilityStatus === REVIEW_VISIBILITY_STATUSES.PRIVATE_TO_REVIEWER && review.customerId && Number(review.customerId) === Number(authUser.id);
+}
+
+function isPublicReview(review) {
+  return !review.visibilityStatus || review.visibilityStatus === REVIEW_VISIBILITY_STATUSES.PUBLIC;
+}
+
+function hasReviewMedia(review) {
+  return Boolean(review.images?.length || review.videos?.length);
+}
+
+function getReviewTime(review) {
+  const time = new Date(review.date || 0).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function filterAndSortReviews(reviews, filterValue, reviewerFilterValue, sortValue) {
+  const filtered = reviews.filter((review) => {
+    const matchesRating = filterValue === "all" || Number(review.rating || 0) === Number(filterValue);
+    const matchesReviewer = reviewerFilterValue === "all" || isReviewVerifiedPurchase(review);
+    return matchesRating && matchesReviewer;
+  });
+
+  return [...filtered].sort((left, right) => {
+    if (sortValue === "highest") return Number(right.rating || 0) - Number(left.rating || 0) || getReviewTime(right) - getReviewTime(left);
+    if (sortValue === "lowest") return Number(left.rating || 0) - Number(right.rating || 0) || getReviewTime(right) - getReviewTime(left);
+    if (sortValue === "media") return Number(hasReviewMedia(right)) - Number(hasReviewMedia(left)) || getReviewTime(right) - getReviewTime(left);
+    if (sortValue === "verified") return Number(isReviewVerifiedPurchase(right)) - Number(isReviewVerifiedPurchase(left)) || getReviewTime(right) - getReviewTime(left);
+    return getReviewTime(right) - getReviewTime(left);
+  });
+}
+
+function normalizeStorefrontReview(review) {
+  const media = Array.isArray(review.media) ? review.media : [];
+  return {
+    name: review.isAnonymous ? "" : review.reviewerName,
+    title: review.reviewTitle,
+    rating: Number(review.rating || 0),
+    date: review.createdAt || "",
+    body: review.reviewText,
+    adminReply: review.adminReply || "",
+    adminReplyAt: review.adminReplyAt || "",
+    images: media.filter((item) => item.mediaType === "image").map((item) => resolveReviewMediaUrl(item.mediaUrl)),
+    videos: media.filter((item) => item.mediaType === "video").map((item) => resolveReviewMediaUrl(item.mediaUrl)),
+    reviewType: review.reviewType,
+    visibilityStatus: review.visibilityStatus,
+    customerId: review.customerId,
+    isAnonymous: Boolean(review.isAnonymous),
+    isVerifiedPurchase: Boolean(review.isVerifiedPurchase)
+  };
+}
+
+function getCustomerMedia(reviews) {
   const reviewMedia = reviews.flatMap((review, index) => {
+    const displayName = getReviewDisplayName(review);
     const imageItems = (review.images || []).map((image, mediaIndex) => ({
       key: `review-image-${index}-${mediaIndex}`,
       type: "image",
       src: image,
-      alt: `${review.name} review image ${mediaIndex + 1}`
+      alt: `${displayName} review image ${mediaIndex + 1}`
     }));
     const videoItems = (review.videos || []).map((video, mediaIndex) => ({
       key: `review-video-${index}-${mediaIndex}`,
       type: "video",
       src: video,
-      alt: `${review.name} review video ${mediaIndex + 1}`
+      alt: `${displayName} review video ${mediaIndex + 1}`
     }));
     return [...imageItems, ...videoItems];
   });
 
-  if (reviewMedia.length) return reviewMedia;
+  return reviewMedia;
+}
 
-  return galleryItems.slice(0, 5).map((item, index) => ({
-    key: `fallback-media-${index}`,
-    type: item.type,
-    src: item.src,
-    alt: item.alt
-  }));
+function normalizeReviewGalleryMedia(item, index) {
+  const displayName = item.isAnonymous
+    ? (item.reviewType === REVIEW_TYPES.GUEST ? "Anonymous Guest" : "Anonymous Customer")
+    : item.reviewerName || "Avyona Customer";
+
+  return {
+    key: `gallery-media-${item.mediaId || item.reviewId || index}`,
+    type: item.mediaType,
+    src: resolveReviewMediaUrl(item.mediaUrl),
+    alt: `${displayName} review ${item.mediaType || "media"} ${index + 1}`
+  };
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("File could not be processed"));
+    reader.readAsDataURL(file);
+  });
 }
 
 export default function ProductPage({ context }) {
@@ -181,10 +336,23 @@ export default function ProductPage({ context }) {
   const productCatalog = context.allProducts && context.allProducts.length ? context.allProducts : allProducts;
   const [fetchedProduct, setFetchedProduct] = useState(null);
   const [isFetchingProduct, setIsFetchingProduct] = useState(false);
-  const product = productCatalog.find((item) => item.slug === productKey || String(item.asin || "") === String(productKey || "")) || fetchedProduct;
+  const catalogProduct = productCatalog.find((item) => item.slug === productKey || String(item.asin || "") === String(productKey || ""));
+  const product = useMemo(() => (
+    fetchedProduct
+      ? {
+        ...(catalogProduct || {}),
+        ...fetchedProduct,
+        gallery: catalogProduct?.gallery?.length ? catalogProduct.gallery : fetchedProduct.gallery,
+        variants: catalogProduct?.variants?.length ? catalogProduct.variants : fetchedProduct.variants,
+        reviews: catalogProduct?.reviews?.length ? catalogProduct.reviews : fetchedProduct.reviews,
+        faqs: catalogProduct?.faqs?.length ? catalogProduct.faqs : fetchedProduct.faqs
+      }
+      : catalogProduct
+  ), [catalogProduct, fetchedProduct]);
   const stageRef = useRef(null);
   const imageRef = useRef(null);
   const previewRef = useRef(null);
+  const reviewFormRef = useRef(null);
   const mobileZoomTimerRef = useRef(null);
   const mobileZoomTouchRef = useRef(null);
   const productViewKeyRef = useRef("");
@@ -208,13 +376,30 @@ export default function ProductPage({ context }) {
   const [pincode, setPincode] = useState("");
   const [deliveryMessage, setDeliveryMessage] = useState("");
   const [reviewFormOpen, setReviewFormOpen] = useState(false);
-  const [reviewName, setReviewName] = useState("");
+  const [guestReviewName, setGuestReviewName] = useState("");
+  const [guestReviewEmail, setGuestReviewEmail] = useState("");
   const [reviewTitle, setReviewTitle] = useState("");
   const [reviewBody, setReviewBody] = useState("");
   const [reviewRating, setReviewRating] = useState(5);
-  const [reviewVideoUrl, setReviewVideoUrl] = useState("");
-  const [reviewImage, setReviewImage] = useState("");
+  const [reviewVideos, setReviewVideos] = useState([]);
+  const [reviewImages, setReviewImages] = useState([]);
+  const [reviewImageFiles, setReviewImageFiles] = useState([]);
+  const [reviewVideoFiles, setReviewVideoFiles] = useState([]);
   const [isSavingReviewImage, setIsSavingReviewImage] = useState(false);
+  const [isSavingReviewVideo, setIsSavingReviewVideo] = useState(false);
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [pendingReviewDraft, setPendingReviewDraft] = useState(null);
+  const [displayPreferenceOpen, setDisplayPreferenceOpen] = useState(false);
+  const [backendReviews, setBackendReviews] = useState([]);
+  const [reviewMediaGallery, setReviewMediaGallery] = useState([]);
+  const [backendReviewOffset, setBackendReviewOffset] = useState(0);
+  const [hasMoreBackendReviews, setHasMoreBackendReviews] = useState(false);
+  const [isLoadingBackendReviews, setIsLoadingBackendReviews] = useState(false);
+  const [reviewMediaPreviewIndex, setReviewMediaPreviewIndex] = useState(null);
+  const [reviewMediaGalleryOpen, setReviewMediaGalleryOpen] = useState(false);
+  const [reviewSort, setReviewSort] = useState("recent");
+  const [reviewFilter, setReviewFilter] = useState("all");
+  const [reviewerFilter, setReviewerFilter] = useState("all");
   const [productCouponCode, setProductCouponCode] = useState("");
   const [productCouponMessage, setProductCouponMessage] = useState("");
   const [productCouponApplied, setProductCouponApplied] = useState(false);
@@ -224,6 +409,7 @@ export default function ProductPage({ context }) {
     ? (getProductVariantByKey(product, variantKey) || product?.variants?.[0] || null)
     : getProductVariantByKey(product, variantKey);
   const selectedVariantIndex = product?.variants?.findIndex((variant) => variant.key === selectedVariant?.key) ?? -1;
+  const productPageKey = `${productKey || ""}:${selectedVariant?.key || ""}`;
   const groupedVariantProducts = useMemo(() => {
     if (!product?.variantGroupId) return [];
 
@@ -236,11 +422,6 @@ export default function ProductPage({ context }) {
   }, [product, productCatalog]);
 
   useEffect(() => {
-    if (productCatalog.some((item) => item.slug === productKey || String(item.asin || "") === String(productKey || ""))) {
-      setFetchedProduct(null);
-      return undefined;
-    }
-
     let isMounted = true;
     setIsFetchingProduct(true);
     fetchStorefrontProduct(productKey)
@@ -257,7 +438,7 @@ export default function ProductPage({ context }) {
     return () => {
       isMounted = false;
     };
-  }, [productCatalog, productKey]);
+  }, [productKey]);
 
   useEffect(() => {
     if (!product) return;
@@ -280,17 +461,95 @@ export default function ProductPage({ context }) {
     setPincode("");
     setDeliveryMessage("");
     setReviewFormOpen(false);
-    setReviewName("");
+    setGuestReviewName("");
+    setGuestReviewEmail("");
     setReviewTitle("");
     setReviewBody("");
     setReviewRating(5);
-    setReviewVideoUrl("");
-    setReviewImage("");
+    setReviewVideos([]);
+    setReviewImages([]);
+    setReviewImageFiles([]);
+    setReviewVideoFiles([]);
+    setIsSavingReviewImage(false);
+    setIsSavingReviewVideo(false);
+    setIsSubmittingReview(false);
+    setPendingReviewDraft(null);
+    setDisplayPreferenceOpen(false);
+    setBackendReviews([]);
+    setReviewMediaGallery([]);
+    setBackendReviewOffset(0);
+    setHasMoreBackendReviews(false);
+    setIsLoadingBackendReviews(false);
+    setReviewMediaPreviewIndex(null);
+    setReviewMediaGalleryOpen(false);
+    setReviewSort("recent");
+    setReviewFilter("all");
+    setReviewerFilter("all");
     setProductCouponCode("");
     setProductCouponMessage("");
     setProductCouponApplied(false);
     setStoredReviews(readStorage(getReviewStorageKey(product.slug), []));
-  }, [product, selectedVariant?.key]);
+  }, [productPageKey]);
+
+  useEffect(() => {
+    if (!product) return undefined;
+
+    let isMounted = true;
+    const identifier = product.slug || product.asin || product.id;
+
+    fetchProductReviewMediaGallery(identifier, getCustomerToken())
+      .then((response) => {
+        if (!isMounted) return;
+        const rows = Array.isArray(response.data) ? response.data : [];
+        setReviewMediaGallery(rows.map(normalizeReviewGalleryMedia));
+      })
+      .catch(() => {
+        if (isMounted) setReviewMediaGallery([]);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [product, context.authUser?.id]);
+
+  useEffect(() => {
+    if (!product) return undefined;
+
+    let isMounted = true;
+    const identifier = product.slug || product.asin || product.id;
+    const rating = reviewFilter === "all" ? "" : reviewFilter;
+    const verifiedOnly = reviewerFilter === "verified" || reviewSort === "verified" ? "true" : "";
+
+    setIsLoadingBackendReviews(true);
+    setBackendReviews([]);
+    setBackendReviewOffset(0);
+    setHasMoreBackendReviews(false);
+
+    fetchStorefrontProductReviews(identifier, getCustomerToken(), {
+      limit: REVIEW_PAGE_SIZE,
+      offset: 0,
+      sort: reviewSort,
+      rating,
+      verifiedOnly
+    })
+      .then((response) => {
+        if (!isMounted) return;
+        const rows = Array.isArray(response.data) ? response.data : [];
+        setBackendReviews(rows.map(normalizeStorefrontReview));
+        setBackendReviewOffset(rows.length);
+        setHasMoreBackendReviews(Boolean(response.pagination?.hasMore));
+      })
+      .catch(() => {
+        if (isMounted) setBackendReviews([]);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingBackendReviews(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [product, context.authUser?.id, reviewSort, reviewFilter, reviewerFilter]);
 
   useEffect(() => () => {
     if (mobileZoomTimerRef.current) {
@@ -302,6 +561,24 @@ export default function ProductPage({ context }) {
     document.body.classList.add("product-page");
     return () => document.body.classList.remove("product-page");
   }, []);
+
+  useEffect(() => {
+    if (!reviewFormOpen) return undefined;
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setReviewFormOpen(false);
+      }
+    };
+
+    document.body.classList.add("avy-modal-open");
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.classList.remove("avy-modal-open");
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [reviewFormOpen]);
 
   useEffect(() => {
     if (!product) return;
@@ -404,10 +681,18 @@ export default function ProductPage({ context }) {
   const related = productCatalog
     .filter((item) => item.slug !== product.slug && (item.brand === product.brand || item.collectionSlug === product.collectionSlug))
     .slice(0, 4);
-  const combinedReviews = [...storedReviews, ...(product.reviews || [])];
-  const reviewStats = getReviewStats(combinedReviews, product.reviewSummary?.average);
-  const customerMedia = getCustomerMedia(product, combinedReviews, galleryItems);
+  const visibleStoredReviews = storedReviews.filter((review) => isReviewVisibleToCurrentUser(review, context.authUser));
+  const visibleLocalProductReviews = (product.reviews || []).filter((review) => isReviewVisibleToCurrentUser(review, context.authUser));
+  const combinedReviews = [...visibleStoredReviews, ...backendReviews, ...visibleLocalProductReviews];
+  const displayedReviews = filterAndSortReviews(combinedReviews, reviewFilter, reviewerFilter, reviewSort);
+  const publicReviews = combinedReviews.filter(isPublicReview);
+  const reviewStats = getReviewStats(publicReviews, product.reviewSummary?.average);
+  const customerMedia = reviewMediaGallery.length ? reviewMediaGallery : getCustomerMedia(publicReviews);
+  const activeReviewMedia = reviewMediaPreviewIndex === null || !customerMedia.length
+    ? null
+    : customerMedia[((reviewMediaPreviewIndex % customerMedia.length) + customerMedia.length) % customerMedia.length];
   const descriptionPreview = descriptionExpanded ? product.description || [] : (product.description || []).slice(0, 2);
+  const reviewerDisplayName = context.authUser?.fullName || context.customerProfile?.firstName || context.authUser?.email || "Avyona Customer";
 
   const addSelectedQuantityToCart = (triggerElement = null) => {
     context.addToCart(product, selectedVariant, safeQuantity, triggerElement);
@@ -444,6 +729,35 @@ export default function ProductPage({ context }) {
       return;
     }
     setDeliveryMessage(`Delivery to ${trimmed} is available in ${shippingSettings.deliveryTime || "3 to 5 business days"}. Dispatch starts within ${shippingSettings.dispatchTime || "24 to 48 hours"}.`);
+  };
+
+  const loadMoreReviews = () => {
+    if (!product || isLoadingBackendReviews || !hasMoreBackendReviews) return;
+
+    const identifier = product.slug || product.asin || product.id;
+    const rating = reviewFilter === "all" ? "" : reviewFilter;
+    const verifiedOnly = reviewerFilter === "verified" || reviewSort === "verified" ? "true" : "";
+
+    setIsLoadingBackendReviews(true);
+    fetchStorefrontProductReviews(identifier, getCustomerToken(), {
+      limit: REVIEW_PAGE_SIZE,
+      offset: backendReviewOffset,
+      sort: reviewSort,
+      rating,
+      verifiedOnly
+    })
+      .then((response) => {
+        const rows = Array.isArray(response.data) ? response.data : [];
+        setBackendReviews((current) => [...current, ...rows.map(normalizeStorefrontReview)]);
+        setBackendReviewOffset((current) => current + rows.length);
+        setHasMoreBackendReviews(Boolean(response.pagination?.hasMore));
+      })
+      .catch(() => {
+        context.notify("More reviews could not be loaded");
+      })
+      .finally(() => {
+        setIsLoadingBackendReviews(false);
+      });
   };
 
   const updateZoomMetrics = (pointerEvent = null) => {
@@ -543,49 +857,236 @@ export default function ProductPage({ context }) {
     }
   };
 
-  const handleReviewImageChange = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) {
-      setReviewImage("");
+  const processReviewImageFiles = async (files) => {
+    if (!files.length) {
+      setReviewImages([]);
+      setReviewImageFiles([]);
       return;
     }
 
+    if (files.some((file) => !["image/jpeg", "image/png"].includes(file.type))) {
+      context.notify("Please upload JPG or PNG review images");
+      return;
+    }
+
+    setReviewImageFiles(files);
     setIsSavingReviewImage(true);
     try {
-      const compressed = await compressImageFile(file, 900, 0.82);
-      setReviewImage(compressed);
+      const compressedImages = await Promise.all(files.map((file) => compressImageFile(file, 900, 0.82)));
+      setReviewImages(compressedImages);
     } catch {
-      context.notify("Review image could not be processed");
+      context.notify("One or more review images could not be processed");
     } finally {
       setIsSavingReviewImage(false);
     }
   };
 
+  const processReviewVideoFiles = async (files) => {
+    if (!files.length) {
+      setReviewVideos([]);
+      setReviewVideoFiles([]);
+      return;
+    }
+
+    if (files.some((file) => !file.type.startsWith("video/"))) {
+      context.notify("Please upload a valid review video");
+      return;
+    }
+
+    setReviewVideoFiles(files);
+    setIsSavingReviewVideo(true);
+    try {
+      const videoPreviews = await Promise.all(files.map(readFileAsDataUrl));
+      setReviewVideos(videoPreviews);
+    } catch {
+      context.notify("One or more review videos could not be processed");
+      setReviewVideos([]);
+    } finally {
+      setIsSavingReviewVideo(false);
+    }
+  };
+
+  const processReviewMediaFiles = async (files) => {
+    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+    const videoFiles = files.filter((file) => file.type.startsWith("video/"));
+    const unsupportedFiles = files.filter((file) => !file.type.startsWith("image/") && !file.type.startsWith("video/"));
+
+    if (unsupportedFiles.length) {
+      context.notify("Please upload image or video files only");
+      return;
+    }
+
+    await Promise.all([
+      processReviewImageFiles(imageFiles),
+      processReviewVideoFiles(videoFiles)
+    ]);
+  };
+
+  const handleReviewMediaChange = (event) => {
+    processReviewMediaFiles(Array.from(event.target.files || []));
+  };
+
+  const handleReviewFileDrop = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const files = Array.from(event.dataTransfer.files || []);
+    processReviewMediaFiles(files);
+  };
+
+  const openReviewForm = () => {
+    setReviewFormOpen(true);
+  };
+
   const submitReview = (event) => {
     event.preventDefault();
-    if (!reviewName.trim() || !reviewBody.trim() || !reviewTitle.trim()) return;
+    if (!reviewBody.trim()) return;
 
-    const nextReview = {
-      name: reviewName.trim(),
-      title: reviewTitle.trim(),
+    const isLoggedInReview = Boolean(context.authUser);
+
+    setPendingReviewDraft({
+      title: reviewTitle.trim() || `${reviewRating} star review`,
       rating: reviewRating,
       date: new Date().toLocaleString("en-IN", { month: "long", year: "numeric" }),
       body: reviewBody.trim(),
-      images: reviewImage ? [reviewImage] : [],
-      videos: reviewVideoUrl.trim() ? [reviewVideoUrl.trim()] : []
+      images: reviewImages,
+      videos: reviewVideos,
+      reviewType: isLoggedInReview ? REVIEW_TYPES.CUSTOMER : REVIEW_TYPES.GUEST,
+      visibilityStatus: REVIEW_VISIBILITY_STATUSES.HIDDEN,
+      isVerifiedPurchase: false,
+      customerId: context.authUser?.id || null,
+      reviewerName: isLoggedInReview ? reviewerDisplayName : guestReviewName.trim(),
+      reviewerEmail: isLoggedInReview ? context.authUser?.email || "" : guestReviewEmail.trim()
+    });
+    setDisplayPreferenceOpen(true);
+  };
+
+  const completeReviewSubmission = async (isAnonymous) => {
+    if (!pendingReviewDraft || isSubmittingReview) return;
+
+    setIsSubmittingReview(true);
+    setDisplayPreferenceOpen(false);
+
+    const nextReview = {
+      ...pendingReviewDraft,
+      name: isAnonymous
+        ? (pendingReviewDraft.reviewType === REVIEW_TYPES.GUEST ? "Anonymous Guest" : "Anonymous Customer")
+        : pendingReviewDraft.reviewerName || "Guest Customer",
+      reviewerEmail: pendingReviewDraft.reviewerEmail || "",
+      isAnonymous,
+      isVerifiedPurchase: pendingReviewDraft.reviewType === REVIEW_TYPES.GUEST ? false : pendingReviewDraft.isVerifiedPurchase
     };
 
-    const nextReviews = [nextReview, ...storedReviews];
-    setStoredReviews(nextReviews);
-    writeStorage(getReviewStorageKey(product.slug), nextReviews);
-    setReviewName("");
-    setReviewTitle("");
-    setReviewBody("");
-    setReviewRating(5);
-    setReviewVideoUrl("");
-    setReviewImage("");
-    setReviewFormOpen(false);
-    context.notify("Review submitted");
+    try {
+      const uploadedMedia = [];
+      const resolvedProductId = Number(product.id || fetchedProduct?.id || 0);
+
+      if (pendingReviewDraft.reviewType === REVIEW_TYPES.CUSTOMER) {
+        for (const imageFile of reviewImageFiles) {
+          const response = await uploadCustomerReviewMedia(imageFile);
+          const media = response.data;
+          if (media?.url) uploadedMedia.push({ mediaType: media.mediaType || "image", mediaUrl: media.url, sortOrder: uploadedMedia.length + 1 });
+        }
+
+        for (const videoFile of reviewVideoFiles) {
+          const response = await uploadCustomerReviewMedia(videoFile);
+          const media = response.data;
+          if (media?.url) uploadedMedia.push({ mediaType: media.mediaType || "video", mediaUrl: media.url, sortOrder: uploadedMedia.length + 1 });
+        }
+      } else {
+        nextReview.visibilityStatus = REVIEW_VISIBILITY_STATUSES.HIDDEN;
+      }
+
+      const payload = {
+        productId: resolvedProductId || undefined,
+        productIdentifier: product.slug || product.asin || productKey,
+        productSlug: product.slug || productKey,
+        productAsin: product.asin || "",
+        productSnapshot: {
+          name: product.name,
+          slug: product.slug || productKey,
+          asin: product.asin || product.sku || "",
+          sku: product.sku || product.asin || "",
+          brand: product.brand || "Avyona",
+          shortDescription: product.shortDescription || product.highlights?.[0] || "",
+          description: product.description || "",
+          price: product.price,
+          mrp: product.mrp,
+          availableStock: product.availableStock,
+          image: product.image || product.gallery?.[0] || ""
+        },
+        reviewerName: nextReview.name,
+        reviewerEmail: nextReview.reviewerEmail,
+        rating: Number(nextReview.rating),
+        reviewTitle: nextReview.title,
+        reviewText: nextReview.body,
+        isAnonymous,
+        visibilityStatus: pendingReviewDraft.reviewType === REVIEW_TYPES.CUSTOMER
+          ? REVIEW_VISIBILITY_STATUSES.PRIVATE_TO_REVIEWER
+          : REVIEW_VISIBILITY_STATUSES.HIDDEN,
+        media: uploadedMedia
+      };
+
+      const response = pendingReviewDraft.reviewType === REVIEW_TYPES.CUSTOMER
+        ? await submitCustomerReviewApi(payload)
+        : await submitGuestReviewApi(payload);
+      const savedReview = response.data || {};
+
+      const savedLocalReview = {
+        ...nextReview,
+        reviewId: savedReview.reviewId,
+        visibilityStatus: savedReview.visibilityStatus || payload.visibilityStatus,
+        isVerifiedPurchase: Boolean(savedReview.isVerifiedPurchase),
+        images: uploadedMedia.filter((media) => media.mediaType === "image").map((media) => resolveReviewMediaUrl(media.mediaUrl)),
+        videos: uploadedMedia.filter((media) => media.mediaType === "video").map((media) => resolveReviewMediaUrl(media.mediaUrl)),
+        customerId: context.authUser?.id || null,
+        date: new Date().toISOString()
+      };
+
+      if (pendingReviewDraft.reviewType === REVIEW_TYPES.CUSTOMER) {
+        setBackendReviews((current) => [savedLocalReview, ...current]);
+      } else {
+        const nextReviews = [savedLocalReview, ...storedReviews];
+        setStoredReviews(nextReviews);
+        writeStorage(getReviewStorageKey(product.slug), nextReviews);
+      }
+
+      setGuestReviewName("");
+      setGuestReviewEmail("");
+      setReviewTitle("");
+      setReviewBody("");
+      setReviewRating(5);
+      setReviewVideos([]);
+      setReviewImages([]);
+      setReviewImageFiles([]);
+      setReviewVideoFiles([]);
+      const savedVisibilityStatus = savedReview.visibilityStatus || payload.visibilityStatus;
+      const shouldShowSubmittedMedia = savedVisibilityStatus === REVIEW_VISIBILITY_STATUSES.PUBLIC
+        || (savedVisibilityStatus === REVIEW_VISIBILITY_STATUSES.PRIVATE_TO_REVIEWER && pendingReviewDraft.reviewType === REVIEW_TYPES.CUSTOMER);
+
+      if (shouldShowSubmittedMedia) {
+        setReviewMediaGallery((current) => [
+          ...uploadedMedia.map((media, index) => ({
+            key: `submitted-media-${savedReview.reviewId || Date.now()}-${index}`,
+            type: media.mediaType,
+            src: resolveReviewMediaUrl(media.mediaUrl),
+            alt: `${nextReview.name} review ${media.mediaType} ${index + 1}`
+          })),
+          ...current
+        ]);
+      }
+      setPendingReviewDraft(null);
+      setReviewFormOpen(false);
+      context.notify({
+        variant: "success",
+        title: "Thank you for your review",
+        message: "Your feedback was submitted successfully and will help other customers shop with confidence.",
+        duration: 4200
+      });
+    } catch (error) {
+      context.notify(error.message || "Review could not be submitted");
+    } finally {
+      setIsSubmittingReview(false);
+    }
   };
 
   return (
@@ -633,7 +1134,9 @@ export default function ProductPage({ context }) {
               role={activeMedia.type === "image" ? "img" : undefined}
               aria-label={activeMedia.type === "image" ? "Product image zoom preview" : undefined}
             >
-            {activeMedia.type === "video" ? (
+            {activeMedia.type === "placeholder" ? (
+              <ProductMediaFallback />
+            ) : activeMedia.type === "video" ? (
               <video controls poster={product.videoPoster || product.image} src={activeMedia.src} />
             ) : (
               <>
@@ -693,7 +1196,11 @@ export default function ProductPage({ context }) {
                   setImageZoomActive(false);
                 }}
               >
-                <img src={item.thumb || item.src} alt={item.alt} />
+                {item.type === "placeholder" ? (
+                  <ProductMediaFallback compact />
+                ) : (
+                  <img src={item.thumb || item.src} alt={item.alt} />
+                )}
                 {item.type === "video" ? <span className="avy-gallery-badge">Video</span> : null}
               </button>
             ))}
@@ -721,7 +1228,7 @@ export default function ProductPage({ context }) {
             <div className="avy-review-row">
               <span className="avy-review-stars">{renderStars(reviewStats.average)}</span>
               <strong>{reviewStats.average.toFixed(1)}</strong>
-              <a href="#customer-reviews">{combinedReviews.length} Ratings</a>
+              <a href="#customer-reviews">{publicReviews.length} Ratings</a>
               <a href="#customer-media">Customer Photos & Videos</a>
             </div>
 
@@ -784,7 +1291,11 @@ export default function ProductPage({ context }) {
                         onClick={() => navigate(buildProductPath(groupProduct))}
                       >
                         <span className="avy-variant-media">
-                          <img src={groupProduct.image} alt={groupProduct.variantValue || groupProduct.name} />
+                          {hasMediaUrl(groupProduct.image) ? (
+                            <img src={groupProduct.image} alt={groupProduct.variantValue || groupProduct.name} />
+                          ) : (
+                            <ProductMediaFallback compact />
+                          )}
                         </span>
                         <span className="avy-variant-copy">
                           <span>{groupProduct.variantValue || groupProduct.name}</span>
@@ -812,7 +1323,11 @@ export default function ProductPage({ context }) {
                       }}
                     >
                       <span className="avy-variant-media">
-                        <img src={variant.image || product.image} alt={variant.label} />
+                        {hasMediaUrl(variant.image || product.image) ? (
+                          <img src={variant.image || product.image} alt={variant.label} />
+                        ) : (
+                          <ProductMediaFallback compact />
+                        )}
                       </span>
                       <span className="avy-variant-copy">
                         <span>{variant.label}</span>
@@ -990,8 +1505,8 @@ export default function ProductPage({ context }) {
       <section id="customer-reviews" className="avy-product-section">
         <div className="avy-section-heading">
           <h2>Customer Reviews</h2>
-          <button type="button" className="avy-inline-button" onClick={() => setReviewFormOpen((current) => !current)}>
-            {reviewFormOpen ? "Close Review Form" : "Write a Review"}
+          <button type="button" className="avy-review-toggle-button" onClick={openReviewForm} aria-haspopup="dialog">
+            Write a Review
           </button>
         </div>
 
@@ -999,7 +1514,7 @@ export default function ProductPage({ context }) {
           <aside className="avy-surface-card avy-review-summary">
             <strong className="avy-review-average">{reviewStats.average.toFixed(1)}</strong>
             <span className="avy-review-stars large">{renderStars(reviewStats.average)}</span>
-            <p>{combinedReviews.length} customer reviews</p>
+            <p>{publicReviews.length} public reviews</p>
             <div className="avy-rating-bars">
               {reviewStats.breakdown.map((item) => (
                 <div key={item.rating} className="avy-rating-bar-row">
@@ -1014,98 +1529,120 @@ export default function ProductPage({ context }) {
           </aside>
 
           <div className="avy-review-content">
-            <div id="customer-media" className="avy-surface-card">
-              <div className="avy-section-heading compact avy-section-heading-centered">
-                <h3>Customer Photos & Videos</h3>
+            <div className="avy-review-controls">
+              <div className="avy-review-controls-head">
+                <div>
+                  <span>Review Filters</span>
+                  <strong>Find the most useful feedback</strong>
+                </div>
+                <p>{displayedReviews.length} customer review{displayedReviews.length === 1 ? "" : "s"}</p>
               </div>
-              <div className="avy-media-strip">
-                {customerMedia.map((item) => (
-                  <div key={item.key} className="avy-media-card">
-                    {item.type === "video" ? (
-                      <video controls poster={product.videoPoster || product.image} src={item.src} />
-                    ) : (
-                      <img src={item.src} alt={item.alt} />
-                    )}
-                  </div>
-                ))}
+              <div className="avy-review-control-grid">
+                <label className="avy-review-select-control">
+                  <span>Sort reviews</span>
+                  <select value={reviewSort} onChange={(event) => setReviewSort(event.target.value)}>
+                    {REVIEW_SORT_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="avy-review-select-control">
+                  <span>Reviewer type</span>
+                  <select value={reviewerFilter} onChange={(event) => setReviewerFilter(event.target.value)}>
+                    {REVIEWER_FILTER_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="avy-review-select-control">
+                  <span>Star rating</span>
+                  <select value={reviewFilter} onChange={(event) => setReviewFilter(event.target.value)}>
+                    {REVIEW_FILTER_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
               </div>
             </div>
 
-            {reviewFormOpen ? (
-              <form className="avy-surface-card avy-review-form" onSubmit={submitReview}>
-                <div className="avy-review-form-grid">
-                  <label>
-                    <span>Name</span>
-                    <input value={reviewName} onChange={(event) => setReviewName(event.target.value)} required />
-                  </label>
-                  <label>
-                    <span>Review Title</span>
-                    <input value={reviewTitle} onChange={(event) => setReviewTitle(event.target.value)} required />
-                  </label>
+            <div id="customer-media" className="avy-surface-card">
+              <div className="avy-section-heading compact avy-section-heading-centered avy-media-section-head">
+                <div>
+                  <h3>Customer Photos & Videos</h3>
+                  <p className="avy-media-count">{customerMedia.length} media item{customerMedia.length === 1 ? "" : "s"}</p>
                 </div>
-                <label>
-                  <span>Rating</span>
-                  <select value={reviewRating} onChange={(event) => setReviewRating(Number(event.target.value))}>
-                    <option value="5">5</option>
-                    <option value="4">4</option>
-                    <option value="3">3</option>
-                    <option value="2">2</option>
-                    <option value="1">1</option>
-                  </select>
-                </label>
-                <label>
-                  <span>Your Review</span>
-                  <textarea rows="5" value={reviewBody} onChange={(event) => setReviewBody(event.target.value)} required />
-                </label>
-                <div className="avy-review-form-grid">
-                  <label>
-                    <span>Add Photo</span>
-                    <input type="file" accept="image/*" onChange={handleReviewImageChange} />
-                  </label>
-                  <label>
-                    <span>Video URL</span>
-                    <input value={reviewVideoUrl} onChange={(event) => setReviewVideoUrl(event.target.value)} placeholder="Optional video link" />
-                  </label>
-                </div>
-                {isSavingReviewImage ? <p className="avy-helper-note">Processing image...</p> : null}
-                {reviewImage ? <img className="avy-review-upload-preview" src={reviewImage} alt="Review upload preview" /> : null}
-                <div className="avy-review-form-actions">
-                  <button className="avy-button-primary" type="submit">Submit Review</button>
-                </div>
-              </form>
-            ) : null}
+                {customerMedia.length > 10 ? (
+                  <button type="button" className="avy-media-see-all" onClick={() => setReviewMediaGalleryOpen(true)}>
+                    See all
+                  </button>
+                ) : null}
+              </div>
+              <div className="avy-review-media-grid">
+                {customerMedia.slice(0, 10).map((item, index) => (
+                  <button key={item.key} type="button" className="avy-media-card avy-media-card-button" onClick={() => setReviewMediaPreviewIndex(index)}>
+                    {item.type === "video" ? (
+                      <>
+                        <video muted playsInline poster={product.videoPoster || product.image} src={item.src} />
+                        <span className="avy-media-play-icon" aria-hidden="true">▶</span>
+                      </>
+                    ) : (
+                      <img src={item.src} alt={item.alt} />
+                    )}
+                  </button>
+                ))}
+                {!customerMedia.length ? <p className="avy-helper-note">No public review photos or videos yet.</p> : null}
+              </div>
+            </div>
 
             <div className="avy-review-list">
-              {combinedReviews.map((review, index) => (
-                <article key={`${review.name}:${review.title}:${index}`} className="avy-surface-card avy-review-card">
-                  <div className="avy-review-card-head">
-                    <div>
-                      <div className="avy-review-stars">{renderStars(review.rating)}</div>
-                      <h3>{review.title}</h3>
+              {displayedReviews.map((review, index) => {
+                const displayName = getReviewDisplayName(review);
+                const reviewDate = formatReviewDate(review.date);
+                return (
+                  <article key={`${displayName}:${review.title}:${index}`} className="avy-surface-card avy-review-card">
+                    <div className="avy-review-card-head">
+                      <strong className="avy-reviewer-name">{displayName}</strong>
+                      <div className="avy-review-badge-row">
+                        {isReviewVerifiedPurchase(review) ? <span className="avy-verified-badge">Verified Purchase</span> : null}
+                        {review.isAnonymous ? <span className="avy-anonymous-badge">Anonymous</span> : null}
+                      </div>
                     </div>
-                    <span className="avy-verified-badge">Verified Purchase</span>
-                  </div>
-                  <p>{review.body}</p>
-                  {(review.images?.length || review.videos?.length) ? (
-                    <div className="avy-media-strip inline">
-                      {(review.images || []).map((image, imageIndex) => (
-                        <div key={`${review.title}:image:${imageIndex}`} className="avy-media-card small">
-                          <img src={image} alt={`${review.title} ${imageIndex + 1}`} />
-                        </div>
-                      ))}
-                      {(review.videos || []).map((video, videoIndex) => (
-                        <div key={`${review.title}:video:${videoIndex}`} className="avy-media-card small">
-                          <video controls src={video} />
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                  <div className="avy-review-meta">
-                    <span>{review.name}</span>
-                    <span>{review.date}</span>
-                  </div>
-                </article>
-              ))}
+                    {reviewDate ? <span className="avy-review-date">{reviewDate}</span> : null}
+                    <div className="avy-review-stars">{renderStars(review.rating)}</div>
+                    <h3>{review.title}</h3>
+                    <p>{review.body}</p>
+                    {(review.images?.length || review.videos?.length) ? (
+                      <div className="avy-media-strip inline">
+                        {(review.images || []).map((image, imageIndex) => (
+                          <div key={`${review.title}:image:${imageIndex}`} className="avy-media-card small">
+                            <img src={image} alt={`${review.title} ${imageIndex + 1}`} />
+                          </div>
+                        ))}
+                        {(review.videos || []).map((video, videoIndex) => (
+                          <div key={`${review.title}:video:${videoIndex}`} className="avy-media-card small">
+                            <video controls src={video} />
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    {review.adminReply ? (
+                      <div className="avy-seller-response">
+                        <strong>Seller Response</strong>
+                        <p>{review.adminReply}</p>
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })}
+              {isLoadingBackendReviews && !displayedReviews.length ? <p className="avy-helper-note">Loading reviews...</p> : null}
+              {!isLoadingBackendReviews && !displayedReviews.length ? <p className="avy-helper-note">No reviews match this filter.</p> : null}
+              {hasMoreBackendReviews ? (
+                <div className="avy-review-load-more">
+                  <button type="button" className="avy-secondary-button" onClick={loadMoreReviews} disabled={isLoadingBackendReviews}>
+                    {isLoadingBackendReviews ? "Loading..." : "Load More"}
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -1145,6 +1682,184 @@ export default function ProductPage({ context }) {
         <button className="avy-button-primary" type="button" onClick={(event) => handleBuyNow(event.currentTarget)} disabled={availableStock === 0}>Buy Now</button>
       </div>
 
+      {reviewFormOpen ? (
+        <div className="avy-review-modal-overlay" role="presentation" onMouseDown={() => setReviewFormOpen(false)}>
+          <form
+            ref={reviewFormRef}
+            className="avy-review-modal avy-review-form"
+            onSubmit={submitReview}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="write-review-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <button type="button" className="avy-review-modal-close" aria-label="Close review popup" onClick={() => setReviewFormOpen(false)}>
+              ×
+            </button>
+            <div className="avy-review-modal-header">
+              <span className="eyebrow">Share Your Experience</span>
+              <h2 id="write-review-title">Write a Review</h2>
+              <p>Your feedback helps other shoppers choose with confidence.</p>
+            </div>
+
+            {!context.authUser ? (
+              <div className="avy-review-form-grid">
+                <label>
+                  <span>Name Optional</span>
+                  <input value={guestReviewName} onChange={(event) => setGuestReviewName(event.target.value)} placeholder="Your name" />
+                </label>
+                <label>
+                  <span>Email Optional</span>
+                  <input type="email" value={guestReviewEmail} onChange={(event) => setGuestReviewEmail(event.target.value)} placeholder="you@example.com" />
+                </label>
+              </div>
+            ) : null}
+
+            <div className="avy-star-rating-field" role="group" aria-label="Star Rating">
+              <span className="avy-review-field-title">Star Rating</span>
+              <div className="avy-star-rating">
+                {[1, 2, 3, 4, 5].map((rating) => (
+                  <button
+                    key={rating}
+                    type="button"
+                    className={`avy-star-rating-button ${rating <= reviewRating ? "is-selected" : ""}`}
+                    onClick={() => setReviewRating(rating)}
+                    aria-label={`Rate ${rating} star${rating === 1 ? "" : "s"}`}
+                  >
+                    {rating <= reviewRating ? "★" : "☆"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <label>
+              <span>Review Text</span>
+              <textarea rows="5" value={reviewBody} onChange={(event) => setReviewBody(event.target.value)} placeholder="What stood out? Talk about quality, setup, delivery, packaging, or daily use." required />
+            </label>
+
+            <label
+              className="avy-review-upload-card avy-review-upload-card-wide"
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={handleReviewFileDrop}
+            >
+              <span>Image / Video Upload</span>
+              <strong>Add Photos or Videos</strong>
+              <em>Click to add or drag and drop JPG, PNG, or video files</em>
+              <input type="file" accept="image/jpeg,image/png,video/*" multiple onChange={handleReviewMediaChange} />
+            </label>
+
+            {isSavingReviewImage ? <p className="avy-helper-note">Processing images...</p> : null}
+            {isSavingReviewVideo ? <p className="avy-helper-note">Processing videos...</p> : null}
+            {(reviewImages.length || reviewVideos.length) ? (
+              <div className="avy-review-upload-preview-grid">
+                {reviewImages.map((image, index) => (
+                  <img key={`review-image-preview-${index}`} className="avy-review-upload-preview" src={image} alt={`Review upload preview ${index + 1}`} />
+                ))}
+                {reviewVideos.map((video, index) => (
+                  <video key={`review-video-preview-${index}`} className="avy-review-upload-preview" src={video} controls />
+                ))}
+              </div>
+            ) : null}
+
+            <div className="avy-review-form-actions">
+              <button className="avy-button-secondary" type="button" onClick={() => setReviewFormOpen(false)}>Cancel</button>
+              <button className="avy-button-primary" type="submit">Submit Review</button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {displayPreferenceOpen ? (
+        <div className="avy-review-preference-overlay" role="presentation">
+          <div className="avy-review-preference-dialog" role="dialog" aria-modal="true" aria-labelledby="review-display-preference-title">
+            <button type="button" className="avy-review-preference-close" aria-label="Close display preference popup" onClick={() => setDisplayPreferenceOpen(false)}>
+              ×
+            </button>
+            <span className="eyebrow">Review Display</span>
+            <h2 id="review-display-preference-title">How would you like your review to appear?</h2>
+            <p className="avy-review-preference-note">Your email and personal details will not be shown publicly.</p>
+            <div className="avy-review-preference-actions">
+              <button type="button" className="avy-button-primary" onClick={() => completeReviewSubmission(false)} disabled={isSubmittingReview}>
+                {isSubmittingReview ? "Submitting..." : "Show with My Name"}
+              </button>
+              <button type="button" className="avy-button-secondary" onClick={() => completeReviewSubmission(true)} disabled={isSubmittingReview}>
+                {isSubmittingReview ? "Submitting..." : "Post as Anonymous"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {reviewMediaGalleryOpen ? (
+        <div className="avy-review-gallery-overlay" role="presentation" onMouseDown={() => setReviewMediaGalleryOpen(false)}>
+          <div className="avy-review-gallery-dialog" role="dialog" aria-modal="true" aria-labelledby="review-gallery-title" onMouseDown={(event) => event.stopPropagation()}>
+            <button type="button" className="avy-review-preference-close" aria-label="Close media gallery" onClick={() => setReviewMediaGalleryOpen(false)}>
+              ×
+            </button>
+            <div className="avy-review-gallery-head">
+              <span className="eyebrow">Customer Media</span>
+              <h2 id="review-gallery-title">Photos & Videos From Reviews</h2>
+              <p>{customerMedia.length} media item{customerMedia.length === 1 ? "" : "s"}</p>
+            </div>
+            <div className="avy-review-gallery-grid">
+              {customerMedia.map((item, index) => (
+                <button
+                  key={`gallery-${item.key}`}
+                  type="button"
+                  className="avy-media-card avy-media-card-button"
+                  onClick={() => {
+                    setReviewMediaPreviewIndex(index);
+                    setReviewMediaGalleryOpen(false);
+                  }}
+                >
+                  {item.type === "video" ? (
+                    <>
+                      <video muted playsInline poster={product.videoPoster || product.image} src={item.src} />
+                      <span className="avy-media-play-icon" aria-hidden="true">▶</span>
+                    </>
+                  ) : (
+                    <img src={item.src} alt={item.alt} />
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {activeReviewMedia ? (
+        <div className="avy-lightbox" onClick={() => setReviewMediaPreviewIndex(null)}>
+          <button type="button" className="avy-lightbox-close" onClick={() => setReviewMediaPreviewIndex(null)}>Close</button>
+          <button
+            type="button"
+            className="avy-lightbox-nav previous"
+            onClick={(event) => {
+              event.stopPropagation();
+              setReviewMediaPreviewIndex((current) => Number(current || 0) - 1);
+            }}
+          >
+            Prev
+          </button>
+          <div className="avy-lightbox-stage" onClick={(event) => event.stopPropagation()}>
+            {activeReviewMedia.type === "video" ? (
+              <video controls autoPlay src={activeReviewMedia.src} />
+            ) : (
+              <img src={activeReviewMedia.src} alt={activeReviewMedia.alt} />
+            )}
+          </div>
+          <button
+            type="button"
+            className="avy-lightbox-nav next"
+            onClick={(event) => {
+              event.stopPropagation();
+              setReviewMediaPreviewIndex((current) => Number(current || 0) + 1);
+            }}
+          >
+            Next
+          </button>
+        </div>
+      ) : null}
+
       {lightboxOpen ? (
         <div className="avy-lightbox" onClick={() => setLightboxOpen(false)}>
           <button type="button" className="avy-lightbox-close" onClick={() => setLightboxOpen(false)}>Close</button>
@@ -1159,7 +1874,9 @@ export default function ProductPage({ context }) {
             Prev
           </button>
           <div className="avy-lightbox-stage" onClick={(event) => event.stopPropagation()}>
-            {activeMedia.type === "video" ? (
+            {activeMedia.type === "placeholder" ? (
+              <ProductMediaFallback />
+            ) : activeMedia.type === "video" ? (
               <video controls autoPlay poster={product.videoPoster || product.image} src={activeMedia.src} />
             ) : (
               <img src={activeMedia.src} alt={activeMedia.alt} />
