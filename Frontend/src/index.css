@@ -7,6 +7,7 @@
 @import "./styles/product.css";
 @import "./styles/track-order.css";
 @import "./styles/contact.css";
+@import "./styles/order-confirmation.css";
 
 :root {
   color-scheme: light;

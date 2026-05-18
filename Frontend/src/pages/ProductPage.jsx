@@ -146,6 +146,17 @@ function hasMediaUrl(value) {
   return Boolean(String(value || "").trim());
 }
 
+function getVariantDisplayLabel(source, fallback = "") {
+  const rawValue = String(source?.variantValue || source?.label || fallback || "").trim();
+  const productName = String(source?.name || "").trim();
+  const value = rawValue && rawValue !== productName ? rawValue : productName;
+  if (!value) return "";
+
+  const afterDash = value.split(/\s[–-]\s/).pop() || value;
+  const firstPart = afterDash.split(",")[0]?.trim() || afterDash.trim();
+  return firstPart || value;
+}
+
 function isVideoUrl(value) {
   return /\.(mp4|webm|ogg)(\?.*)?$/i.test(String(value || "").trim());
 }
@@ -1312,14 +1323,11 @@ export default function ProductPage({ context }) {
 
             {hasGroupedVariants && groupedVariantProducts.length > 1 ? (
               <div className="avy-block">
-                <div className="avy-section-minihead">
-                  <span>{product.variantType || "Variant"}</span>
-                  <strong>{product.variantValue || product.name}</strong>
-                </div>
                 <div className="avy-variant-list">
                   {groupedVariantProducts.map((groupProduct) => {
                     const groupProductVariant = groupProduct.variants?.[0] || null;
                     const isActive = groupProduct.asin === product.asin;
+                    const displayLabel = getVariantDisplayLabel(groupProduct, groupProductVariant?.label);
 
                     return (
                       <button
@@ -1336,8 +1344,11 @@ export default function ProductPage({ context }) {
                           )}
                         </span>
                         <span className="avy-variant-copy">
-                          <span>{groupProduct.variantValue || groupProduct.name}</span>
+                          <span>{displayLabel}</span>
                           <strong>{formatCurrency(groupProductVariant?.price ?? groupProduct.price, context)}</strong>
+                          {Number(groupProduct.mrp || 0) > Number((groupProductVariant?.price ?? groupProduct.price) || 0) ? (
+                            <del>{formatCurrency(groupProduct.mrp, context)}</del>
+                          ) : null}
                         </span>
                       </button>
                     );
@@ -1346,10 +1357,6 @@ export default function ProductPage({ context }) {
               </div>
             ) : (product.variants || []).length ? (
               <div className="avy-block">
-                <div className="avy-section-minihead">
-                  <span>Choose Variant</span>
-                  <strong>{selectedVariant?.label}</strong>
-                </div>
                 <div className="avy-variant-list">
                   {(product.variants || []).map((variant, index) => (
                     <button
@@ -1368,8 +1375,11 @@ export default function ProductPage({ context }) {
                         )}
                       </span>
                       <span className="avy-variant-copy">
-                        <span>{variant.label}</span>
+                        <span>{getVariantDisplayLabel(variant, variant.label)}</span>
                         <strong>{formatCurrency(variant.price, context)}</strong>
+                        {Number(variant.mrp || 0) > Number(variant.price || 0) ? (
+                          <del>{formatCurrency(variant.mrp, context)}</del>
+                        ) : null}
                       </span>
                     </button>
                   ))}

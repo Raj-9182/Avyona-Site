@@ -46,6 +46,11 @@ const homepageSections = [
     title: "Credit Points",
     path: "/dashboard/homepage/credit-points",
     description: "Manage the full rewards module with overview, earning rules, customer points, transactions, referrals, expiry, and settings."
+  },
+  {
+    title: "Thank You Page",
+    path: "/dashboard/homepage/thank-you-page",
+    description: "Manage order confirmation content, buttons, trust messages, and invoice design."
   }
 ];
 

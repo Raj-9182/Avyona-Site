@@ -65,6 +65,10 @@ function normalizePublicSettingsPayload(payload = {}) {
       ...(settings.general || {}),
       logoUrl: resolveSettingsMediaUrl(settings.general?.logoUrl),
       faviconUrl: resolveSettingsMediaUrl(settings.general?.faviconUrl)
+    },
+    thankYouPage: {
+      ...(settings.thankYouPage || {}),
+      customIconUrl: resolveSettingsMediaUrl(settings.thankYouPage?.customIconUrl)
     }
   };
 }

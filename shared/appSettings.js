@@ -65,6 +65,23 @@ export const DEFAULT_APP_SETTINGS = {
     passwordRules: "Strong password policy required",
     sessionTimeout: "30 minutes of inactivity"
   },
+  thankYouPage: {
+    successTitle: "Thank you for your order",
+    successSubtitle: "Your order has been placed successfully.",
+    confirmationLabel: "ORDER CONFIRMED",
+    useCustomIcon: false,
+    customIconUrl: "",
+    showThankYouMessage: true,
+    showTrackOrderButton: true,
+    trackOrderButtonText: "Track Order",
+    trackOrderButtonStyle: "primary",
+    showContinueShoppingButton: true,
+    continueShoppingButtonText: "Continue Shopping",
+    continueShoppingButtonStyle: "secondary",
+    showDownloadInvoiceButton: false,
+    downloadInvoiceButtonText: "Download Invoice",
+    downloadInvoiceButtonStyle: "secondary"
+  },
   homepage: {
     heroBanners: [
       {
@@ -569,6 +586,10 @@ export function getPublicSettings(settings = DEFAULT_APP_SETTINGS) {
       orderDeliveredEmailEnabled: settings.notifications.orderDeliveredEmailEnabled,
       whatsappNotificationsEnabled: settings.notifications.whatsappNotificationsEnabled,
       smsNotificationsEnabled: settings.notifications.smsNotificationsEnabled
+    },
+    thankYouPage: {
+      ...DEFAULT_APP_SETTINGS.thankYouPage,
+      ...(settings.thankYouPage || {})
     },
     homepage: {
       heroBanners: publicHeroBanners,

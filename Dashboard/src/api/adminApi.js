@@ -363,6 +363,14 @@ export function fetchOrders() {
   return adminApi.get("/orders");
 }
 
+export function fetchAdminInvoicePreview(withPrint = false) {
+  return adminApi.get(`/orders/invoice-preview${withPrint ? "?print=1" : ""}`, { responseType: "text" });
+}
+
+export function fetchAdminInvoiceSamplePdf() {
+  return adminApi.get("/orders/invoice-preview?pdf=1", { responseType: "blob" });
+}
+
 export function fetchCoupons(params) {
   return adminApi.get("/coupons", { params });
 }

@@ -48,6 +48,8 @@ export default function Variations() {
   const [selectedProducts, setSelectedProducts] = useState([]);
   const [catalogProducts, setCatalogProducts] = useState(fallbackProducts);
   const [savedGroups, setSavedGroups] = useState([]);
+  const [selectedGroupIds, setSelectedGroupIds] = useState([]);
+  const [bulkAction, setBulkAction] = useState("");
   const [feedback, setFeedback] = useState({ type: "", message: "" });
   const [isSearchingProducts, setIsSearchingProducts] = useState(false);
   const canCreateVariations = canAccess("variations", "create");
@@ -68,6 +70,10 @@ export default function Variations() {
   const selectedProductRecords = useMemo(
     () => catalogProducts.filter((product) => selectedProducts.includes(String(product.asin || ""))),
     [catalogProducts, selectedProducts]
+  );
+  const selectedSavedGroups = useMemo(
+    () => savedGroups.filter((group) => selectedGroupIds.includes(String(group.groupId || ""))),
+    [savedGroups, selectedGroupIds]
   );
 
   const autoGroupName = useMemo(() => {
@@ -230,6 +236,58 @@ export default function Variations() {
       setFeedback({
         type: "error",
         message: "Variant group could not be deleted. Check backend availability and login status."
+      });
+    }
+  };
+
+  const toggleSavedGroup = (groupId) => {
+    const normalizedGroupId = String(groupId || "");
+    if (!normalizedGroupId) return;
+    setSelectedGroupIds((current) => (
+      current.includes(normalizedGroupId)
+        ? current.filter((item) => item !== normalizedGroupId)
+        : [...current, normalizedGroupId]
+    ));
+  };
+
+  const toggleAllSavedGroups = () => {
+    const selectableGroupIds = savedGroups.map((group) => String(group.groupId || "")).filter(Boolean);
+    setSelectedGroupIds((current) => (
+      current.length === selectableGroupIds.length ? [] : selectableGroupIds
+    ));
+  };
+
+  const handleBulkAction = async () => {
+    if (!bulkAction || !selectedSavedGroups.length) return;
+
+    const actionLabel = bulkAction === "delete" ? "delete" : `mark selected groups as ${bulkAction}`;
+    if (bulkAction === "delete" && !window.confirm(`Delete ${selectedSavedGroups.length} selected variant group(s)?`)) return;
+
+    try {
+      if (bulkAction === "delete") {
+        await Promise.all(selectedSavedGroups.map((group) => deleteVariantGroup(group.groupId)));
+        setSavedGroups((current) => current.filter((group) => !selectedGroupIds.includes(String(group.groupId || ""))));
+      } else {
+        await Promise.all(selectedSavedGroups.map((group) => updateVariantGroup(group.groupId, {
+          groupName: group.groupName,
+          variantType: group.variantType || "Color",
+          status: bulkAction,
+          products: group.products || []
+        })));
+        setSavedGroups((current) => current.map((group) => (
+          selectedGroupIds.includes(String(group.groupId || ""))
+            ? { ...group, status: bulkAction }
+            : group
+        )));
+      }
+
+      setSelectedGroupIds([]);
+      setBulkAction("");
+      setFeedback({ type: "success", message: `Bulk action complete: ${actionLabel}.` });
+    } catch (error) {
+      setFeedback({
+        type: "error",
+        message: error.response?.data?.message || "Bulk action failed. Check backend availability and permissions."
       });
     }
   };
@@ -451,12 +509,41 @@ export default function Variations() {
               <span style={eyebrowStyle}>Saved Groups</span>
               <h3 style={{ margin: "8px 0 0", color: "#0f172a", fontSize: "28px" }}>Created Variant Groups</h3>
             </div>
-            <span style={miniPillStyle}>{`${savedGroups.length} Groups`}</span>
+            <div style={bulkActionBarStyle}>
+              <button type="button" onClick={toggleAllSavedGroups} style={secondaryButtonStyle}>
+                {selectedGroupIds.length === savedGroups.length ? "Clear Selection" : "Select All"}
+              </button>
+              <select value={bulkAction} onChange={(event) => setBulkAction(event.target.value)} style={bulkSelectStyle}>
+                <option value="">Bulk Action</option>
+                {canEditVariations ? <option value="saved">Mark Saved</option> : null}
+                {canEditVariations ? <option value="draft">Mark Draft</option> : null}
+                {canDeleteVariations ? <option value="delete">Delete Selected</option> : null}
+              </select>
+              <button
+                type="button"
+                onClick={handleBulkAction}
+                disabled={!bulkAction || !selectedGroupIds.length}
+                style={{
+                  ...primaryButtonStyle,
+                  ...(!bulkAction || !selectedGroupIds.length ? disabledPrimaryButtonStyle : null)
+                }}
+              >
+                Apply
+              </button>
+              <span style={miniPillStyle}>{`${selectedGroupIds.length}/${savedGroups.length} Selected`}</span>
+            </div>
           </div>
 
           <div style={selectedListStyle}>
             {savedGroups.map((group) => (
               <div key={group.groupId} style={savedGroupCardStyle}>
+                <label style={checkboxWrapStyle}>
+                  <input
+                    type="checkbox"
+                    checked={selectedGroupIds.includes(String(group.groupId || ""))}
+                    onChange={() => toggleSavedGroup(group.groupId)}
+                  />
+                </label>
                 <div style={{ display: "grid", gap: "6px" }}>
                   <strong style={{ color: "#0f172a" }}>{group.groupName}</strong>
                   <span style={{ color: "#526377", fontSize: "13px" }}>{`Group ID: ${group.groupId}`}</span>
@@ -629,6 +716,38 @@ const savedGroupCardStyle = {
   borderRadius: "16px",
   border: "1px solid #dbe7f0",
   background: "#ffffff"
+};
+
+const checkboxWrapStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: "34px",
+  height: "34px",
+  borderRadius: "10px",
+  border: "1px solid #dbe7f0",
+  background: "#f8fafc",
+  flex: "0 0 auto"
+};
+
+const bulkActionBarStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "flex-end",
+  gap: "10px",
+  flexWrap: "wrap"
+};
+
+const bulkSelectStyle = {
+  minHeight: "42px",
+  padding: "0 14px",
+  borderRadius: "999px",
+  border: "1px solid #cbd5e1",
+  background: "#ffffff",
+  color: "#0f172a",
+  fontWeight: 800,
+  fontSize: "13px",
+  cursor: "pointer"
 };
 
 const savedGroupActionStyle = {

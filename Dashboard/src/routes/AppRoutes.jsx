@@ -13,6 +13,8 @@ const DashboardHome = React.lazy(() => import("../pages/dashboard/DashboardHome"
 const CreditPoints = React.lazy(() => import("../pages/credit-points/CreditPoints"));
 const Homepage = React.lazy(() => import("../pages/homepage/Homepage"));
 const HomepageConfigurePage = React.lazy(() => import("../pages/homepage/HomepageConfigurePage"));
+const ThankYouPageSettings = React.lazy(() => import("../pages/homepage/ThankYouPageSettings"));
+const InvoiceDesigner = React.lazy(() => import("../pages/homepage/InvoiceDesigner"));
 const OrderDetails = React.lazy(() => import("../pages/orders/OrderDetails"));
 const Orders = React.lazy(() => import("../pages/orders/Orders"));
 const AddProduct = React.lazy(() => import("../pages/products/AddProduct"));
@@ -65,6 +67,8 @@ export default function AppRoutes({ context, allProducts }) {
           <Route path="homepage/new-arrivals" element={<HomepageConfigurePage sectionKey="new-arrivals" />} />
           <Route path="homepage/featured-brands" element={<HomepageConfigurePage sectionKey="featured-brands" />} />
           <Route path="homepage/newsletter" element={<HomepageConfigurePage sectionKey="newsletter" />} />
+          <Route path="homepage/thank-you-page" element={<ThankYouPageSettings />} />
+          <Route path="homepage/thank-you-page/invoice-designer" element={<InvoiceDesigner />} />
           <Route path="homepage/reviews" element={<Navigate to="/dashboard/reviews" replace />} />
           <Route path="products" element={<Products />} />
           <Route path="products/new" element={<AddProduct />} />
