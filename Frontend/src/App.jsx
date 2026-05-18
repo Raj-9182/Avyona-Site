@@ -1,42 +1,89 @@
-import React, { useEffect, useState } from "react";
+import React, { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
-import {
-  AccountPage,
-  BlogPage,
-  CheckoutPage,
-  ContactPage,
-  OrderConfirmationPage,
-  CollectionPage,
-  CollectionsPage,
-  Home,
-  OffersPage,
-  ProductPage,
-  ProfilePage,
-  SearchPage,
-  TrackOrderPage,
-  WishlistPage
-} from "./pages";
 import SeoManager from "./components/layout/SeoManager";
 import StoreLayout from "./components/layout/StoreLayout";
 import { trackAnalyticsEvent } from "./api/analyticsApi";
 import { fetchCategoryTree } from "./api/categoryApi";
 import { fetchStorefrontCoupons } from "./api/couponApi";
 import { fallbackCategoryTree } from "./data/category-data";
-import { fetchPublicSettings } from "./api/settingsApi";
+import { fetchGeneralSettings, fetchPublicSettings } from "./api/settingsApi";
 import { fetchStorefrontProducts } from "./api/productApi";
 import { clearCustomerToken, fetchCurrentCustomer, fetchCustomerCart, fetchCustomerOrders, fetchCustomerWishlist, getCustomerToken, syncCustomerCart, syncCustomerWishlist } from "./api/customerApi";
-import { allProducts } from "./data/storefront-content";
 import { couponRules } from "../../shared/coupons";
 import { DEFAULT_APP_SETTINGS, getPublicSettings, mergeSettings } from "../../shared/appSettings";
 import ProtectedRoute from "./components/common/ProtectedRoute";
 import { usePersistentState } from "./hooks/usePersistentState";
 
+const AccountPage = lazy(() => import("./pages/AccountPage"));
+const BlogPage = lazy(() => import("./pages/BlogPage"));
+const CheckoutPage = lazy(() => import("./pages/CheckoutPage"));
+const CollectionPage = lazy(() => import("./pages/CollectionPage"));
+const CollectionsPage = lazy(() => import("./pages/CollectionsPage"));
+const ContactPage = lazy(() => import("./pages/ContactPage"));
+const Home = lazy(() => import("./pages/Home"));
+const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
+const OffersPage = lazy(() => import("./pages/OffersPage"));
+const OrderConfirmationPage = lazy(() => import("./pages/OrderConfirmationPage"));
+const ProductPage = lazy(() => import("./pages/ProductPage"));
+const ProfilePage = lazy(() => import("./pages/ProfilePage"));
+const SearchPage = lazy(() => import("./pages/SearchPage"));
+const TrackOrderPage = lazy(() => import("./pages/TrackOrderPage"));
+const WishlistPage = lazy(() => import("./pages/WishlistPage"));
+
 const CART_STORAGE_KEY = "avyonaCart";
+const CART_STORAGE_VERSION_KEY = "avyonaCartVersion";
+const CURRENT_CART_STORAGE_VERSION = "2";
 const WISHLIST_STORAGE_KEY = "avyonaWishlist";
 const AUTH_STORAGE_KEY = "avyonaAuthUser";
 const ACCOUNT_STORAGE_KEY = "avyonaAccounts";
 const CUSTOMER_PROFILE_KEY = "avyonaCustomerProfile";
 const ORDER_STORAGE_KEY = "avyonaOrders";
+const API_MEDIA_ORIGIN = (import.meta.env.VITE_API_BASE_URL || "http://localhost:4000/api/v1")
+  .replace(/\/api\/v\d+\/?$/i, "")
+  .replace(/\/$/, "");
+const GENERAL_SETTINGS_FALLBACK = {
+  ...DEFAULT_APP_SETTINGS.general,
+  storeName: "Avyona",
+  supportEmail: "support@avyona.com",
+  supportPhone: "",
+  logoUrl: "/images/optimized/avyona-logo.webp"
+};
+
+function resolveSettingsMediaUrl(value) {
+  const url = String(value || "").trim();
+  if (!url) return "";
+  if (/^(data|blob|https?):/i.test(url)) return url;
+  if (url.startsWith("/uploads/")) return `${API_MEDIA_ORIGIN}${url}`;
+  return url.startsWith("/") ? url : `/${url}`;
+}
+
+function normalizePublicSettingsPayload(payload = {}) {
+  const settings = getPublicSettings(mergeSettings(DEFAULT_APP_SETTINGS, payload || {}));
+  return {
+    ...settings,
+    general: {
+      ...(settings.general || {}),
+      logoUrl: resolveSettingsMediaUrl(settings.general?.logoUrl),
+      faviconUrl: resolveSettingsMediaUrl(settings.general?.faviconUrl)
+    }
+  };
+}
+
+function normalizeGeneralSettingsPayload(payload = {}) {
+  return {
+    ...GENERAL_SETTINGS_FALLBACK,
+    ...(payload || {}),
+    logoUrl: resolveSettingsMediaUrl(payload?.logoUrl || GENERAL_SETTINGS_FALLBACK.logoUrl),
+    faviconUrl: resolveSettingsMediaUrl(payload?.faviconUrl || "")
+  };
+}
+
+function mergeGeneralIntoSiteSettings(siteSettings, generalPayload) {
+  return {
+    ...siteSettings,
+    general: normalizeGeneralSettingsPayload(generalPayload)
+  };
+}
 const PUBLIC_DATA_REFRESH_MS = 5 * 60 * 1000;
 
 function normalizeBackendProduct(product) {
@@ -84,9 +131,118 @@ function normalizeBackendProduct(product) {
   };
 }
 
+function getCartItemKey(item) {
+  return `${String(item.slug || item.asin || "").trim()}::${String(item.variantLabel || "").trim()}`;
+}
+
+function migrateStoredCart(value) {
+  if (typeof window === "undefined") return [];
+  const storedVersion = window.localStorage.getItem(CART_STORAGE_VERSION_KEY);
+  if (storedVersion !== CURRENT_CART_STORAGE_VERSION) {
+    window.localStorage.removeItem(CART_STORAGE_KEY);
+    window.localStorage.setItem(CART_STORAGE_VERSION_KEY, CURRENT_CART_STORAGE_VERSION);
+    return [];
+  }
+  return Array.isArray(value) ? value : [];
+}
+
+function getProductForCartItem(item, products = []) {
+  return products.find((product) =>
+    (item.slug && product.slug === item.slug) ||
+    (item.asin && product.asin === item.asin)
+  ) || null;
+}
+
+function getVariantForCartItem(product, item) {
+  if (!product || !Array.isArray(product.variants)) return null;
+  const variantLabel = String(item.variantLabel || "");
+  return product.variants.find((variant) => String(variant.label || "") === variantLabel) || product.variants[0] || null;
+}
+
+function getAvailableStockForCartItem(item, products = []) {
+  const product = getProductForCartItem(item, products);
+  if (!product) return 0;
+  const variant = getVariantForCartItem(product, item);
+  return Math.max(0, Number(variant?.availableStock ?? product.availableStock ?? 0));
+}
+
+function normalizeCartItems(items = [], products = []) {
+  const hasCatalog = Array.isArray(products) && products.length > 0;
+  const normalized = [];
+  const seen = new Set();
+
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    const key = getCartItemKey(item);
+    if (!key.trim() || key === "::" || seen.has(key)) return;
+
+    const product = getProductForCartItem(item, products);
+    if (hasCatalog && !product) return;
+
+    const variant = getVariantForCartItem(product, item);
+    const availableStock = product ? getAvailableStockForCartItem(item, products) : Math.max(0, Number(item.availableStock || item.quantity || 0));
+    if (availableStock <= 0) return;
+
+    const quantity = Math.min(availableStock, Math.max(1, Math.floor(Number(item.quantity || 1))));
+    normalized.push({
+      ...item,
+      asin: product?.asin || item.asin,
+      slug: product?.slug || item.slug,
+      name: product?.name || item.name,
+      category: product?.category || item.category,
+      price: variant?.price ?? product?.price ?? item.price,
+      image: variant?.image || product?.image || item.image,
+      variantLabel: variant?.label ?? item.variantLabel ?? "",
+      availableStock,
+      quantity
+    });
+    seen.add(key);
+  });
+
+  return normalized;
+}
+
+function mergeCartItems(accountItems = [], guestItems = []) {
+  const merged = new Map();
+
+  [...accountItems, ...guestItems].forEach((item) => {
+    const key = getCartItemKey(item);
+    if (!key.trim() || key === "::") return;
+    const existing = merged.get(key);
+    const quantity = Math.max(1, Math.floor(Number(item.quantity || 1)));
+
+    if (existing) {
+      merged.set(key, {
+        ...existing,
+        ...item,
+        quantity: Math.min(99, Number(existing.quantity || 1) + quantity)
+      });
+      return;
+    }
+
+    merged.set(key, {
+      ...item,
+      quantity
+    });
+  });
+
+  return [...merged.values()];
+}
+
+function mergeWishlistItems(accountItems = [], guestItems = []) {
+  const merged = new Map();
+
+  [...accountItems, ...guestItems].forEach((item) => {
+    const key = getCartItemKey(item);
+    if (!key.trim() || key === "::") return;
+    if (!merged.has(key)) merged.set(key, item);
+  });
+
+  return [...merged.values()];
+}
+
 function App() {
   const location = useLocation();
-  const [cart, setCart] = usePersistentState(CART_STORAGE_KEY, []);
+  const [cart, setCart] = usePersistentState(CART_STORAGE_KEY, [], { migrate: migrateStoredCart });
   const [wishlist, setWishlist] = usePersistentState(WISHLIST_STORAGE_KEY, []);
   const [authUser, setAuthUser] = usePersistentState(AUTH_STORAGE_KEY, null, { removeWhenNull: true });
   const [accounts, setAccounts] = usePersistentState(ACCOUNT_STORAGE_KEY, []);
@@ -97,12 +253,14 @@ function App() {
   const [cartAnimation, setCartAnimation] = useState(null);
   const [siteSettings, setSiteSettings] = useState(() => getPublicSettings(DEFAULT_APP_SETTINGS));
   const [siteCategories, setSiteCategories] = useState(fallbackCategoryTree);
-  const [storefrontProducts, setStorefrontProducts] = useState(allProducts);
+  const [storefrontProducts, setStorefrontProducts] = useState([]);
   const [storefrontCoupons, setStorefrontCoupons] = useState(couponRules);
   const [isProductCatalogLoading, setIsProductCatalogLoading] = useState(true);
   const [isCategoryCatalogLoading, setIsCategoryCatalogLoading] = useState(true);
   const [hasLoadedCustomerSession, setHasLoadedCustomerSession] = useState(false);
   const [hasHydratedCustomerData, setHasHydratedCustomerData] = useState(false);
+  const customerHydrationInFlightRef = useRef(false);
+  const abandonedCartKeyRef = useRef("");
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
@@ -147,8 +305,9 @@ function App() {
   }, [setAuthUser, setCustomerProfile]);
 
   useEffect(() => {
-    if (!hasLoadedCustomerSession || !authUser || hasHydratedCustomerData) return undefined;
+    if (!hasLoadedCustomerSession || !authUser || hasHydratedCustomerData || customerHydrationInFlightRef.current) return undefined;
     let isMounted = true;
+    customerHydrationInFlightRef.current = true;
 
     async function hydrateCustomerData() {
       try {
@@ -162,14 +321,16 @@ function App() {
 
         if (cartResult.status === "fulfilled") {
           const dbCart = Array.isArray(cartResult.value.data) ? cartResult.value.data : [];
-          if (dbCart.length) setCart(dbCart);
-          else if (cart.length) await syncCustomerCart(cart).catch(() => {});
+          const mergedCart = mergeCartItems(dbCart, cart);
+          setCart(mergedCart);
+          if (mergedCart.length) await syncCustomerCart(mergedCart).catch(() => {});
         }
 
         if (wishlistResult.status === "fulfilled") {
           const dbWishlist = Array.isArray(wishlistResult.value.data) ? wishlistResult.value.data : [];
-          if (dbWishlist.length) setWishlist(dbWishlist);
-          else if (wishlist.length) await syncCustomerWishlist(wishlist).catch(() => {});
+          const mergedWishlist = mergeWishlistItems(dbWishlist, wishlist);
+          setWishlist(mergedWishlist);
+          if (mergedWishlist.length) await syncCustomerWishlist(mergedWishlist).catch(() => {});
         }
 
         if (ordersResult.status === "fulfilled") {
@@ -177,6 +338,7 @@ function App() {
           if (dbOrders.length) setOrders(dbOrders);
         }
       } finally {
+        customerHydrationInFlightRef.current = false;
         if (isMounted) setHasHydratedCustomerData(true);
       }
     }
@@ -225,14 +387,23 @@ function App() {
 
     async function loadPublicSettings() {
       try {
-        const response = await fetchPublicSettings();
+        const [settingsResponse, generalResponse] = await Promise.all([
+          fetchPublicSettings(),
+          fetchGeneralSettings()
+        ]);
 
         if (!isMounted) return;
 
-        setSiteSettings(getPublicSettings(mergeSettings(DEFAULT_APP_SETTINGS, response.data || {})));
+        setSiteSettings(mergeGeneralIntoSiteSettings(
+          normalizePublicSettingsPayload(settingsResponse.data || {}),
+          generalResponse.data?.data || generalResponse.data || {}
+        ));
       } catch {
         if (isMounted) {
-          setSiteSettings(getPublicSettings(DEFAULT_APP_SETTINGS));
+          setSiteSettings(mergeGeneralIntoSiteSettings(
+            normalizePublicSettingsPayload(DEFAULT_APP_SETTINGS),
+            GENERAL_SETTINGS_FALLBACK
+          ));
         }
       }
     }
@@ -245,6 +416,23 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const general = siteSettings.general || {};
+    const storeName = general.storeName || "Avyona";
+
+    document.title = `${storeName} | Premium Electronics for Everyday Life`;
+
+    if (general.faviconUrl) {
+      let favicon = document.querySelector("link[rel='icon']");
+      if (!favicon) {
+        favicon = document.createElement("link");
+        favicon.rel = "icon";
+        document.head.appendChild(favicon);
+      }
+      favicon.href = general.faviconUrl;
+    }
+  }, [siteSettings.general]);
+
+  useEffect(() => {
     let isMounted = true;
 
     async function loadProducts() {
@@ -253,12 +441,9 @@ function App() {
         const response = await fetchStorefrontProducts({ status: "active", limit: 36 });
         if (!isMounted) return;
         const rows = Array.isArray(response.data) ? response.data : [];
-        const backendProducts = rows.map(normalizeBackendProduct);
-        const staticBySlug = new Map(allProducts.map((product) => [product.slug, product]));
-        backendProducts.forEach((product) => staticBySlug.set(product.slug, product));
-        setStorefrontProducts([...staticBySlug.values()]);
+        setStorefrontProducts(rows.map(normalizeBackendProduct));
       } catch {
-        if (isMounted) setStorefrontProducts(allProducts);
+        if (isMounted) setStorefrontProducts([]);
       } finally {
         if (isMounted) setIsProductCatalogLoading(false);
       }
@@ -270,6 +455,19 @@ function App() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (isProductCatalogLoading) return;
+    if (storefrontProducts.length) {
+      setCart((current) => {
+        const normalized = normalizeCartItems(current, storefrontProducts);
+        return JSON.stringify(normalized) === JSON.stringify(current) ? current : normalized;
+      });
+      return;
+    }
+    if (cart.length) setCart([]);
+    if (wishlist.length) setWishlist([]);
+  }, [cart.length, isProductCatalogLoading, setCart, setWishlist, storefrontProducts.length, wishlist.length]);
 
   useEffect(() => {
     let isMounted = true;
@@ -300,8 +498,9 @@ function App() {
       if (isRefreshing) return;
       isRefreshing = true;
 
-      const [settingsResult, productsResult, categoriesResult, couponsResult] = await Promise.allSettled([
+      const [settingsResult, generalResult, productsResult, categoriesResult, couponsResult] = await Promise.allSettled([
         fetchPublicSettings(),
+        fetchGeneralSettings(),
         fetchStorefrontProducts({ status: "active", limit: 36 }),
         fetchCategoryTree(),
         fetchStorefrontCoupons({ status: "active" })
@@ -310,15 +509,17 @@ function App() {
       if (!isMounted) return;
 
       if (settingsResult.status === "fulfilled") {
-        setSiteSettings(getPublicSettings(mergeSettings(DEFAULT_APP_SETTINGS, settingsResult.value.data || {})));
+        setSiteSettings(mergeGeneralIntoSiteSettings(
+          normalizePublicSettingsPayload(settingsResult.value.data || {}),
+          generalResult.status === "fulfilled"
+            ? (generalResult.value.data?.data || generalResult.value.data || {})
+            : GENERAL_SETTINGS_FALLBACK
+        ));
       }
 
       if (productsResult.status === "fulfilled") {
         const rows = Array.isArray(productsResult.value.data) ? productsResult.value.data : [];
-        const backendProducts = rows.map(normalizeBackendProduct);
-        const mergedBySlug = new Map(allProducts.map((product) => [product.slug, product]));
-        backendProducts.forEach((product) => mergedBySlug.set(product.slug, product));
-        setStorefrontProducts([...mergedBySlug.values()]);
+        setStorefrontProducts(rows.map(normalizeBackendProduct));
       }
 
       if (categoriesResult.status === "fulfilled") {
@@ -390,11 +591,12 @@ function App() {
 
   const addToCart = (product, variant, quantity = 1, triggerElement = null) => {
     const safeVariant = variant || product.variants?.[0];
-    const availableStock = Number(safeVariant?.availableStock ?? 99);
+    const availableStock = Math.max(0, Number(safeVariant?.availableStock ?? product.availableStock ?? 0));
     if (availableStock <= 0) {
       notify("This product is currently out of stock.");
       return;
     }
+    const requestedQuantity = Math.max(1, Math.floor(Number(quantity || 1)));
     setCart((current) => {
       const index = current.findIndex(
         (item) => item.slug === product.slug && String(item.variantLabel || "") === String(safeVariant?.label || "")
@@ -403,7 +605,8 @@ function App() {
         const next = [...current];
         next[index] = {
           ...next[index],
-          quantity: Math.min(Number(next[index].quantity || 0) + quantity, availableStock)
+          availableStock,
+          quantity: Math.min(Number(next[index].quantity || 0) + requestedQuantity, availableStock)
         };
         return next;
       }
@@ -415,9 +618,10 @@ function App() {
           name: product.name,
           category: product.category,
           price: safeVariant?.price ?? product.price,
-          quantity: Math.min(quantity, availableStock),
+          quantity: Math.min(requestedQuantity, availableStock),
           image: safeVariant?.image || product.image,
-          variantLabel: safeVariant?.label || ""
+          variantLabel: safeVariant?.label || "",
+          availableStock
         }
       ];
     });
@@ -450,8 +654,8 @@ function App() {
       eventType: "add_to_cart",
       productAsin: product.asin,
       productSlug: product.slug,
-      quantity,
-      cartValue: Number((safeVariant?.price ?? product.price) || 0) * Number(quantity || 1),
+      quantity: requestedQuantity,
+      cartValue: Number((safeVariant?.price ?? product.price) || 0) * requestedQuantity,
       metadata: {
         productName: product.name,
         variantLabel: safeVariant?.label || ""
@@ -462,11 +666,16 @@ function App() {
   const updateCartQuantity = (slug, variantLabel, quantity) => {
     setCart((current) =>
       current
-        .map((item) =>
-          item.slug === slug && String(item.variantLabel || "") === String(variantLabel || "")
-            ? { ...item, quantity: Math.max(1, quantity) }
-            : item
-        )
+        .map((item) => {
+          if (item.slug !== slug || String(item.variantLabel || "") !== String(variantLabel || "")) return item;
+          const availableStock = getAvailableStockForCartItem(item, storefrontProducts) || Math.max(0, Number(item.availableStock || 0));
+          if (availableStock <= 0) return { ...item, quantity: 0, availableStock: 0 };
+          return {
+            ...item,
+            availableStock,
+            quantity: Math.min(availableStock, Math.max(1, Math.floor(Number(quantity || 1))))
+          };
+        })
         .filter((item) => item.quantity > 0)
     );
   };
@@ -494,6 +703,45 @@ function App() {
       });
     }
   };
+
+  useEffect(() => {
+    if (!cart.length) {
+      abandonedCartKeyRef.current = "";
+      return undefined;
+    }
+
+    const cartValue = cart.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 1), 0);
+    const itemCount = cart.reduce((sum, item) => sum + Number(item.quantity || 1), 0);
+    const cartKey = cart
+      .map((item) => `${item.slug || item.asin || "item"}:${item.variantLabel || ""}:${item.quantity || 1}`)
+      .sort()
+      .join("|");
+
+    const sendAbandonedCart = () => {
+      if (location.pathname.startsWith("/checkout") || location.pathname.startsWith("/order-confirmation")) return;
+      if (abandonedCartKeyRef.current === cartKey) return;
+      abandonedCartKeyRef.current = cartKey;
+      trackAnalyticsEvent({
+        eventType: "abandoned_cart",
+        cartValue,
+        metadata: {
+          itemCount,
+          path: `${location.pathname}${location.search || ""}`
+        }
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") sendAbandonedCart();
+    };
+
+    window.addEventListener("pagehide", sendAbandonedCart);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", sendAbandonedCart);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [cart, location.pathname, location.search]);
 
   const toggleWishlist = (product, variant) => {
     const variantLabel = variant?.label || "";
@@ -570,33 +818,36 @@ function App() {
 
   return (
     <div className="app-shell">
-      <SeoManager />
-      <Routes>
-        <Route
-          path="/"
-          element={
-            <StoreLayout context={context} allProducts={storefrontProducts}>
-              <Home context={context} />
-            </StoreLayout>
-          }
-        />
-        <Route path="/blog/:slug" element={<StoreLayout context={context} allProducts={storefrontProducts}><BlogPage /></StoreLayout>} />
-        <Route path="/collections" element={<StoreLayout context={context} allProducts={storefrontProducts}><CollectionsPage context={context} /></StoreLayout>} />
-        <Route path="/category/:slug" element={<StoreLayout context={context} allProducts={storefrontProducts}><CollectionPage context={context} /></StoreLayout>} />
-        <Route path="/collection/:slug" element={<StoreLayout context={context} allProducts={storefrontProducts}><CollectionPage context={context} /></StoreLayout>} />
-        <Route path="/search" element={<StoreLayout context={context} allProducts={storefrontProducts}><SearchPage context={context} /></StoreLayout>} />
-        <Route path="/offers" element={<StoreLayout context={context} allProducts={storefrontProducts}><OffersPage context={context} /></StoreLayout>} />
-        <Route path="/contact" element={<StoreLayout context={context} allProducts={storefrontProducts}><ContactPage context={context} /></StoreLayout>} />
-        <Route path="/wishlist" element={<StoreLayout context={context} allProducts={storefrontProducts}><WishlistPage context={context} /></StoreLayout>} />
-        <Route path="/track-order" element={<StoreLayout context={context} allProducts={storefrontProducts}><TrackOrderPage context={context} /></StoreLayout>} />
-        <Route path="/product/:slug/:variantKey" element={<StoreLayout context={context} allProducts={storefrontProducts}><ProductPage context={context} /></StoreLayout>} />
-        <Route path="/product/:slug" element={<StoreLayout context={context} allProducts={storefrontProducts}><ProductPage context={context} /></StoreLayout>} />
-        <Route path="/account" element={<AccountPage context={context} />} />
-        <Route path="/profile" element={<ProtectedRoute allow={Boolean(authUser)}><ProfilePage context={context} /></ProtectedRoute>} />
-        <Route path="/checkout" element={<CheckoutPage context={context} />} />
-        <Route path="/order-confirmation/:orderNumber" element={<StoreLayout context={context} allProducts={storefrontProducts}><OrderConfirmationPage context={context} /></StoreLayout>} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <SeoManager siteSettings={siteSettings} />
+      <Suspense fallback={<div className="route-loading">Loading...</div>}>
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <StoreLayout context={context} allProducts={storefrontProducts}>
+                <Home context={context} />
+              </StoreLayout>
+            }
+          />
+          <Route path="/blog/:slug" element={<StoreLayout context={context} allProducts={storefrontProducts}><BlogPage /></StoreLayout>} />
+          <Route path="/collections" element={<StoreLayout context={context} allProducts={storefrontProducts}><CollectionsPage context={context} /></StoreLayout>} />
+          <Route path="/category/:slug" element={<StoreLayout context={context} allProducts={storefrontProducts}><CollectionPage context={context} /></StoreLayout>} />
+          <Route path="/collection/:slug" element={<StoreLayout context={context} allProducts={storefrontProducts}><CollectionPage context={context} /></StoreLayout>} />
+          <Route path="/search" element={<StoreLayout context={context} allProducts={storefrontProducts}><SearchPage context={context} /></StoreLayout>} />
+          <Route path="/offers" element={<StoreLayout context={context} allProducts={storefrontProducts}><OffersPage context={context} /></StoreLayout>} />
+          <Route path="/contact-us" element={<StoreLayout context={context} allProducts={storefrontProducts}><ContactPage context={context} /></StoreLayout>} />
+          <Route path="/contact" element={<Navigate to="/contact-us" replace />} />
+          <Route path="/wishlist" element={<StoreLayout context={context} allProducts={storefrontProducts}><WishlistPage context={context} /></StoreLayout>} />
+          <Route path="/track-order" element={<StoreLayout context={context} allProducts={storefrontProducts}><TrackOrderPage context={context} /></StoreLayout>} />
+          <Route path="/product/:slug/:variantKey" element={<StoreLayout context={context} allProducts={storefrontProducts}><ProductPage context={context} /></StoreLayout>} />
+          <Route path="/product/:slug" element={<StoreLayout context={context} allProducts={storefrontProducts}><ProductPage context={context} /></StoreLayout>} />
+          <Route path="/account" element={<AccountPage context={context} />} />
+          <Route path="/profile" element={<ProtectedRoute allow={Boolean(authUser)}><ProfilePage context={context} /></ProtectedRoute>} />
+          <Route path="/checkout" element={<CheckoutPage context={context} />} />
+          <Route path="/order-confirmation/:orderNumber" element={<StoreLayout context={context} allProducts={storefrontProducts}><OrderConfirmationPage context={context} /></StoreLayout>} />
+          <Route path="*" element={<StoreLayout context={context} allProducts={storefrontProducts}><NotFoundPage /></StoreLayout>} />
+        </Routes>
+      </Suspense>
       <div className="toast-stack">
         {toasts.map((toast) => (
           <div key={toast.id} className={`toast-chip ${toast.variant ? `toast-chip-${toast.variant}` : ""}`}>

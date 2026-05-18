@@ -1,14 +1,13 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { FaEdit, FaExternalLinkAlt, FaPlus, FaTasks, FaTrash, FaUndo } from "react-icons/fa";
-import products from "../../data/products";
-import { deleteProduct, fetchProducts } from "../../api/adminApi";
+import { FaEdit, FaExternalLinkAlt, FaGripVertical, FaPlus, FaTasks, FaTrash, FaUndo } from "react-icons/fa";
+import { deleteProduct, fetchProducts, updateProduct } from "../../api/adminApi";
 import { useAutoRefresh } from "../../hooks/useAutoRefresh";
 import PermissionGate from "../../components/access/PermissionGate";
 import { canAccess } from "../../utils/accessControl";
 import { buildStorefrontProductUrl, formatCurrency } from "../../utils/storefront";
 
-const rowsPerPageOptions = [5, 10, 20];
+const rowsPerPageOptions = [10, 20, 50, 100];
 
 function getStatusBadgeStyle(status) {
   if (status === "active") {
@@ -54,7 +53,7 @@ function normalizeProductRow(product) {
   return {
     id: product.id,
     slug: product.slug,
-    image: product.imageUrl || product.image || "/images/optimized/frame-1.webp",
+    image: product.imageUrl || product.image || "",
     name: product.name,
     brand: product.brand,
     category: product.categoryName || product.category,
@@ -63,7 +62,8 @@ function normalizeProductRow(product) {
     stock,
     stockStatus,
     status: product.status === "active" ? "active" : "inactive",
-    featured: Boolean(product.featured)
+    featured: Boolean(product.featured || product.featuredProduct),
+    sortOrder: Number(product.sortOrder || 0)
   };
 }
 
@@ -90,16 +90,21 @@ function ProductThumbnail({ src, alt }) {
 }
 
 export default function Products() {
-  const [tableProducts, setTableProducts] = React.useState(products);
-  const [sourceMessage, setSourceMessage] = React.useState("Showing local catalog preview.");
+  const [tableProducts, setTableProducts] = React.useState([]);
+  const [sourceMessage, setSourceMessage] = React.useState("Products load from backend only.");
   const [searchTerm, setSearchTerm] = React.useState("");
   const [categoryFilter, setCategoryFilter] = React.useState("all");
   const [brandFilter, setBrandFilter] = React.useState("all");
   const [stockFilter, setStockFilter] = React.useState("all");
   const [statusFilter, setStatusFilter] = React.useState("all");
   const [currentPage, setCurrentPage] = React.useState(1);
-  const [rowsPerPage, setRowsPerPage] = React.useState(10);
-  const [pagination, setPagination] = React.useState({ page: 1, limit: 10, total: products.length, totalPages: 1 });
+  const [rowsPerPage, setRowsPerPage] = React.useState(50);
+  const [pagination, setPagination] = React.useState({ page: 1, limit: 50, total: 0, totalPages: 1 });
+  const [selectedProductIds, setSelectedProductIds] = React.useState([]);
+  const [bulkProductAction, setBulkProductAction] = React.useState("");
+  const [runningBulkAction, setRunningBulkAction] = React.useState(false);
+  const [updatingProductId, setUpdatingProductId] = React.useState("");
+  const [draggedProductId, setDraggedProductId] = React.useState("");
   const [facets, setFacets] = React.useState(null);
   const canEditProducts = canAccess("products", "edit");
   const canDeleteProducts = canAccess("products", "delete");
@@ -126,13 +131,21 @@ export default function Products() {
   const pageStart = filteredProducts.length ? ((safeCurrentPage - 1) * rowsPerPage) : 0;
   const paginatedProducts = filteredProducts;
   const pageEnd = filteredProducts.length ? pageStart + filteredProducts.length : 0;
+  const visibleProductIds = React.useMemo(() => paginatedProducts.map((product) => String(product.id)), [paginatedProducts]);
+  const selectedVisibleCount = visibleProductIds.filter((id) => selectedProductIds.includes(id)).length;
+  const isCurrentPageSelected = visibleProductIds.length > 0 && selectedVisibleCount === visibleProductIds.length;
 
-  const handleDelete = async (productId) => {
+  const handleDelete = async (product) => {
+    const confirmed = window.confirm(`Delete product "${product.name}"?`);
+    if (!confirmed) return;
+
     try {
-      await deleteProduct(productId);
+      await deleteProduct(product.id);
+      setSelectedProductIds((current) => current.filter((id) => String(id) !== String(product.id)));
+      setSourceMessage("Product deleted successfully.");
       loadProducts();
-    } catch {
-      setSourceMessage("Delete failed. Check your permissions and backend connection.");
+    } catch (error) {
+      setSourceMessage(error.response?.data?.message || "Delete failed. Check your permissions and backend connection.");
     }
   };
 
@@ -145,7 +158,8 @@ export default function Products() {
         categorySlug: categoryFilter === "all" ? "" : categoryFilter,
         brand: brandFilter === "all" ? "" : brandFilter,
         availability: stockFilter === "all" ? "" : stockFilter === "in-stock" ? "in-stock" : stockFilter === "out-of-stock" ? "out-of-stock" : "",
-        status: statusFilter === "all" ? "" : statusFilter === "active" ? "active" : "draft"
+        status: statusFilter === "all" ? "" : statusFilter === "active" ? "active" : "draft",
+        sort: "manual"
       });
       const rows = Array.isArray(response.data?.data) ? response.data.data : [];
       setTableProducts(rows.map(normalizeProductRow));
@@ -154,10 +168,10 @@ export default function Products() {
       setSourceMessage("Products loaded from backend with server-side pagination.");
     } catch {
       if (showFallbackMessage) {
-        setTableProducts(products);
-        setPagination({ page: 1, limit: products.length, total: products.length, totalPages: 1 });
+        setTableProducts([]);
+        setPagination({ page: 1, limit: rowsPerPage, total: 0, totalPages: 1 });
         setFacets(null);
-        setSourceMessage("Backend products are unavailable, so local catalog preview is shown.");
+        setSourceMessage("Backend products are unavailable. No local product preview is shown.");
       }
     }
   }, [brandFilter, categoryFilter, currentPage, rowsPerPage, searchTerm, statusFilter, stockFilter]);
@@ -174,7 +188,127 @@ export default function Products() {
     setBrandFilter("all");
     setStockFilter("all");
     setStatusFilter("all");
-    setRowsPerPage(10);
+    setRowsPerPage(50);
+    setSelectedProductIds([]);
+  };
+
+  const toggleSelectedProduct = (productId) => {
+    const id = String(productId);
+    setSelectedProductIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  };
+
+  const toggleCurrentPageSelection = () => {
+    setSelectedProductIds((current) => {
+      if (isCurrentPageSelected) return current.filter((id) => !visibleProductIds.includes(id));
+      return Array.from(new Set([...current, ...visibleProductIds]));
+    });
+  };
+
+  const handleToggleProductStatus = async (product) => {
+    const nextStatus = product.status === "active" ? "draft" : "active";
+    setUpdatingProductId(product.id);
+    try {
+      await updateProduct(product.id, { status: nextStatus });
+      setSourceMessage(`Product marked ${nextStatus === "active" ? "active" : "inactive"}.`);
+      await loadProducts({ showFallbackMessage: false });
+    } catch (error) {
+      setSourceMessage(error.response?.data?.message || "Status update failed. Check permissions and backend connection.");
+    } finally {
+      setUpdatingProductId("");
+    }
+  };
+
+  const handleBulkStatus = async (status) => {
+    if (!selectedProductIds.length) return;
+    try {
+      await Promise.all(selectedProductIds.map((productId) => updateProduct(productId, { status })));
+      setSourceMessage(`${selectedProductIds.length} product(s) updated.`);
+      setSelectedProductIds([]);
+      await loadProducts();
+    } catch (error) {
+      setSourceMessage(error.response?.data?.message || "Bulk status update failed. Check permissions and backend connection.");
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (!selectedProductIds.length) return;
+    const confirmed = window.confirm(`Delete ${selectedProductIds.length} selected product(s)?`);
+    if (!confirmed) return;
+    try {
+      await Promise.all(selectedProductIds.map((productId) => deleteProduct(productId)));
+      setSourceMessage(`${selectedProductIds.length} product(s) deleted.`);
+      setSelectedProductIds([]);
+      await loadProducts();
+    } catch (error) {
+      setSourceMessage(error.response?.data?.message || "Bulk delete failed. Check permissions and backend connection.");
+      await loadProducts();
+    }
+  };
+
+  const handleApplyBulkProductAction = async () => {
+    if (!bulkProductAction || !selectedProductIds.length || runningBulkAction) return;
+
+    setRunningBulkAction(true);
+    try {
+      if (bulkProductAction === "active") {
+        await handleBulkStatus("active");
+      } else if (bulkProductAction === "inactive") {
+        await handleBulkStatus("draft");
+      } else if (bulkProductAction === "delete") {
+        await handleBulkDelete();
+      }
+      setBulkProductAction("");
+    } finally {
+      setRunningBulkAction(false);
+    }
+  };
+
+  const persistProductOrder = async (orderedProducts) => {
+    const sequencedProducts = orderedProducts.map((product, index) => ({
+      ...product,
+      sortOrder: pageStart + index + 1
+    }));
+
+    setTableProducts(sequencedProducts);
+    try {
+      await Promise.all(sequencedProducts.map((product) => updateProduct(product.id, { sortOrder: product.sortOrder })));
+      setSourceMessage("Product sort order saved.");
+    } catch (error) {
+      setSourceMessage(error.response?.data?.message || "Product sort order could not be saved.");
+      await loadProducts({ showFallbackMessage: false });
+    }
+  };
+
+  const handleProductDrop = async (targetProductId) => {
+    if (!draggedProductId || String(draggedProductId) === String(targetProductId)) return;
+    const orderedProducts = [...paginatedProducts];
+    const fromIndex = orderedProducts.findIndex((product) => String(product.id) === String(draggedProductId));
+    const toIndex = orderedProducts.findIndex((product) => String(product.id) === String(targetProductId));
+    if (fromIndex < 0 || toIndex < 0) return;
+
+    const [movedProduct] = orderedProducts.splice(fromIndex, 1);
+    orderedProducts.splice(toIndex, 0, movedProduct);
+    setDraggedProductId("");
+    await persistProductOrder(orderedProducts);
+  };
+
+  const handleProductSortOrderChange = async (product, value) => {
+    const nextSortOrder = Math.max(0, Math.round(Number(value || 0)));
+    if (nextSortOrder === Number(product.sortOrder || 0)) return;
+    setUpdatingProductId(product.id);
+    try {
+      await updateProduct(product.id, { sortOrder: nextSortOrder });
+      setTableProducts((current) =>
+        current
+          .map((item) => item.id === product.id ? { ...item, sortOrder: nextSortOrder } : item)
+          .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0) || String(left.name).localeCompare(String(right.name)))
+      );
+      setSourceMessage("Product sort order saved.");
+    } catch (error) {
+      setSourceMessage(error.response?.data?.message || "Product sort order could not be saved.");
+    } finally {
+      setUpdatingProductId("");
+    }
   };
 
   return (
@@ -261,6 +395,7 @@ export default function Products() {
             <span style={summaryPillStyle}>{`Total: ${pagination.total}`}</span>
             <span style={summaryPillStyle}>{`Loaded: ${filteredProducts.length}`}</span>
             <span style={summaryPillStyle}>{`Showing: ${filteredProducts.length ? `${pageStart + 1}-${pageEnd}` : "0"}`}</span>
+            <span style={summaryPillStyle}>{`Selected: ${selectedProductIds.length}`}</span>
           </div>
           <p>
             Use the action buttons available for your role to view, edit, or delete a product entry.
@@ -268,10 +403,54 @@ export default function Products() {
         </div>
       </section>
 
+      <section className="dashboard-filter-panel" style={bulkPanelStyle}>
+        <strong>{`${selectedProductIds.length} product(s) selected`}</strong>
+        <select
+          value={bulkProductAction}
+          onChange={(event) => setBulkProductAction(event.target.value)}
+          className="dashboard-bulk-action-select"
+          disabled={!selectedProductIds.length || runningBulkAction}
+          aria-label="Bulk product action"
+        >
+          <option value="">Select bulk action</option>
+          {canEditProducts ? <option value="active">Mark selected active</option> : null}
+          {canEditProducts ? <option value="inactive">Mark selected inactive</option> : null}
+          {canDeleteProducts ? <option value="delete">Delete selected</option> : null}
+        </select>
+        <button
+          type="button"
+          className="dashboard-primary-button"
+          onClick={handleApplyBulkProductAction}
+          disabled={!selectedProductIds.length || !bulkProductAction || runningBulkAction}
+        >
+          {runningBulkAction ? "Applying..." : "Apply"}
+        </button>
+        {selectedProductIds.length ? (
+          <button type="button" className="dashboard-secondary-button" onClick={() => setSelectedProductIds([])} disabled={runningBulkAction}>
+            Clear
+          </button>
+        ) : null}
+      </section>
+
+      {sourceMessage ? (
+        <section className="dashboard-action-feedback" aria-live="polite">
+          {sourceMessage}
+        </section>
+      ) : null}
+
       <div className="dashboard-table-card">
         <table className="dashboard-data-table dashboard-products-admin-table">
           <thead>
             <tr>
+              <th aria-label="Drag handle"></th>
+              <th>
+                <input
+                  type="checkbox"
+                  checked={isCurrentPageSelected}
+                  onChange={toggleCurrentPageSelection}
+                  aria-label="Select all products on this page"
+                />
+              </th>
               <th>Product</th>
               <th>Brand</th>
               <th>Category</th>
@@ -280,12 +459,33 @@ export default function Products() {
               <th>Stock</th>
               <th>Status</th>
               <th>Featured</th>
+              <th>Sort Order</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {paginatedProducts.map((product) => (
-              <tr key={product.id}>
+              <tr
+                key={product.id}
+                draggable={canEditProducts}
+                onDragStart={() => setDraggedProductId(String(product.id))}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={() => handleProductDrop(product.id)}
+                className={String(draggedProductId) === String(product.id) ? "dashboard-row-dragging" : ""}
+              >
+                <td>
+                  <button type="button" className="dashboard-drag-handle" title="Drag to reorder" disabled={!canEditProducts}>
+                    <FaGripVertical aria-hidden="true" />
+                  </button>
+                </td>
+                <td>
+                  <input
+                    type="checkbox"
+                    checked={selectedProductIds.includes(String(product.id))}
+                    onChange={() => toggleSelectedProduct(product.id)}
+                    aria-label={`Select ${product.name}`}
+                  />
+                </td>
                 <td>
                   <div className="dashboard-product-cell">
                     <ProductThumbnail src={product.image} alt={product.name} />
@@ -328,6 +528,20 @@ export default function Products() {
                   </span>
                 </td>
                 <td>
+                  <input
+                    type="number"
+                    min="0"
+                    defaultValue={product.sortOrder}
+                    className="dashboard-sort-input"
+                    disabled={!canEditProducts || updatingProductId === product.id}
+                    onBlur={(event) => handleProductSortOrderChange(product, event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") event.currentTarget.blur();
+                    }}
+                    aria-label={`Sort order for ${product.name}`}
+                  />
+                </td>
+                <td>
                   <span
                     style={{
                       ...pillBaseStyle,
@@ -345,13 +559,23 @@ export default function Products() {
                       View
                     </a>
                     {canEditProducts ? (
-                      <Link to={`/dashboard/products/${product.slug}/edit`} className="dashboard-icon-action is-edit">
-                        <FaEdit aria-hidden="true" />
-                        Edit
-                      </Link>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleProductStatus(product)}
+                          className="dashboard-icon-action is-status"
+                          disabled={updatingProductId === product.id}
+                        >
+                          {updatingProductId === product.id ? "Saving..." : product.status === "active" ? "Inactive" : "Active"}
+                        </button>
+                        <Link to={`/dashboard/products/${product.slug}/edit`} className="dashboard-icon-action is-edit">
+                          <FaEdit aria-hidden="true" />
+                          Edit
+                        </Link>
+                      </>
                     ) : null}
                     {canDeleteProducts ? (
-                      <button type="button" onClick={() => handleDelete(product.id)} className="dashboard-icon-action is-delete">
+                      <button type="button" onClick={() => handleDelete(product)} className="dashboard-icon-action is-delete">
                         <FaTrash aria-hidden="true" />
                         Delete
                       </button>
@@ -362,7 +586,7 @@ export default function Products() {
             ))}
             {!paginatedProducts.length ? (
               <tr>
-                <td colSpan="9" className="dashboard-empty-table-cell">
+                <td colSpan="12" className="dashboard-empty-table-cell">
                   No products found for the selected search and filters.
                 </td>
               </tr>
@@ -422,6 +646,13 @@ const paginationCardStyle = {
   justifyContent: "space-between",
   alignItems: "center",
   gap: "16px",
+  flexWrap: "wrap"
+};
+
+const bulkPanelStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: "10px",
   flexWrap: "wrap"
 };
 

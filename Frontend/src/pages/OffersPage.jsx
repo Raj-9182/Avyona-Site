@@ -1,14 +1,14 @@
 import React from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import ProductCard from "../components/product/ProductCard";
-import { allProducts, offerConfigs } from "../data/storefront-content";
+import { offerConfigs } from "../data/storefront-content";
 import { copyText } from "../utils/storefront";
 
 export default function OffersPage({ context }) {
   const [searchParams] = useSearchParams();
   const selectedOffer = searchParams.get("offer") || "summer-sale";
   const config = offerConfigs[selectedOffer] || offerConfigs["summer-sale"];
-  const products = allProducts.filter(config.matches);
+  const products = Array.isArray(context.allProducts) ? context.allProducts.filter(config.matches) : [];
 
   return (
     <main className="container offers-page">
@@ -23,7 +23,7 @@ export default function OffersPage({ context }) {
             <span className="offer-page-code">{config.coupon}</span>
           </div>
         </div>
-        <div className="offer-page-visual"><img src={config.image} alt={config.title} /></div>
+        {config.image ? <div className="offer-page-visual"><img src={config.image} alt={config.title} /></div> : null}
       </section>
       <section className="section-block">
         <div className="section-heading"><div><p className="eyebrow">Eligible Products</p><h2>{config.heading}</h2></div></div>

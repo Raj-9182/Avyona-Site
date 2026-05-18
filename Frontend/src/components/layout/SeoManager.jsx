@@ -29,9 +29,23 @@ const DEFAULT_KEYWORDS = [
 
 function getSiteOrigin() {
   const configuredUrl = typeof import.meta !== "undefined" ? import.meta.env?.VITE_SITE_URL : "";
-  if (configuredUrl) return configuredUrl.replace(/\/+$/, "");
   if (typeof window !== "undefined" && window.location?.origin) return window.location.origin;
+  if (configuredUrl) return configuredUrl.replace(/\/+$/, "");
   return "https://www.avyona.com";
+}
+
+function getSeoBrand(siteSettings = {}) {
+  const general = siteSettings.general || {};
+  const siteName = plainText(general.storeName) || SITE_NAME;
+  const tagline = plainText(general.brandTagline) || "Premium Electronics for Everyday Life";
+  return {
+    siteName,
+    tagline,
+    defaultTitle: `${siteName} | ${tagline}`,
+    defaultDescription: truncate(general.brandTagline
+      ? `${general.brandTagline} Shop premium electronics, offers, and buying guides from ${siteName}.`
+      : DEFAULT_DESCRIPTION)
+  };
 }
 
 function toAbsoluteUrl(value = "") {
@@ -42,7 +56,8 @@ function toAbsoluteUrl(value = "") {
 }
 
 function ensureImage(value) {
-  return toAbsoluteUrl(getOptimizedAssetPath(value || "/images/avyona logo.png"));
+  if (!value) return "";
+  return toAbsoluteUrl(getOptimizedAssetPath(value));
 }
 
 function plainText(value) {
@@ -88,23 +103,22 @@ function breadcrumbSchema(items) {
   };
 }
 
-function organizationSchema() {
+function organizationSchema(siteName = SITE_NAME) {
   const origin = getSiteOrigin();
   return {
     "@context": "https://schema.org",
     "@type": "Organization",
-    name: SITE_NAME,
-    url: origin,
-    logo: toAbsoluteUrl("/images/optimized/avyona-logo.webp")
+    name: siteName,
+    url: origin
   };
 }
 
-function websiteSchema() {
+function websiteSchema(siteName = SITE_NAME) {
   const origin = getSiteOrigin();
   return {
     "@context": "https://schema.org",
     "@type": "WebSite",
-    name: SITE_NAME,
+    name: siteName,
     url: origin,
     potentialAction: {
       "@type": "SearchAction",
@@ -205,23 +219,20 @@ function productSchema(product, variant) {
 }
 
 function articleSchema(article) {
+  const articleImage = ensureImage(article.image);
   return {
     "@context": "https://schema.org",
     "@type": "Article",
     headline: article.title,
     description: truncate(article.intro || article.body),
-    image: [ensureImage(article.image)],
+    ...(articleImage ? { image: [articleImage] } : {}),
     author: {
       "@type": "Organization",
       name: SITE_NAME
     },
     publisher: {
       "@type": "Organization",
-      name: SITE_NAME,
-      logo: {
-        "@type": "ImageObject",
-        url: toAbsoluteUrl("/images/optimized/avyona-logo.webp")
-      }
+      name: SITE_NAME
     },
     mainEntityOfPage: toAbsoluteUrl(`/blog/${article.slug}`)
   };
@@ -273,18 +284,18 @@ function setSchemaMarkup(schemaList) {
   document.head.appendChild(script);
 }
 
-function applySeo(seo) {
+function applySeo(seo, siteName = SITE_NAME) {
   document.title = seo.title;
   setCanonical(seo.canonical);
 
   setMeta({ name: "description", content: seo.description });
   setMeta({ name: "robots", content: seo.robots });
   setMeta({ name: "keywords", content: seo.keywords });
-  setMeta({ name: "author", content: SITE_NAME });
-  setMeta({ name: "application-name", content: SITE_NAME });
+  setMeta({ name: "author", content: siteName });
+  setMeta({ name: "application-name", content: siteName });
   setMeta({ name: "theme-color", content: "#5db467" });
 
-  setMeta({ property: "og:site_name", content: SITE_NAME });
+  setMeta({ property: "og:site_name", content: siteName });
   setMeta({ property: "og:locale", content: "en_IN" });
   setMeta({ property: "og:type", content: seo.type });
   setMeta({ property: "og:title", content: seo.title });
@@ -300,24 +311,25 @@ function applySeo(seo) {
   setSchemaMarkup(Array.isArray(seo.schema) ? seo.schema : []);
 }
 
-function getSeoData(location) {
+function getSeoData(location, siteSettings = {}) {
+  const brand = getSeoBrand(siteSettings);
   const { pathname, search } = location;
   const searchParams = new URLSearchParams(search);
   const pathSegments = pathname.split("/").filter(Boolean);
   const categories = flattenCategoryTree(fallbackCategoryTree);
   const base = {
-    title: DEFAULT_TITLE,
-    description: DEFAULT_DESCRIPTION,
+    title: brand.defaultTitle,
+    description: brand.defaultDescription,
     keywords: DEFAULT_KEYWORDS,
     robots: "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1",
     canonical: toAbsoluteUrl(pathname === "/" ? "/" : pathname),
-    image: ensureImage("/images/optimized/banner-1.webp"),
+    image: "",
     type: "website",
     schema: [
-      organizationSchema(),
-      websiteSchema(),
+      organizationSchema(brand.siteName),
+      websiteSchema(brand.siteName),
       breadcrumbSchema([{ name: "Home", path: "/" }]),
-      pageSchema(DEFAULT_TITLE, "/", DEFAULT_DESCRIPTION)
+      pageSchema(brand.defaultTitle, "/", brand.defaultDescription)
     ]
   };
 
@@ -325,9 +337,9 @@ function getSeoData(location) {
     return {
       ...base,
       schema: [
-        organizationSchema(),
-        websiteSchema(),
-        pageSchema(DEFAULT_TITLE, "/", DEFAULT_DESCRIPTION),
+        organizationSchema(brand.siteName),
+        websiteSchema(brand.siteName),
+        pageSchema(brand.defaultTitle, "/", brand.defaultDescription),
         breadcrumbSchema([{ name: "Home", path: "/" }]),
         collectionItemListSchema("Featured products", "/", Object.values(productData).slice(0, 8))
       ]
@@ -344,7 +356,7 @@ function getSeoData(location) {
       description,
       keywords: `${DEFAULT_KEYWORDS}, electronics collections, Avyona collections`,
       canonical: toAbsoluteUrl("/collections"),
-      image: ensureImage("/images/optimized/banner-2.webp"),
+      image: "",
       type: "website",
       schema: [
         organizationSchema(),
@@ -475,6 +487,28 @@ function getSeoData(location) {
     };
   }
 
+  if (pathname === "/contact-us") {
+    const title = "Contact Us | Avyona";
+    const description = "Need help with an order or business enquiry? Contact Avyona for customer support, delivery help, warranty support, bulk orders, dealership, partnerships, and corporate enquiries.";
+
+    return {
+      ...base,
+      title,
+      description,
+      keywords: `${DEFAULT_KEYWORDS}, contact Avyona, customer support, business enquiry, bulk orders`,
+      canonical: toAbsoluteUrl("/contact-us"),
+      type: "website",
+      schema: [
+        organizationSchema(),
+        pageSchema(title, "/contact-us", description),
+        breadcrumbSchema([
+          { name: "Home", path: "/" },
+          { name: "Contact Us", path: "/contact-us" }
+        ])
+      ]
+    };
+  }
+
   if (pathSegments[0] === "blog" && pathSegments[1]) {
     const article = blogEntriesBySlug[pathSegments[1]];
     if (article) {
@@ -564,24 +598,57 @@ function getSeoData(location) {
     };
   }
 
-  const blogListDescription = `Read the latest Avyona buying guides and electronics insights across ${blogEntries.length} featured articles.`;
+  if (pathname === "/wishlist") {
+    const title = "Avyona | Wishlist";
+    const description = "View saved Avyona products in your wishlist.";
+    return {
+      ...base,
+      title,
+      description,
+      robots: "noindex, follow",
+      canonical: toAbsoluteUrl("/wishlist"),
+      schema: [pageSchema(title, "/wishlist", description)]
+    };
+  }
+
+  if (pathname === "/track-order") {
+    const title = "Track Your Order | Avyona";
+    const description = "Track your Avyona order status using order details.";
+    return {
+      ...base,
+      title,
+      description,
+      robots: "noindex, follow",
+      canonical: toAbsoluteUrl("/track-order"),
+      schema: [pageSchema(title, "/track-order", description)]
+    };
+  }
+
+  const notFoundDescription = "The page you are looking for could not be found on Avyona.";
   return {
     ...base,
-    schema: [
-      organizationSchema(),
-      websiteSchema(),
-      pageSchema(DEFAULT_TITLE, pathname || "/", blogListDescription)
-    ]
+    title: "Page Not Found | Avyona",
+    description: notFoundDescription,
+    robots: "noindex, follow",
+    canonical: toAbsoluteUrl(pathname || "/"),
+    schema: [pageSchema("Page Not Found | Avyona", pathname || "/", notFoundDescription)]
   };
 }
 
-export default function SeoManager() {
+export default function SeoManager({ siteSettings }) {
   const location = useLocation();
+  const brand = getSeoBrand(siteSettings);
 
   useEffect(() => {
     let isMounted = true;
-    const fallbackSeo = getSeoData(location);
-    applySeo(fallbackSeo);
+    const fallbackSeo = getSeoData(location, siteSettings);
+    applySeo(fallbackSeo, brand.siteName);
+
+    if (fallbackSeo.title === "Page Not Found | Avyona") {
+      return () => {
+        isMounted = false;
+      };
+    }
 
     fetchPageSeo(`${location.pathname}${location.search}`)
       .then((response) => {
@@ -590,14 +657,14 @@ export default function SeoManager() {
           ...fallbackSeo,
           ...response.data,
           schema: Array.isArray(response.data.schema) ? response.data.schema : fallbackSeo.schema
-        });
+        }, brand.siteName);
       })
       .catch(() => {});
 
     return () => {
       isMounted = false;
     };
-  }, [location]);
+  }, [location, siteSettings, brand.siteName]);
 
   return null;
 }

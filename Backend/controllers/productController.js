@@ -11,6 +11,7 @@ const inventoryExportJobs = new Map();
 const inventoryImportBatchSize = 500;
 let inventoryImportTablesReady = false;
 let inventoryRelationshipTablesReady = false;
+let productSortOrderColumnReady = false;
 
 function isDatabaseUnavailable(error) {
   if (process.env.REQUIRE_MYSQL === "true") return false;
@@ -91,6 +92,17 @@ async function ensureInventoryImportTables() {
   await runIdempotentSchemaStatement("CREATE INDEX idx_inventory_export_jobs_type_created ON inventory_export_jobs(export_type, created_at)");
 
   inventoryImportTablesReady = true;
+}
+
+async function ensureProductSortOrderColumn() {
+  if (productSortOrderColumnReady) return;
+  try {
+    await runIdempotentSchemaStatement("ALTER TABLE products ADD COLUMN sort_order INT NOT NULL DEFAULT 0 AFTER is_visible");
+    await runIdempotentSchemaStatement("CREATE INDEX idx_products_sort_order ON products(sort_order, created_at)");
+    productSortOrderColumnReady = true;
+  } catch (error) {
+    if (!isDatabaseUnavailable(error)) throw error;
+  }
 }
 
 async function ensureInventoryRelationshipTables() {
@@ -192,24 +204,36 @@ function getProductMasterKey(payload = {}) {
 function filterLocalProducts(products, request) {
   const search = String(request.query.search || "").trim().toLowerCase();
   const status = String(request.query.status || "").trim();
-  const categorySlug = String(request.query.categorySlug || "").trim();
-  const brand = String(request.query.brand || "").trim();
+  const categorySlugs = getQueryList(request.query, "categorySlug").concat(getQueryList(request.query, "category"));
+  const brands = getQueryList(request.query, "brand");
+  const availability = [
+    ...getQueryList(request.query, "availability"),
+    ...getQueryList(request.query, "stock")
+  ];
   const minPrice = request.query.minPrice === undefined ? null : Number(request.query.minPrice);
   const maxPrice = request.query.maxPrice === undefined ? null : Number(request.query.maxPrice);
+  const minRating = request.query.rating === undefined && request.query.minRating === undefined
+    ? null
+    : Number(request.query.rating ?? request.query.minRating);
 
   return products
     .filter((product) => !product.isDeleted)
     .filter((product) => !status || product.status === status)
-    .filter((product) => !categorySlug || product.categorySlug === categorySlug)
-    .filter((product) => !brand || product.brand === brand)
+    .filter((product) => !categorySlugs.length || categorySlugs.includes(product.categorySlug))
+    .filter((product) => !brands.length || brands.includes(product.brand))
     .filter((product) => minPrice === null || Number(product.price || 0) >= minPrice)
     .filter((product) => maxPrice === null || Number(product.price || 0) <= maxPrice)
+    .filter((product) => minRating === null || Number(product.rating || 0) >= minRating)
+    .filter((product) => {
+      if (!availability.length || (availability.includes("in-stock") && availability.includes("out-of-stock"))) return true;
+      const inStock = Number(product.stockQuantity || product.availableStock || 0) > 0;
+      return availability.includes(inStock ? "in-stock" : "out-of-stock");
+    })
     .filter((product) => {
       if (!search) return true;
       return [product.name, product.brand, product.slug, product.asin, product.sku, product.barcode, product.modelNumber, product.categoryName]
         .some((value) => String(value || "").toLowerCase().includes(search));
-    })
-    .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")));
+    });
 }
 
 function parsePositiveInteger(value, fallback, max = 100) {
@@ -228,14 +252,43 @@ function getPagination(request) {
   };
 }
 
+function getQueryList(source = {}, key) {
+  const rawValue = source[key];
+  const rawItems = Array.isArray(rawValue) ? rawValue : [rawValue];
+  return rawItems
+    .flatMap((item) => String(item || "").split(","))
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function appendInFilter(filters, values, column, items) {
+  if (!items.length) return;
+  filters.push(`${column} IN (${items.map(() => "?").join(", ")})`);
+  values.push(...items);
+}
+
+function getNumericFilter(source = {}, keys = []) {
+  for (const key of keys) {
+    if (source[key] !== undefined && source[key] !== "") {
+      const value = Number(source[key]);
+      return Number.isFinite(value) ? value : null;
+    }
+  }
+  return null;
+}
+
 function getSortClause(sortValue) {
-  const sort = String(sortValue || "newest").trim();
-  if (sort === "price-low-high") return "p.price ASC, p.created_at DESC";
-  if (sort === "price-high-low") return "p.price DESC, p.created_at DESC";
+  const sort = String(sortValue || "latest").trim();
+  if (["manual", "sort-order", "sort"].includes(sort)) return "p.sort_order ASC, p.created_at DESC";
+  if (["latest", "newest", "featured"].includes(sort)) return "p.sort_order ASC, p.created_at DESC";
+  if (["price", "price-low-high", "price-asc"].includes(sort)) return "p.price ASC, p.created_at DESC";
+  if (["price-high-low", "price-desc"].includes(sort)) return "p.price DESC, p.created_at DESC";
+  if (["popularity", "popular", "best-selling"].includes(sort)) return "p.sold_quantity DESC, p.review_count DESC, p.rating DESC, p.created_at DESC";
   if (sort === "rating-high-low") return "p.rating DESC, p.review_count DESC, p.created_at DESC";
   if (sort === "name-a-z") return "p.name ASC";
   return "p.created_at DESC";
 }
+
 
 function normalizeSearchTerm(value) {
   return String(value || "").trim().replace(/\s+/g, " ");
@@ -385,12 +438,15 @@ function appendSearchFilter(filters, values, searchTerm) {
 }
 
 function applyLocalSort(products, sortValue) {
-  const sort = String(sortValue || "newest").trim();
+  const sort = String(sortValue || "latest").trim();
   return [...products].sort((left, right) => {
-    if (sort === "price-low-high") return Number(left.price || 0) - Number(right.price || 0);
-    if (sort === "price-high-low") return Number(right.price || 0) - Number(left.price || 0);
+    if (["price", "price-low-high", "price-asc"].includes(sort)) return Number(left.price || 0) - Number(right.price || 0);
+    if (["price-high-low", "price-desc"].includes(sort)) return Number(right.price || 0) - Number(left.price || 0);
     if (sort === "rating-high-low") {
       return Number(right.rating || 0) - Number(left.rating || 0) || Number(right.reviewCount || 0) - Number(left.reviewCount || 0);
+    }
+    if (["popularity", "popular", "best-selling"].includes(sort)) {
+      return Number(right.soldQuantity || right.reviewCount || 0) - Number(left.soldQuantity || left.reviewCount || 0);
     }
     if (sort === "name-a-z") return String(left.name || "").localeCompare(String(right.name || ""));
     return String(right.createdAt || "").localeCompare(String(left.createdAt || ""));
@@ -427,6 +483,19 @@ function getFacetRows(rows, key) {
   return [...counts.entries()]
     .map(([value, count]) => ({ value, count }))
     .sort((left, right) => right.count - left.count || left.value.localeCompare(right.value));
+}
+
+function getCategoryFacetRows(rows) {
+  const counts = new Map();
+  rows.forEach((row) => {
+    const value = String(row.categorySlug || "").trim();
+    if (!value) return;
+    const existing = counts.get(value) || { value, label: String(row.categoryName || value).trim(), count: 0 };
+    existing.count += 1;
+    counts.set(value, existing);
+  });
+
+  return [...counts.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
 }
 
 function normalizeImageUrls(imageUrls, fallbackImageUrl = "") {
@@ -719,6 +788,40 @@ async function findProductsByAsinOrSku(keys = []) {
   );
 }
 
+async function queryProductKeysInChunks(productKeys = []) {
+  const rows = [];
+  const chunkSize = 500;
+  for (let index = 0; index < productKeys.length; index += chunkSize) {
+    const chunk = productKeys.slice(index, index + chunkSize);
+    if (!chunk.length) continue;
+    rows.push(...await query(
+      `SELECT id, asin, sku, slug
+       FROM products
+       WHERE is_deleted = 0
+         AND (LOWER(asin) IN (${chunk.map(() => "LOWER(?)").join(",")})
+          OR LOWER(sku) IN (${chunk.map(() => "LOWER(?)").join(",")}))`,
+      [
+        ...chunk.map((key) => key.asin || ""),
+        ...chunk.map((key) => key.sku || "")
+      ]
+    ));
+  }
+  return rows;
+}
+
+async function queryScalarValuesInChunks(values = [], sqlFactory) {
+  const rows = [];
+  const chunkSize = 500;
+  const uniqueValues = [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
+  for (let index = 0; index < uniqueValues.length; index += chunkSize) {
+    const chunk = uniqueValues.slice(index, index + chunkSize);
+    if (!chunk.length) continue;
+    const { sql, params } = sqlFactory(chunk);
+    rows.push(...await query(sql, params));
+  }
+  return rows;
+}
+
 function splitRelatedKeys(value) {
   return String(value || "")
     .split(/[,\n]/)
@@ -889,8 +992,10 @@ function parseInventoryNumber(value, fallback = 0) {
 
 function isValidUrlText(value) {
   if (!value) return true;
+  const text = String(value || "").trim();
+  if (/^\/(?:uploads|images)\//i.test(text)) return true;
   try {
-    const url = new URL(value);
+    const url = new URL(text);
     return ["http:", "https:"].includes(url.protocol);
   } catch {
     return false;
@@ -898,8 +1003,33 @@ function isValidUrlText(value) {
 }
 
 function normalizeProductStatus(value) {
-  const normalized = String(value || "").trim().toLowerCase().replace(/-/g, "_");
-  return normalized;
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  const aliases = {
+    enabled: "active",
+    live: "active",
+    published: "active",
+    publish: "active",
+    in_stock: "active",
+    available: "active",
+    availbe: "active",
+    avavile: "active",
+    avilable: "active",
+    unavailable: "out_of_stock",
+    unavailbe: "out_of_stock",
+    unavavile: "out_of_stock",
+    unavilable: "out_of_stock",
+    out_stock: "out_of_stock",
+    outofstock: "out_of_stock",
+    sold_out: "out_of_stock"
+  };
+
+  return aliases[normalized] || normalized;
 }
 
 function isValidProductStatus(value) {
@@ -907,11 +1037,66 @@ function isValidProductStatus(value) {
 }
 
 function normalizeStockStatus(value) {
-  return String(value || "").trim().toLowerCase().replace(/_/g, "-");
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  const aliases = {
+    active: "in-stock",
+    available: "in-stock",
+    availbe: "in-stock",
+    avavile: "in-stock",
+    avilable: "in-stock",
+    enabled: "in-stock",
+    instock: "in-stock",
+    "in-stock": "in-stock",
+    "in-stock-available": "in-stock",
+    stocked: "in-stock",
+    yes: "in-stock",
+    true: "in-stock",
+    low: "low-stock",
+    lowstock: "low-stock",
+    "low-stock": "low-stock",
+    "limited-stock": "low-stock",
+    "running-low": "low-stock",
+    inactive: "out-of-stock",
+    unavailable: "out-of-stock",
+    unavailbe: "out-of-stock",
+    unavavile: "out-of-stock",
+    unavilable: "out-of-stock",
+    outofstock: "out-of-stock",
+    "out-stock": "out-of-stock",
+    "out-of-stock": "out-of-stock",
+    "sold-out": "out-of-stock",
+    no: "out-of-stock",
+    false: "out-of-stock"
+  };
+
+  return aliases[normalized] || normalized;
 }
 
 function isValidStockStatus(value) {
   return ["in-stock", "low-stock", "out-of-stock"].includes(normalizeStockStatus(value));
+}
+
+function getProductStatusFromStockStatus(value) {
+  const stockStatus = normalizeStockStatus(value);
+  if (stockStatus === "in-stock" || stockStatus === "low-stock") return "active";
+  if (stockStatus === "out-of-stock") return "out_of_stock";
+  return "";
+}
+
+function getStockQuantityFromStockStatus(stockQuantity, stockStatus) {
+  const normalizedStockStatus = normalizeStockStatus(stockStatus);
+  const parsedQuantity = parseInventoryNumber(stockQuantity, 0);
+
+  if (normalizedStockStatus === "out-of-stock") return 0;
+  if ((normalizedStockStatus === "in-stock" || normalizedStockStatus === "low-stock") && parsedQuantity <= 0) return 1;
+
+  return parsedQuantity;
 }
 
 function splitRelatedAsins(value) {
@@ -936,6 +1121,28 @@ function readInventoryWorkbook(filePath) {
   const sheetName = workbook.SheetNames[0];
   const worksheet = workbook.Sheets[sheetName];
   return XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+}
+
+function parseInventoryUpdateControls(value, templateType = "full-product") {
+  const defaults = {
+    basicInfo: templateType === "full-product",
+    pricing: templateType === "full-product" || templateType === "price-update",
+    stock: templateType === "full-product" || templateType === "stock-update",
+    media: templateType === "full-product",
+    description: templateType === "full-product",
+    specifications: templateType === "full-product",
+    seo: templateType === "full-product",
+    policies: templateType === "full-product",
+    faqs: templateType === "full-product",
+    variantGroups: templateType === "full-product"
+  };
+  const parsed = typeof value === "string"
+    ? parseJsonValue(value, {})
+    : value || {};
+  return {
+    ...defaults,
+    ...parsed
+  };
 }
 
 function normalizeBooleanCell(value) {
@@ -1053,6 +1260,8 @@ async function processInventoryRow(row, updateControls = {}) {
   const mrp = getInventoryValue(row, ["MRP"]);
   const stockQuantity = getInventoryValue(row, ["Stock Quantity"]);
   const status = getInventoryValue(row, ["Product Status", "Status"]);
+  const stockStatus = getInventoryValue(row, ["Stock Status"]);
+  const statusFromStock = getProductStatusFromStockStatus(stockStatus);
   const imageUrl = getInventoryValue(row, ["Primary Image URL"]);
   const nextSlug = getInventoryValue(row, ["Product Slug"]) || productName || asin;
 
@@ -1090,10 +1299,15 @@ async function processInventoryRow(row, updateControls = {}) {
           values.push(value);
         }
       });
-      if (status) {
+      if (status && !statusFromStock) {
         assignments.push("status = ?");
         values.push(normalizeInventoryDbStatus(status));
       }
+    }
+
+    if (updateControls.stock && statusFromStock) {
+      assignments.push("status = ?");
+      values.push(statusFromStock);
     }
 
     if (updateControls.pricing) {
@@ -1114,9 +1328,9 @@ async function processInventoryRow(row, updateControls = {}) {
       }
     }
 
-    if (updateControls.stock && stockQuantity !== "") {
+    if (updateControls.stock && (stockQuantity !== "" || stockStatus)) {
       assignments.push("stock_quantity = ?");
-      values.push(parseInventoryNumber(stockQuantity));
+      values.push(stockStatus ? getStockQuantityFromStockStatus(stockQuantity, stockStatus) : parseInventoryNumber(stockQuantity));
     }
 
     if (updateControls.description) {
@@ -1171,9 +1385,9 @@ async function processInventoryRow(row, updateControls = {}) {
       parseInventoryNumber(mrp, parseInventoryNumber(sellingPrice, 0)),
       normalizeBooleanCell(getInventoryValue(row, ["Tax Included"])),
       parseInventoryNumber(getInventoryValue(row, ["Tax Percentage"]), 0),
-      parseInventoryNumber(stockQuantity, 0),
+      stockStatus ? getStockQuantityFromStockStatus(stockQuantity, stockStatus) : parseInventoryNumber(stockQuantity, 0),
       imageUrl,
-      normalizeInventoryDbStatus(status || "draft")
+      statusFromStock || normalizeInventoryDbStatus(status || "draft")
     ]
   );
   const productId = result.insertId;
@@ -1369,23 +1583,73 @@ function appendInventoryExportFilters(filters, values, request) {
 }
 
 const inventoryExportColumns = [
+  "Product Name",
   "ASIN",
   "SKU",
-  "Product Name",
   "Product Slug",
+  "Product Type",
+  "Product Status",
   "Brand",
   "Category",
   "Subcategory",
-  "Status",
-  "Stock Status",
-  "Stock Quantity",
-  "Low Stock Threshold",
-  "MRP",
+  "Collection",
+  "Featured Product",
   "Selling Price",
+  "MRP",
   "Tax Included",
   "Tax Percentage",
+  "Stock Quantity",
+  "Low Stock Threshold",
+  "Stock Status",
+  "Availability Message",
+  "Delivery Estimate",
+  "Dispatch Time",
   "Short Description",
+  "Description",
+  "Highlight 1",
+  "Highlight 2",
+  "Highlight 3",
+  "Highlight 4",
+  "Highlight 5",
   "Primary Image URL",
+  "Gallery Image URL 1",
+  "Gallery Image URL 2",
+  "Gallery Image URL 3",
+  "Gallery Image URL 4",
+  "Gallery Image URL 5",
+  "Video URL 1",
+  "Video URL 2",
+  "Spec Group 1",
+  "Spec Label 1",
+  "Spec Value 1",
+  "Spec Group 2",
+  "Spec Label 2",
+  "Spec Value 2",
+  "Spec Group 3",
+  "Spec Label 3",
+  "Spec Value 3",
+  "Shipping Information",
+  "Return & Refund",
+  "Warranty Support",
+  "COD Information",
+  "FAQ Question 1",
+  "FAQ Answer 1",
+  "FAQ Question 2",
+  "FAQ Answer 2",
+  "FAQ Question 3",
+  "FAQ Answer 3",
+  "Related Products Mode",
+  "Auto Related By Category",
+  "Manual Related ASIN",
+  "Manual Related SKU",
+  "Variant Group Name",
+  "Variant Type",
+  "Variant Value",
+  "Meta Title",
+  "Canonical URL",
+  "Meta Description",
+  "Meta Keywords",
+  "OG Image URL",
   "Created At",
   "Updated At"
 ];
@@ -1400,23 +1664,73 @@ function getInventoryExportFileName(exportType = "complete") {
 
 function mapInventoryExportRows(rows = []) {
   return rows.map((product) => [
+    product.name || "",
     product.asin || "",
     product.sku || "",
-    product.name || "",
     product.slug || "",
+    "simple",
+    product.status || "",
     product.brand || "",
     product.categoryName || product.categorySlug || "",
     product.subcategoryName || product.subcategorySlug || "",
-    product.status || "",
-    product.stockStatus || "",
-    product.stockQuantity ?? "",
-    product.lowStockThreshold ?? "",
-    product.mrp ?? "",
+    product.categoryName || product.categorySlug || "",
+    product.featuredProduct ? "Yes" : "No",
     product.price ?? "",
+    product.mrp ?? "",
     Number(product.taxIncluded || 0) ? "Yes" : "No",
     product.taxRate ?? "",
+    product.stockQuantity ?? "",
+    product.lowStockThreshold ?? "",
+    product.stockStatus || "",
+    product.availabilityMessage || "",
+    product.deliveryEstimate || "",
+    product.dispatchTime || "",
     product.shortDescription || "",
+    product.description || "",
+    product.highlight1 || "",
+    product.highlight2 || "",
+    product.highlight3 || "",
+    product.highlight4 || "",
+    product.highlight5 || "",
     product.imageUrl || "",
+    product.galleryImage1 || "",
+    product.galleryImage2 || "",
+    product.galleryImage3 || "",
+    product.galleryImage4 || "",
+    product.galleryImage5 || "",
+    product.videoUrl1 || "",
+    product.videoUrl2 || "",
+    product.specGroup1 || "",
+    product.specLabel1 || "",
+    product.specValue1 || "",
+    product.specGroup2 || "",
+    product.specLabel2 || "",
+    product.specValue2 || "",
+    product.specGroup3 || "",
+    product.specLabel3 || "",
+    product.specValue3 || "",
+    product.shippingInformation || "",
+    product.returnRefund || "",
+    product.warrantySupport || "",
+    product.codInformation || "",
+    product.faqQuestion1 || "",
+    product.faqAnswer1 || "",
+    product.faqQuestion2 || "",
+    product.faqAnswer2 || "",
+    product.faqQuestion3 || "",
+    product.faqAnswer3 || "",
+    product.relatedProductsMode || "",
+    product.autoRelatedByCategory || "",
+    product.manualRelatedAsin || "",
+    product.manualRelatedSku || "",
+    product.variantGroupName || "",
+    product.variantType || "",
+    product.variantValue || "",
+    product.metaTitle || "",
+    product.canonicalUrl || "",
+    product.metaDescription || "",
+    product.metaKeywords || "",
+    product.ogImageUrl || "",
     product.createdAt || "",
     product.updatedAt || ""
   ]);
@@ -1438,6 +1752,7 @@ function buildInventoryExportQuery(filters, values, limit = null, offset = null)
       CASE WHEN parent.id IS NULL THEN '' ELSE c.name END AS subcategoryName,
       CASE WHEN parent.id IS NULL THEN '' ELSE c.slug END AS subcategorySlug,
       p.status,
+      p.is_featured AS featuredProduct,
       p.price,
       p.mrp,
       p.tax_included AS taxIncluded,
@@ -1563,22 +1878,35 @@ async function processInventoryExportJob(jobId) {
 }
 
 export async function listProducts(request, response) {
+  await ensureProductSortOrderColumn();
   const filters = ["p.is_deleted = 0"];
   const values = [];
   const { page, limit, offset } = getPagination(request);
+  const categoryIds = getQueryList(request.query, "categoryId").map(Number).filter(Number.isFinite);
+  const categorySlugs = [...new Set([
+    ...getQueryList(request.query, "categorySlug"),
+    ...getQueryList(request.query, "category")
+  ])];
+  const brands = getQueryList(request.query, "brand");
+  const availability = [...new Set([
+    ...getQueryList(request.query, "availability"),
+    ...getQueryList(request.query, "stock")
+  ])];
+  const minRating = getNumericFilter(request.query, ["rating", "minRating"]);
 
-  if (request.query.categoryId) {
-    filters.push("p.category_id = ?");
-    values.push(Number(request.query.categoryId));
+  if (categoryIds.length) {
+    appendInFilter(filters, values, "p.category_id", categoryIds);
   }
 
-  if (request.query.categorySlug) {
+  if (categorySlugs.length) {
     filters.push(`p.category_id IN (
-      SELECT c.id FROM categories c WHERE c.slug = ? OR c.parent_id = (
-        SELECT parent.id FROM categories parent WHERE parent.slug = ? LIMIT 1
-      )
+      SELECT c.id
+      FROM categories c
+      LEFT JOIN categories parent ON parent.id = c.parent_id
+      WHERE c.slug IN (${categorySlugs.map(() => "?").join(", ")})
+        OR parent.slug IN (${categorySlugs.map(() => "?").join(", ")})
     )`);
-    values.push(String(request.query.categorySlug).trim(), String(request.query.categorySlug).trim());
+    values.push(...categorySlugs, ...categorySlugs);
   }
 
   if (request.query.status) {
@@ -1586,10 +1914,7 @@ export async function listProducts(request, response) {
     values.push(String(request.query.status));
   }
 
-  if (request.query.brand) {
-    filters.push("p.brand = ?");
-    values.push(String(request.query.brand).trim());
-  }
+  appendInFilter(filters, values, "p.brand", brands);
 
   if (request.query.minPrice) {
     filters.push("p.price >= ?");
@@ -1601,18 +1926,23 @@ export async function listProducts(request, response) {
     values.push(Number(request.query.maxPrice));
   }
 
-  if (request.query.availability === "in-stock") {
+  if (minRating !== null) {
+    filters.push("p.rating >= ?");
+    values.push(minRating);
+  }
+
+  if (availability.length === 1 && availability[0] === "in-stock") {
     filters.push("p.stock_quantity > 0");
   }
 
-  if (request.query.availability === "out-of-stock") {
+  if (availability.length === 1 && availability[0] === "out-of-stock") {
     filters.push("p.stock_quantity <= 0");
   }
 
   const hasSearch = appendSearchFilter(filters, values, request.query.search);
 
   const whereClause = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
-  const sortClause = hasSearch && (!request.query.sort || request.query.sort === "relevance" || request.query.sort === "newest")
+  const sortClause = hasSearch && (!request.query.sort || request.query.sort === "relevance" || request.query.sort === "newest" || request.query.sort === "latest")
     ? "searchRank DESC, p.created_at DESC"
     : getSortClause(request.query.sort);
   const searchRankSql = hasSearch ? getSearchRankSql() : "0";
@@ -1650,6 +1980,7 @@ export async function listProducts(request, response) {
       p.rating,
       p.review_count AS reviewCount,
       p.image_url AS imageUrl,
+      p.sort_order AS sortOrder,
       COALESCE(p.name, p.asin) AS variantValue,
       p.status,
       p.created_at AS createdAt,
@@ -1688,7 +2019,7 @@ export async function listProducts(request, response) {
       },
       facets: {
         brands: getFacetRows(facetRows, "brand"),
-        categories: getFacetRows(facetRows, "categorySlug"),
+        categories: getCategoryFacetRows(facetRows),
         availability: [
           { value: "in-stock", count: facetRows.filter((item) => Number(item.stockQuantity || 0) > 0).length },
           { value: "out-of-stock", count: facetRows.filter((item) => Number(item.stockQuantity || 0) <= 0).length }
@@ -1710,7 +2041,7 @@ export async function listProducts(request, response) {
       pagination: paginated.pagination,
       facets: {
         brands: getFacetRows(rows, "brand"),
-        categories: getFacetRows(rows, "categorySlug"),
+        categories: getCategoryFacetRows(rows),
         availability: [
           { value: "in-stock", count: rows.filter((item) => Number(item.stockQuantity || 0) > 0).length },
           { value: "out-of-stock", count: rows.filter((item) => Number(item.stockQuantity || 0) <= 0).length }
@@ -1889,54 +2220,43 @@ async function runInventoryValidation({ rows = [], templateType = "full-product"
     if (brand) brandNames.add(brand);
   });
 
-  const existingProducts = productKeys.length ? await query(
-    `SELECT id, asin, sku, slug
-     FROM products
-     WHERE is_deleted = 0
-       AND (LOWER(asin) IN (${productKeys.map(() => "LOWER(?)").join(",")})
-        OR LOWER(sku) IN (${productKeys.map(() => "LOWER(?)").join(",")}))
-     LIMIT 10000`,
-    [
-      ...productKeys.map((key) => key.asin || ""),
-      ...productKeys.map((key) => key.sku || "")
-    ]
-  ) : [];
+  const existingProducts = productKeys.length ? await queryProductKeysInChunks(productKeys) : [];
   const existingByAsin = new Map(existingProducts.map((product) => [String(product.asin || "").toLowerCase(), product]));
   const existingBySku = new Map(existingProducts.map((product) => [String(product.sku || "").toLowerCase(), product]));
   const categoryLookupValues = getInventoryLookupValues(categoryNames);
   const brandLookupValues = getInventoryLookupValues(brandNames);
 
-  const categoryRows = categoryLookupValues.length ? await query(
-    `SELECT id, name, slug FROM categories
-     WHERE LOWER(name) IN (${categoryLookupValues.map(() => "LOWER(?)").join(",")})
-        OR LOWER(slug) IN (${categoryLookupValues.map(() => "LOWER(?)").join(",")})`,
-    [...categoryLookupValues, ...categoryLookupValues]
-  ) : [];
-  const brandRows = brandLookupValues.length ? await query(
-    `SELECT name AS brand FROM brands
-     WHERE LOWER(name) IN (${brandLookupValues.map(() => "LOWER(?)").join(",")})
-     UNION
-     SELECT DISTINCT brand FROM products
-     WHERE LOWER(brand) IN (${brandLookupValues.map(() => "LOWER(?)").join(",")})`,
-    [...brandLookupValues, ...brandLookupValues]
-  ) : [];
-  const relatedRows = relatedKeys.size ? await query(
-    `SELECT asin, sku FROM products
-     WHERE is_deleted = 0
-       AND (LOWER(asin) IN (${[...relatedKeys].map(() => "LOWER(?)").join(",")})
-        OR LOWER(sku) IN (${[...relatedKeys].map(() => "LOWER(?)").join(",")}))`,
-    [...relatedKeys, ...relatedKeys]
-  ) : [];
+  const categoryRows = categoryLookupValues.length ? await queryScalarValuesInChunks(categoryLookupValues, (chunk) => ({
+    sql: `SELECT id, name, slug FROM categories
+      WHERE LOWER(name) IN (${chunk.map(() => "LOWER(?)").join(",")})
+         OR LOWER(slug) IN (${chunk.map(() => "LOWER(?)").join(",")})`,
+    params: [...chunk, ...chunk]
+  })) : [];
+  const brandRows = brandLookupValues.length ? await queryScalarValuesInChunks(brandLookupValues, (chunk) => ({
+    sql: `SELECT name AS brand FROM brands
+      WHERE LOWER(name) IN (${chunk.map(() => "LOWER(?)").join(",")})
+      UNION
+      SELECT DISTINCT brand FROM products
+      WHERE LOWER(brand) IN (${chunk.map(() => "LOWER(?)").join(",")})`,
+    params: [...chunk, ...chunk]
+  })) : [];
+  const relatedRows = relatedKeys.size ? await queryScalarValuesInChunks([...relatedKeys], (chunk) => ({
+    sql: `SELECT asin, sku FROM products
+      WHERE is_deleted = 0
+        AND (LOWER(asin) IN (${chunk.map(() => "LOWER(?)").join(",")})
+         OR LOWER(sku) IN (${chunk.map(() => "LOWER(?)").join(",")}))`,
+    params: [...chunk, ...chunk]
+  })) : [];
   const categoryKeys = new Set(categoryRows.flatMap((category) => [category.name, category.slug].map(normalizeInventoryLookupKey)));
   const brandKeys = new Set(brandRows.map((brand) => normalizeInventoryLookupKey(brand.brand)));
   const existingRelatedKeys = new Set(relatedRows.flatMap((product) => [product.asin, product.sku].map((value) => String(value || "").toLowerCase()).filter(Boolean)));
   const slugValues = rows.map((row) => getInventoryValue(row, ["Product Slug"])).filter(Boolean);
-  const existingSlugs = slugValues.length ? await query(
-    `SELECT id, slug, asin, sku FROM products
-     WHERE is_deleted = 0
-       AND LOWER(slug) IN (${slugValues.map(() => "LOWER(?)").join(",")})`,
-    slugValues
-  ) : [];
+  const existingSlugs = slugValues.length ? await queryScalarValuesInChunks(slugValues, (chunk) => ({
+    sql: `SELECT id, slug, asin, sku FROM products
+      WHERE is_deleted = 0
+        AND LOWER(slug) IN (${chunk.map(() => "LOWER(?)").join(",")})`,
+    params: chunk
+  })) : [];
   const slugOwners = new Map(existingSlugs.map((product) => [String(product.slug || "").toLowerCase(), product]));
   let newProducts = 0;
   let existingProductRows = 0;
@@ -2065,9 +2385,7 @@ export async function createInventoryImportJob(request, response) {
   const rows = readInventoryWorkbook(request.file.path);
   const templateType = String(request.body?.templateType || "full-product").trim();
   const importType = String(request.body?.importType || "create-update").trim();
-  const updateControls = typeof request.body?.updateControls === "string"
-    ? JSON.parse(request.body.updateControls || "{}")
-    : request.body?.updateControls || {};
+  const updateControls = parseInventoryUpdateControls(request.body?.updateControls, templateType);
   const autoCreateMissingCategoryBrand = normalizeBooleanFlag(request.body?.autoCreateMissingCategoryBrand);
   const validation = await runInventoryValidation({
     rows,
@@ -2291,7 +2609,7 @@ export async function retryInventoryImportFailedRows(request, response) {
     templateType: sourceRows[0].templateType,
     importType: sourceRows[0].importType,
     autoCreateMissingCategoryBrand: normalizeBooleanFlag(request.body?.autoCreateMissingCategoryBrand),
-    updateControls: request.body?.updateControls || {},
+    updateControls: parseInventoryUpdateControls(request.body?.updateControls, sourceRows[0].templateType),
     validation,
     validRows: validation.validRowDetails || [],
     totalRows: validation.validRows || 0,
@@ -2393,6 +2711,7 @@ export async function getProductById(request, response) {
 }
 
 export async function createProduct(request, response) {
+  await ensureProductSortOrderColumn();
   const {
     categoryId,
     categorySlug,
@@ -2412,7 +2731,8 @@ export async function createProduct(request, response) {
     reviewCount = 0,
     imageUrl = "",
     imageUrls = [],
-    status = "draft"
+    status = "draft",
+    sortOrder = 0
   } = request.body || {};
 
   if ((!categoryId && !categorySlug) || !asin || !name || !brand || price == null || mrp == null) {
@@ -2434,8 +2754,8 @@ export async function createProduct(request, response) {
 
     const result = await query(
       `INSERT INTO products
-      (category_id, asin, sku, barcode, model_number, name, slug, brand, short_description, description, price, mrp, stock_quantity, rating, review_count, image_url, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (category_id, asin, sku, barcode, model_number, name, slug, brand, short_description, description, price, mrp, stock_quantity, rating, review_count, image_url, sort_order, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         resolvedCategoryId,
         String(asin).trim(),
@@ -2453,6 +2773,7 @@ export async function createProduct(request, response) {
         rating,
         reviewCount,
         imageUrl,
+        Number(sortOrder || 0),
         status
       ]
     );
@@ -2480,6 +2801,7 @@ export async function createProduct(request, response) {
 }
 
 export async function updateProduct(request, response) {
+  await ensureProductSortOrderColumn();
   const {
     categoryId,
     categorySlug,
@@ -2498,7 +2820,8 @@ export async function updateProduct(request, response) {
     reviewCount,
     imageUrl,
     imageUrls,
-    status
+    status,
+    sortOrder
   } = request.body || {};
 
   try {
@@ -2533,6 +2856,7 @@ export async function updateProduct(request, response) {
         rating = COALESCE(?, rating),
         review_count = COALESCE(?, review_count),
         image_url = COALESCE(?, image_url),
+        sort_order = COALESCE(?, sort_order),
         status = COALESCE(?, status)
        WHERE id = ?`,
       [
@@ -2552,6 +2876,7 @@ export async function updateProduct(request, response) {
         rating ?? null,
         reviewCount ?? null,
         imageUrl ?? null,
+        sortOrder === undefined || sortOrder === "" ? null : Number(sortOrder),
         status ?? null,
         Number(request.params.id)
       ]
@@ -2597,6 +2922,7 @@ export async function updateProduct(request, response) {
       rating: rating ?? current.rating,
       reviewCount: reviewCount ?? current.reviewCount,
       imageUrl: imageUrl ?? current.imageUrl,
+      sortOrder: sortOrder ?? current.sortOrder,
       status: status ?? current.status,
       updatedAt: new Date().toISOString()
     };

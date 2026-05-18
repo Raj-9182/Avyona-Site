@@ -22,7 +22,7 @@ export function rateLimit({ windowMs = 60_000, max = 180, keyPrefix = "default" 
     if (bucket.count >= max) {
       response.status(429).json({
         success: false,
-        message: "Too many analytics events. Please retry shortly."
+        message: "Too many requests. Please retry shortly."
       });
       return;
     }

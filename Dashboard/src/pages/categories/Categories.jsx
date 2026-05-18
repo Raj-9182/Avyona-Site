@@ -1,11 +1,12 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
+import { FaGripVertical } from "react-icons/fa";
 import { deleteCategory, fetchCategories, updateCategory } from "../../api/adminApi";
 import { useAutoRefresh } from "../../hooks/useAutoRefresh";
 import { canAccess } from "../../utils/accessControl";
 
 function getPreviewUrl(url) {
-  if (!url) return "/images/optimized/digital-photo-frames.webp";
+  if (!url) return "";
   if (/^(data:|blob:|https?:)/i.test(url)) return url;
   if (url.startsWith("/uploads/")) return `http://localhost:4000${url}`;
   return url;
@@ -51,9 +52,24 @@ export default function Categories() {
   const [loading, setLoading] = React.useState(true);
   const [updatingCategoryId, setUpdatingCategoryId] = React.useState("");
   const [message, setMessage] = React.useState("");
+  const [currentPage, setCurrentPage] = React.useState(1);
+  const [rowsPerPage, setRowsPerPage] = React.useState(50);
+  const [selectedCategoryIds, setSelectedCategoryIds] = React.useState([]);
+  const [bulkCategoryAction, setBulkCategoryAction] = React.useState("");
+  const [runningBulkAction, setRunningBulkAction] = React.useState(false);
+  const [draggedCategoryId, setDraggedCategoryId] = React.useState("");
   const canCreateCategories = canAccess("categories", "create");
   const canEditCategories = canAccess("categories", "edit");
   const canDeleteCategories = canAccess("categories", "delete");
+
+  const totalPages = Math.max(1, Math.ceil(categoryRows.length / rowsPerPage));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const pageStart = categoryRows.length ? (safeCurrentPage - 1) * rowsPerPage : 0;
+  const paginatedCategoryRows = categoryRows.slice(pageStart, pageStart + rowsPerPage);
+  const pageEnd = categoryRows.length ? pageStart + paginatedCategoryRows.length : 0;
+  const visibleCategoryIds = React.useMemo(() => paginatedCategoryRows.map((row) => String(row.id)), [paginatedCategoryRows]);
+  const selectedVisibleCount = visibleCategoryIds.filter((id) => selectedCategoryIds.includes(id)).length;
+  const isCurrentPageSelected = visibleCategoryIds.length > 0 && selectedVisibleCount === visibleCategoryIds.length;
 
   const loadCategories = React.useCallback(async () => {
     setLoading(true);
@@ -104,9 +120,166 @@ export default function Categories() {
     try {
       await deleteCategory(row.id);
       setCategoryRows((current) => current.filter((category) => category.id !== row.id));
+      setSelectedCategoryIds((current) => current.filter((id) => String(id) !== String(row.id)));
       setMessage("Category deleted successfully.");
     } catch (error) {
       setMessage(error.response?.data?.message || "Unable to delete category.");
+    }
+  };
+
+  const toggleSelectedCategory = (categoryId) => {
+    const id = String(categoryId);
+    setSelectedCategoryIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  };
+
+  const toggleCurrentPageSelection = () => {
+    setSelectedCategoryIds((current) => {
+      if (isCurrentPageSelected) return current.filter((id) => !visibleCategoryIds.includes(id));
+      return Array.from(new Set([...current, ...visibleCategoryIds]));
+    });
+  };
+
+  const handleBulkCategoryStatus = async (status) => {
+    if (!selectedCategoryIds.length) return;
+    setMessage("");
+    try {
+      const selectedRows = categoryRows.filter((row) => selectedCategoryIds.includes(String(row.id)));
+      const updates = await Promise.all(selectedRows.map((row) => updateCategory(row.id, buildCategoryPayload(row.raw, status))));
+      const updatedById = new Map(updates.map((response, index) => [
+        String(selectedRows[index].id),
+        normalizeRow(response.data?.data || { ...selectedRows[index].raw, status })
+      ]));
+      setCategoryRows((current) => current.map((row) => updatedById.get(String(row.id)) || row));
+      setSelectedCategoryIds([]);
+      setMessage(`${selectedRows.length} category(s) updated.`);
+    } catch (error) {
+      setMessage(error.response?.data?.message || "Unable to update selected categories.");
+      await loadCategories();
+    }
+  };
+
+  const handleBulkCategoryDelete = async () => {
+    if (!selectedCategoryIds.length) return;
+    const confirmed = window.confirm(`Delete ${selectedCategoryIds.length} selected category(s)?`);
+    if (!confirmed) return;
+    try {
+      await Promise.all(selectedCategoryIds.map((categoryId) => deleteCategory(categoryId)));
+      setCategoryRows((current) => current.filter((row) => !selectedCategoryIds.includes(String(row.id))));
+      setSelectedCategoryIds([]);
+      setMessage("Selected categories deleted successfully.");
+    } catch (error) {
+      setMessage(error.response?.data?.message || "Unable to delete selected categories.");
+      await loadCategories();
+    }
+  };
+
+  const handleApplyBulkCategoryAction = async () => {
+    if (!bulkCategoryAction || !selectedCategoryIds.length || runningBulkAction) return;
+
+    setRunningBulkAction(true);
+    try {
+      if (bulkCategoryAction === "active") {
+        await handleBulkCategoryStatus("active");
+      } else if (bulkCategoryAction === "inactive") {
+        await handleBulkCategoryStatus("inactive");
+      } else if (bulkCategoryAction === "show-menu") {
+        await handleBulkCategoryDisplay("showInMenu", true);
+      } else if (bulkCategoryAction === "hide-menu") {
+        await handleBulkCategoryDisplay("showInMenu", false);
+      } else if (bulkCategoryAction === "featured") {
+        await handleBulkCategoryDisplay("featuredCategory", true);
+      } else if (bulkCategoryAction === "unfeatured") {
+        await handleBulkCategoryDisplay("featuredCategory", false);
+      } else if (bulkCategoryAction === "delete") {
+        await handleBulkCategoryDelete();
+      }
+      setBulkCategoryAction("");
+    } finally {
+      setRunningBulkAction(false);
+    }
+  };
+
+  const handleBulkCategoryDisplay = async (field, value) => {
+    if (!selectedCategoryIds.length) return;
+    setMessage("");
+    try {
+      const selectedRows = categoryRows.filter((row) => selectedCategoryIds.includes(String(row.id)));
+      const updates = await Promise.all(
+        selectedRows.map((row) => updateCategory(row.id, {
+          ...buildCategoryPayload(row.raw, row.raw.status || row.status.toLowerCase()),
+          [field]: value
+        }))
+      );
+      const updatedById = new Map(updates.map((response, index) => [
+        String(selectedRows[index].id),
+        normalizeRow(response.data?.data || { ...selectedRows[index].raw, [field]: value })
+      ]));
+      setCategoryRows((current) => current.map((row) => updatedById.get(String(row.id)) || row));
+      setSelectedCategoryIds([]);
+      setMessage(`${selectedRows.length} category display setting(s) updated.`);
+    } catch (error) {
+      setMessage(error.response?.data?.message || "Unable to update selected category display settings.");
+      await loadCategories();
+    }
+  };
+
+  const persistCategoryOrder = async (orderedRows) => {
+    const sequencedRows = orderedRows.map((row, index) => ({
+      ...row,
+      sortOrder: pageStart + index + 1,
+      raw: { ...row.raw, sortOrder: pageStart + index + 1 }
+    }));
+
+    setCategoryRows((current) => {
+      const byId = new Map(sequencedRows.map((row) => [String(row.id), row]));
+      return current
+        .map((row) => byId.get(String(row.id)) || row)
+        .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0) || String(left.categoryName).localeCompare(String(right.categoryName)));
+    });
+
+    try {
+      await Promise.all(sequencedRows.map((row) => updateCategory(row.id, buildCategoryPayload(row.raw, row.raw.status || row.status.toLowerCase()))));
+      setMessage("Category sort order saved.");
+    } catch (error) {
+      setMessage(error.response?.data?.message || "Unable to save category sort order.");
+      await loadCategories();
+    }
+  };
+
+  const handleCategoryDrop = async (targetCategoryId) => {
+    if (!draggedCategoryId || String(draggedCategoryId) === String(targetCategoryId)) return;
+    const orderedRows = [...paginatedCategoryRows];
+    const fromIndex = orderedRows.findIndex((row) => String(row.id) === String(draggedCategoryId));
+    const toIndex = orderedRows.findIndex((row) => String(row.id) === String(targetCategoryId));
+    if (fromIndex < 0 || toIndex < 0) return;
+
+    const [movedRow] = orderedRows.splice(fromIndex, 1);
+    orderedRows.splice(toIndex, 0, movedRow);
+    setDraggedCategoryId("");
+    await persistCategoryOrder(orderedRows);
+  };
+
+  const handleCategorySortOrderChange = async (row, value) => {
+    const nextSortOrder = Math.max(0, Math.round(Number(value || 0)));
+    if (nextSortOrder === Number(row.sortOrder || 0)) return;
+    setUpdatingCategoryId(row.id);
+    setMessage("");
+    try {
+      const response = await updateCategory(row.id, {
+        ...buildCategoryPayload(row.raw, row.raw.status || row.status.toLowerCase()),
+        sortOrder: nextSortOrder
+      });
+      const updatedRow = normalizeRow(response.data?.data || { ...row.raw, sortOrder: nextSortOrder });
+      setCategoryRows((current) =>
+        current
+          .map((category) => category.id === row.id ? updatedRow : category)
+          .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0) || String(left.categoryName).localeCompare(String(right.categoryName)))
+      );
+      setMessage("Category sort order saved.");
+    } catch (error) {
+      setMessage(error.response?.data?.message || "Unable to save category sort order.");
+    } finally {
+      setUpdatingCategoryId("");
     }
   };
 
@@ -136,23 +309,86 @@ export default function Categories() {
             <h3 style={displayTitleStyle}>Menu, Featured Placement & Sort Priority</h3>
             <p style={displayCopyStyle}>Categories listed here are loaded from backend. Active and featured categories appear on the frontend website according to display settings.</p>
           </div>
+          <div style={bulkPanelStyle}>
+            <span style={summaryPillStyle}>{`Total: ${categoryRows.length}`}</span>
+            <span style={summaryPillStyle}>{`Showing: ${categoryRows.length ? `${pageStart + 1}-${pageEnd}` : "0"}`}</span>
+            <span style={summaryPillStyle}>{`Selected: ${selectedCategoryIds.length}`}</span>
+            <select value={rowsPerPage} onChange={(event) => { setRowsPerPage(Number(event.target.value)); setCurrentPage(1); }} style={filterInputStyle}>
+              {[10, 20, 50, 100].map((count) => <option key={count} value={count}>{`${count} / page`}</option>)}
+            </select>
+          </div>
         </div>
+
+        <div style={bulkActionBarStyle}>
+          <strong>{`${selectedCategoryIds.length} category(s) selected`}</strong>
+          <select
+            value={bulkCategoryAction}
+            onChange={(event) => setBulkCategoryAction(event.target.value)}
+            style={bulkSelectStyle}
+            disabled={!selectedCategoryIds.length || runningBulkAction}
+            aria-label="Bulk category action"
+          >
+            <option value="">Select bulk action</option>
+            {canEditCategories ? <option value="active">Mark selected active</option> : null}
+            {canEditCategories ? <option value="inactive">Mark selected inactive</option> : null}
+            {canEditCategories ? <option value="show-menu">Show selected in menu</option> : null}
+            {canEditCategories ? <option value="hide-menu">Hide selected from menu</option> : null}
+            {canEditCategories ? <option value="featured">Mark selected featured</option> : null}
+            {canEditCategories ? <option value="unfeatured">Remove selected featured</option> : null}
+            {canDeleteCategories ? <option value="delete">Delete selected</option> : null}
+          </select>
+          <button
+            type="button"
+            style={{
+              ...addButtonStyle,
+              ...(!selectedCategoryIds.length || !bulkCategoryAction || runningBulkAction ? disabledButtonStyle : null)
+            }}
+            disabled={!selectedCategoryIds.length || !bulkCategoryAction || runningBulkAction}
+            onClick={handleApplyBulkCategoryAction}
+          >
+            {runningBulkAction ? "Applying..." : "Apply"}
+          </button>
+          {selectedCategoryIds.length ? (
+            <button type="button" style={secondaryButtonStyle} onClick={() => setSelectedCategoryIds([])} disabled={runningBulkAction}>Clear</button>
+          ) : null}
+        </div>
+
+        {message ? <div style={inlineFeedbackStyle}>{message}</div> : null}
 
         <div className="dashboard-table-card dashboard-inline-table-card">
           <table className="dashboard-data-table dashboard-categories-admin-table" style={tableStyle}>
             <thead>
               <tr>
+                <th style={tableHeaderStyle} aria-label="Drag handle"></th>
+                <th style={tableHeaderStyle}>
+                  <input type="checkbox" checked={isCurrentPageSelected} onChange={toggleCurrentPageSelection} aria-label="Select all categories on this page" />
+                </th>
                 {["Image", "Category Name", "Parent Category", "Slug", "Status", "Show in Menu", "Featured", "Sort Order", "Actions"].map((heading) => (
                   <th key={heading} style={tableHeaderStyle}>{heading}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {categoryRows.map((row) => (
-                <tr key={row.id}>
+              {paginatedCategoryRows.map((row) => (
+                <tr
+                  key={row.id}
+                  draggable={canEditCategories}
+                  onDragStart={() => setDraggedCategoryId(String(row.id))}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={() => handleCategoryDrop(row.id)}
+                  className={String(draggedCategoryId) === String(row.id) ? "dashboard-row-dragging" : ""}
+                >
+                  <td style={tableCellStyle}>
+                    <button type="button" className="dashboard-drag-handle" title="Drag to reorder" disabled={!canEditCategories}>
+                      <FaGripVertical aria-hidden="true" />
+                    </button>
+                  </td>
+                  <td style={tableCellStyle}>
+                    <input type="checkbox" checked={selectedCategoryIds.includes(String(row.id))} onChange={() => toggleSelectedCategory(row.id)} aria-label={`Select ${row.categoryName}`} />
+                  </td>
                   <td style={tableCellStyle}>
                     <div style={imageCellStyle}>
-                      <img src={getPreviewUrl(row.image)} alt={row.categoryName} style={imageStyle} />
+                      {getPreviewUrl(row.image) ? <img src={getPreviewUrl(row.image)} alt={row.categoryName} style={imageStyle} /> : null}
                     </div>
                   </td>
                   <td style={tableCellStyle}>
@@ -166,7 +402,20 @@ export default function Categories() {
                   <td style={tableCellStyle}><span style={{ ...badgeStyle, ...(row.status === "Active" ? activeBadgeStyle : inactiveBadgeStyle) }}>{row.status}</span></td>
                   <td style={tableCellStyle}><span style={{ ...badgeStyle, ...(row.showInMenu === "Yes" ? menuBadgeStyle : neutralBadgeStyle) }}>{row.showInMenu}</span></td>
                   <td style={tableCellStyle}><span style={{ ...badgeStyle, ...(row.featured === "Yes" ? featuredBadgeStyle : neutralBadgeStyle) }}>{row.featured}</span></td>
-                  <td style={tableCellStyle}>{row.sortOrder}</td>
+                  <td style={tableCellStyle}>
+                    <input
+                      type="number"
+                      min="0"
+                      defaultValue={row.sortOrder}
+                      className="dashboard-sort-input"
+                      disabled={!canEditCategories || updatingCategoryId === row.id}
+                      onBlur={(event) => handleCategorySortOrderChange(row, event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.currentTarget.blur();
+                      }}
+                      aria-label={`Sort order for ${row.categoryName}`}
+                    />
+                  </td>
                   <td style={tableCellStyle}>
                     <div style={actionsStyle}>
                       {canEditCategories ? (
@@ -190,15 +439,23 @@ export default function Categories() {
                 </tr>
               ))}
 
-              {!categoryRows.length ? (
+              {!paginatedCategoryRows.length ? (
                 <tr>
-                  <td colSpan="9" style={{ ...tableCellStyle, textAlign: "center", color: "#64748b", padding: "30px" }}>
+                  <td colSpan="11" style={{ ...tableCellStyle, textAlign: "center", color: "#64748b", padding: "30px" }}>
                     {loading ? "Loading categories..." : "No categories found. Add a category to publish it to the website."}
                   </td>
                 </tr>
               ) : null}
             </tbody>
           </table>
+        </div>
+
+        <div style={paginationBarStyle}>
+          <strong>{`Page ${safeCurrentPage} of ${totalPages}`}</strong>
+          <div style={headerActionsStyle}>
+            <button type="button" style={secondaryButtonStyle} disabled={safeCurrentPage === 1} onClick={() => setCurrentPage((current) => Math.max(1, current - 1))}>Previous</button>
+            <button type="button" style={secondaryButtonStyle} disabled={safeCurrentPage === totalPages} onClick={() => setCurrentPage((current) => Math.min(totalPages, current + 1))}>Next</button>
+          </div>
         </div>
       </section>
     </div>
@@ -252,7 +509,25 @@ const tableCellStyle = { padding: "14px 12px", color: "#0f172a", borderBottom: "
 
 const imageCellStyle = { width: "64px", height: "64px", borderRadius: "12px", overflow: "hidden", background: "#f8fafc", border: "1px solid #e5edf5" };
 const imageStyle = { width: "100%", height: "100%", objectFit: "cover", display: "block" };
-const actionsStyle = { display: "flex", gap: "8px", flexWrap: "nowrap", whiteSpace: "nowrap" };
+const actionsStyle = { display: "flex", gap: "8px", flexWrap: "wrap" };
+
+const bulkPanelStyle = { display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" };
+const bulkActionBarStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: "10px",
+  flexWrap: "wrap",
+  marginBottom: "14px",
+  padding: "12px 14px",
+  borderRadius: "12px",
+  border: "1px solid #dbe6ef",
+  background: "#ffffff"
+};
+const paginationBarStyle = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", marginTop: "14px", padding: "12px 4px 0" };
+const filterInputStyle = { minHeight: "36px", padding: "0 12px", borderRadius: "10px", border: "1px solid #d4dbe6", background: "#fff", color: "#0f172a", fontWeight: 700 };
+const bulkSelectStyle = { ...filterInputStyle, minWidth: "220px", flex: "0 1 260px" };
+const summaryPillStyle = { display: "inline-flex", alignItems: "center", minHeight: "34px", padding: "0 12px", borderRadius: "999px", background: "#ffffff", border: "1px solid #edf2f7", color: "#475569", fontWeight: 700, fontSize: "12px" };
+const inlineFeedbackStyle = { ...summaryPillStyle, width: "fit-content", margin: "0 0 14px", background: "#f0fdf4", border: "1px solid #bbf7d0", color: "#166534" };
 
 const badgeStyle = { display: "inline-flex", alignItems: "center", minHeight: "28px", padding: "0 10px", borderRadius: "999px", fontSize: "12px", fontWeight: 800 };
 const activeBadgeStyle = { background: "#dcfce7", color: "#166534" };
@@ -262,6 +537,7 @@ const menuBadgeStyle = { background: "#ccfbf1", color: "#0f766e" };
 const neutralBadgeStyle = { background: "#f1f5f9", color: "#475569" };
 
 const addButtonStyle = { minHeight: "42px", padding: "0 16px", borderRadius: "9px", border: "1px solid rgba(15, 23, 42, 0.1)", background: "#16a34a", color: "#ffffff", fontWeight: 800, cursor: "pointer" };
+const disabledButtonStyle = { opacity: 0.5, cursor: "not-allowed" };
 const secondaryButtonStyle = { minHeight: "42px", padding: "0 16px", borderRadius: "9px", border: "1px solid #cbd5e1", background: "#ffffff", color: "#0f172a", fontWeight: 800, cursor: "pointer" };
 const editButtonStyle = { minHeight: "34px", padding: "0 12px", borderRadius: "8px", border: "1px solid #cbd5e1", background: "#ffffff", color: "#0f172a", fontWeight: 800, cursor: "pointer" };
 const activeButtonStyle = { minHeight: "34px", padding: "0 12px", borderRadius: "8px", border: "1px solid #bbf7d0", background: "#dcfce7", color: "#166534", fontWeight: 800, cursor: "pointer" };

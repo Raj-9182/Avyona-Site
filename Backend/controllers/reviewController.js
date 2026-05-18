@@ -12,6 +12,7 @@ import {
   updateReviewReply,
   updateReviewVisibility
 } from "../services/reviewService.js";
+import { grantReviewReward } from "../services/creditPointsRewards.js";
 
 export async function getReviews(_request, response) {
   const rows = await listReviews();
@@ -144,6 +145,18 @@ export async function patchReviewVisibility(request, response) {
     message: "Review visibility updated",
     data: result
   });
+
+  // Grant review reward when a verified customer review is approved
+  if (
+    result.visibilityStatus === REVIEW_VISIBILITY_STATUSES.PUBLIC &&
+    result.previousVisibilityStatus !== REVIEW_VISIBILITY_STATUSES.PUBLIC &&
+    result.customerId &&
+    result.productId &&
+    result.isVerifiedPurchase
+  ) {
+    const ipAddress = request.headers["x-forwarded-for"]?.split(",")[0]?.trim() || request.ip || null;
+    grantReviewReward(result.customerId, result.productId, result.reviewId, { ipAddress }).catch(() => {});
+  }
 }
 
 export async function editReview(request, response) {

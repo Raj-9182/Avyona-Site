@@ -40,7 +40,7 @@ export default function Login({ isAuthenticated = false }) {
         form.email.trim().toLowerCase() === LOCAL_ADMIN_CREDENTIAL.email &&
         form.password === LOCAL_ADMIN_CREDENTIAL.password;
 
-      if (isLocalAdmin) {
+      if (!import.meta.env?.PROD && isLocalAdmin) {
         setAdminToken("local-dev-admin-token");
         setMessage({
           type: "success",

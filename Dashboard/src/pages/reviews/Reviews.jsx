@@ -99,6 +99,9 @@ export default function Reviews() {
   const [message, setMessage] = React.useState("");
   const [form, setForm] = React.useState(createEmptyForm);
   const [replyText, setReplyText] = React.useState("");
+  const [currentPage, setCurrentPage] = React.useState(1);
+  const [rowsPerPage, setRowsPerPage] = React.useState(50);
+  const [selectedReviewIds, setSelectedReviewIds] = React.useState([]);
 
   const loadReviews = React.useCallback(async () => {
     setIsLoadingReviews(true);
@@ -163,6 +166,19 @@ export default function Reviews() {
     });
   }, [filters, reviews]);
 
+  React.useEffect(() => {
+    setCurrentPage(1);
+    setSelectedReviewIds([]);
+  }, [filters, rowsPerPage]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredReviews.length / rowsPerPage));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const pageStart = filteredReviews.length ? (safeCurrentPage - 1) * rowsPerPage : 0;
+  const paginatedReviews = filteredReviews.slice(pageStart, pageStart + rowsPerPage);
+  const pageEnd = filteredReviews.length ? pageStart + paginatedReviews.length : 0;
+  const visibleReviewIds = React.useMemo(() => paginatedReviews.map((review) => String(review.reviewId)), [paginatedReviews]);
+  const isCurrentPageSelected = visibleReviewIds.length > 0 && visibleReviewIds.every((id) => selectedReviewIds.includes(id));
+
   const updateField = (key, value) => {
     setForm((current) => ({ ...current, [key]: value }));
     setMessage("");
@@ -180,6 +196,8 @@ export default function Reviews() {
       reviewType: "all",
       rating: "all"
     });
+    setRowsPerPage(50);
+    setSelectedReviewIds([]);
   };
 
   const resetForm = (closeEditor = true) => {
@@ -286,10 +304,51 @@ export default function Reviews() {
 
     try {
       await deleteReview(reviewId);
+      setSelectedReviewIds((current) => current.filter((id) => String(id) !== String(reviewId)));
       setMessage("Review deleted.");
       await loadReviews();
     } catch (error) {
       setMessage(error.response?.data?.message || "Review could not be deleted.");
+    }
+  };
+
+  const toggleSelectedReview = (reviewId) => {
+    const id = String(reviewId);
+    setSelectedReviewIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  };
+
+  const toggleCurrentPageSelection = () => {
+    setSelectedReviewIds((current) => {
+      if (isCurrentPageSelected) return current.filter((id) => !visibleReviewIds.includes(id));
+      return Array.from(new Set([...current, ...visibleReviewIds]));
+    });
+  };
+
+  const handleBulkReviewVisibility = async (visibilityStatus) => {
+    if (!selectedReviewIds.length) return;
+    try {
+      await Promise.all(selectedReviewIds.map((reviewId) => updateReviewVisibility(reviewId, visibilityStatus)));
+      setMessage(`${selectedReviewIds.length} review(s) updated.`);
+      setSelectedReviewIds([]);
+      await loadReviews();
+    } catch (error) {
+      setMessage(error.response?.data?.message || "Selected reviews could not be updated.");
+      await loadReviews();
+    }
+  };
+
+  const handleBulkReviewDelete = async () => {
+    if (!selectedReviewIds.length) return;
+    const confirmed = window.confirm(`Delete ${selectedReviewIds.length} selected review(s)?`);
+    if (!confirmed) return;
+    try {
+      await Promise.all(selectedReviewIds.map((reviewId) => deleteReview(reviewId)));
+      setMessage("Selected reviews deleted.");
+      setSelectedReviewIds([]);
+      await loadReviews();
+    } catch (error) {
+      setMessage(error.response?.data?.message || "Selected reviews could not be deleted.");
+      await loadReviews();
     }
   };
 
@@ -426,7 +485,7 @@ export default function Reviews() {
             <span style={eyebrowStyle}>Moderation Queue</span>
             <h3 style={panelTitleStyle}>All Reviews</h3>
             <p style={panelCopyStyle}>
-              {isLoadingReviews ? "Loading reviews..." : `${filteredReviews.length} showing from ${reviews.length} total`}
+              {isLoadingReviews ? "Loading reviews..." : `${filteredReviews.length} showing from ${reviews.length} total | ${selectedReviewIds.length} selected`}
             </p>
           </div>
         </div>
@@ -484,12 +543,33 @@ export default function Reviews() {
           </label>
 
           <button type="button" style={filterResetButtonStyle} onClick={resetFilters}>Reset</button>
+
+          <label style={filterFieldStyle}>
+            <span>Rows</span>
+            <select value={rowsPerPage} onChange={(event) => setRowsPerPage(Number(event.target.value))}>
+              {[10, 20, 50, 100].map((count) => <option key={count} value={count}>{`${count} / page`}</option>)}
+            </select>
+          </label>
         </div>
+
+        {selectedReviewIds.length ? (
+          <div style={bulkPanelStyle}>
+            <strong>{`${selectedReviewIds.length} review(s) selected`}</strong>
+            <button type="button" style={secondaryButtonStyle} onClick={() => handleBulkReviewVisibility(REVIEW_VISIBILITY_STATUSES.PUBLIC)}>Mark Public</button>
+            <button type="button" style={secondaryButtonStyle} onClick={() => handleBulkReviewVisibility(REVIEW_VISIBILITY_STATUSES.HIDDEN)}>Hide</button>
+            <button type="button" style={ghostButtonStyle} onClick={() => handleBulkReviewVisibility(REVIEW_VISIBILITY_STATUSES.PRIVATE_TO_REVIEWER)}>Mark Private</button>
+            <button type="button" style={deleteButtonStyle} onClick={handleBulkReviewDelete}>Delete Selected</button>
+            <button type="button" style={ghostButtonStyle} onClick={() => setSelectedReviewIds([])}>Clear</button>
+          </div>
+        ) : null}
 
         <div style={tableWrapStyle}>
           <table style={tableStyle}>
             <thead>
               <tr>
+                <th style={thStyle}>
+                  <input type="checkbox" checked={isCurrentPageSelected} onChange={toggleCurrentPageSelection} aria-label="Select all reviews on this page" />
+                </th>
                 <th style={thStyle}>Review</th>
                 <th style={thStyle}>Reviewer</th>
                 <th style={thStyle}>Status</th>
@@ -501,8 +581,11 @@ export default function Reviews() {
               </tr>
             </thead>
             <tbody>
-              {filteredReviews.map((review) => (
+              {paginatedReviews.map((review) => (
                 <tr key={review.reviewId}>
+                  <td style={tdStyle}>
+                    <input type="checkbox" checked={selectedReviewIds.includes(String(review.reviewId))} onChange={() => toggleSelectedReview(review.reviewId)} aria-label={`Select review ${review.reviewTitle || review.reviewId}`} />
+                  </td>
                   <td style={reviewCellStyle}>
                     <strong style={reviewTitleStyle}>{review.reviewTitle || "Untitled review"}</strong>
                     <span style={reviewProductStyle}>{review.productName || `Product #${review.productId}`}</span>
@@ -549,11 +632,22 @@ export default function Reviews() {
               ))}
               {!filteredReviews.length ? (
                 <tr>
-                  <td style={emptyCellStyle} colSpan="8">{reviews.length ? "No reviews match these filters." : "No reviews found."}</td>
+                  <td style={emptyCellStyle} colSpan="9">{reviews.length ? "No reviews match these filters." : "No reviews found."}</td>
                 </tr>
               ) : null}
             </tbody>
           </table>
+        </div>
+
+        <div style={paginationBarStyle}>
+          <div>
+            <strong>{`Page ${safeCurrentPage} of ${totalPages}`}</strong>
+            <p style={{ margin: "4px 0 0", color: "#64748b" }}>{filteredReviews.length ? `Showing ${pageStart + 1}-${pageEnd} of ${filteredReviews.length}.` : "No reviews available."}</p>
+          </div>
+          <div style={actionRowStyle}>
+            <button type="button" style={ghostButtonStyle} disabled={safeCurrentPage === 1} onClick={() => setCurrentPage((current) => Math.max(1, current - 1))}>Previous</button>
+            <button type="button" style={ghostButtonStyle} disabled={safeCurrentPage === totalPages} onClick={() => setCurrentPage((current) => Math.min(totalPages, current + 1))}>Next</button>
+          </div>
         </div>
       </section>
 
@@ -756,7 +850,8 @@ const fieldStyle = {
 const actionRowStyle = {
   display: "flex",
   justifyContent: "flex-end",
-  gap: "10px"
+  gap: "10px",
+  flexWrap: "wrap"
 };
 
 const ghostButtonStyle = {
@@ -782,13 +877,43 @@ const messageStyle = {
 
 const filterPanelStyle = {
   display: "grid",
-  gridTemplateColumns: "minmax(220px, 1.2fr) minmax(220px, 1.2fr) repeat(4, minmax(142px, 1fr)) auto",
+  gridTemplateColumns: "minmax(220px, 1.2fr) minmax(220px, 1.2fr) repeat(5, minmax(142px, 1fr)) auto",
   gap: "12px",
   alignItems: "end",
   padding: "14px",
   border: "1px solid #e3ebe6",
   borderRadius: "12px",
   background: "#f8faf9"
+};
+
+const bulkPanelStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: "10px",
+  flexWrap: "wrap",
+  padding: "14px",
+  border: "1px solid #e3ebe6",
+  borderRadius: "12px",
+  background: "#f8faf9"
+};
+
+const deleteButtonStyle = {
+  minHeight: "38px",
+  padding: "0 14px",
+  border: "1px solid #fecaca",
+  borderRadius: "10px",
+  background: "#fff1f2",
+  color: "#b91c1c",
+  fontWeight: 900,
+  cursor: "pointer"
+};
+
+const paginationBarStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "12px",
+  flexWrap: "wrap"
 };
 
 const filterFieldStyle = {

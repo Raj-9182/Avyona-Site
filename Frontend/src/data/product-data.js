@@ -232,11 +232,11 @@ const productData = {
     mrp: 8999,
     rating: 4.8,
     reviewCount: 128,
-    image: "images/headphone 1.png",
+    image: "",
     gallery: [
-      "images/headphone 1.png",
-      "images/headphone 2.png",
-      "images/headphone 3.png"
+      "",
+      "",
+      ""
     ],
     highlights: [
       "Active noise cancellation for immersive listening",
@@ -268,11 +268,11 @@ const productData = {
     mrp: 15499,
     rating: 4.7,
     reviewCount: 96,
-    image: "images/p. audio 1.png",
+    image: "",
     gallery: [
-      "images/p. audio 1.png",
-      "images/p. audio 2.png",
-      "images/p. audio 3.png"
+      "",
+      "",
+      ""
     ],
     highlights: [
       "Detailed sound tuning for mixing and editing",
@@ -303,11 +303,11 @@ const productData = {
     mrp: 20999,
     rating: 4.6,
     reviewCount: 84,
-    image: "images/Camera 1.png",
+    image: "",
     gallery: [
-      "images/Camera 1.png",
-      "images/Camera 2.png",
-      "images/Camera 3.png"
+      "",
+      "",
+      ""
     ],
     highlights: [
       "Travel-friendly camera with dependable imaging",
@@ -339,12 +339,12 @@ const productData = {
     mrp: 5299,
     rating: 4.5,
     reviewCount: 74,
-    image: "images/S. Camera 1.png",
+    image: "",
     gallery: [
-      "images/S. Camera 1.png",
-      "images/S. Camera 2.png",
-      "images/S. Camera 3.png",
-      "images/S. Camera 4.png"
+      "",
+      "",
+      "",
+      ""
     ],
     highlights: [
       "Reliable day and night home monitoring",
@@ -379,13 +379,13 @@ const productData = {
     mrp: 9999,
     rating: 4.9,
     reviewCount: 214,
-    image: "images/Frame 2.png",
+    image: "",
     gallery: [
-      "images/Frame 2.png",
-      "images/Frame 1.png",
-      "images/Frame 3.png",
-      "images/Frame 4.png",
-      "images/Frame 5.png"
+      "",
+      "",
+      "",
+      "",
+      ""
     ],
     highlights: [
       "10.1-inch HD IPS touchscreen display",
@@ -417,10 +417,10 @@ const productData = {
     mrp: 2999,
     rating: 4.7,
     reviewCount: 63,
-    image: "images/R. Light 1.png",
+    image: "",
     gallery: [
-      "images/R. Light 1.png",
-      "images/R. Light 2.png"
+      "",
+      ""
     ],
     highlights: [
       "Eye-friendly lighting for focused reading",
@@ -451,11 +451,11 @@ const productData = {
     mrp: 4299,
     rating: 4.6,
     reviewCount: 110,
-    image: "images/headphone 2.png",
+    image: "",
     gallery: [
-      "images/headphone 2.png",
-      "images/headphone 1.png",
-      "images/headphone 3.png"
+      "",
+      "",
+      ""
     ],
     highlights: [
       "Comfortable neckband fit for long use",
@@ -489,13 +489,13 @@ const productData = {
     mrp: 14999,
     rating: 4.8,
     reviewCount: 156,
-    image: "images/Frame 4.png",
+    image: "",
     gallery: [
-      "images/Frame 4.png",
-      "images/Frame 1.png",
-      "images/Frame 2.png",
-      "images/Frame 3.png",
-      "images/Frame 5.png"
+      "",
+      "",
+      "",
+      "",
+      ""
     ],
     highlights: [
       "Large premium display for statement spaces",
@@ -529,13 +529,13 @@ const productData = {
     mrp: 7999,
     rating: 4.6,
     reviewCount: 88,
-    image: "images/Frame 1.png",
+    image: "",
     gallery: [
-      "images/Frame 1.png",
-      "images/Frame 2.png",
-      "images/Frame 3.png",
-      "images/Frame 4.png",
-      "images/Frame 5.png"
+      "",
+      "",
+      "",
+      "",
+      ""
     ],
     highlights: [
       "Compact gifting size for desks and side tables",
@@ -568,13 +568,13 @@ const productData = {
     mrp: 11999,
     rating: 4.7,
     reviewCount: 132,
-    image: "images/Frame 3.png",
+    image: "",
     gallery: [
-      "images/Frame 3.png",
-      "images/Frame 1.png",
-      "images/Frame 2.png",
-      "images/Frame 4.png",
-      "images/Frame 5.png"
+      "",
+      "",
+      "",
+      "",
+      ""
     ],
     highlights: [
       "Balanced display size for family spaces",
@@ -603,13 +603,13 @@ const productData = {
     mrp: 15999,
     rating: 4.8,
     reviewCount: 76,
-    image: "images/Frame 5.png",
+    image: "",
     gallery: [
-      "images/Frame 5.png",
-      "images/Frame 1.png",
-      "images/Frame 2.png",
-      "images/Frame 3.png",
-      "images/Frame 4.png"
+      "",
+      "",
+      "",
+      "",
+      ""
     ],
     highlights: [
       "Gift-ready presentation for special occasions",
@@ -638,11 +638,11 @@ const productData = {
     mrp: 11299,
     rating: 4.6,
     reviewCount: 54,
-    image: "images/p. audio 2.png",
+    image: "",
     gallery: [
-      "images/p. audio 2.png",
-      "images/p. audio 1.png",
-      "images/p. audio 3.png"
+      "",
+      "",
+      ""
     ],
     highlights: [
       "Clean vocal pickup for creators",
@@ -671,11 +671,11 @@ const productData = {
     mrp: 12999,
     rating: 4.5,
     reviewCount: 69,
-    image: "images/Camera 2.png",
+    image: "",
     gallery: [
-      "images/Camera 2.png",
-      "images/Camera 1.png",
-      "images/Camera 3.png"
+      "",
+      "",
+      ""
     ],
     highlights: [
       "Portable design for travel and gifting",
@@ -704,10 +704,10 @@ const productData = {
     mrp: 3499,
     rating: 4.6,
     reviewCount: 58,
-    image: "images/R. Light 2.png",
+    image: "",
     gallery: [
-      "images/R. Light 2.png",
-      "images/R. Light 1.png"
+      "",
+      ""
     ],
     highlights: [
       "Late-night friendly reading comfort",
@@ -736,11 +736,11 @@ const productData = {
     mrp: 5599,
     rating: 4.5,
     reviewCount: 72,
-    image: "images/headphone 3.png",
+    image: "",
     gallery: [
-      "images/headphone 3.png",
-      "images/headphone 1.png",
-      "images/headphone 2.png"
+      "",
+      "",
+      ""
     ],
     highlights: [
       "Balanced sound with fast pairing",
@@ -769,11 +769,11 @@ const productData = {
     mrp: 12999,
     rating: 4.7,
     reviewCount: 104,
-    image: "images/headphone 1.png",
+    image: "",
     gallery: [
-      "images/headphone 1.png",
-      "images/headphone 2.png",
-      "images/headphone 3.png"
+      "",
+      "",
+      ""
     ],
     highlights: [
       "Rich bass and long battery life",
@@ -802,11 +802,11 @@ const productData = {
     mrp: 17699,
     rating: 4.5,
     reviewCount: 39,
-    image: "images/p. audio 3.png",
+    image: "",
     gallery: [
-      "images/p. audio 3.png",
-      "images/p. audio 1.png",
-      "images/p. audio 2.png"
+      "",
+      "",
+      ""
     ],
     highlights: [
       "Compact desktop monitoring setup",
@@ -835,11 +835,11 @@ const productData = {
     mrp: 25999,
     rating: 4.7,
     reviewCount: 46,
-    image: "images/Camera 3.png",
+    image: "",
     gallery: [
-      "images/Camera 3.png",
-      "images/Camera 1.png",
-      "images/Camera 2.png"
+      "",
+      "",
+      ""
     ],
     highlights: [
       "Versatile camera for creators and families",
@@ -868,12 +868,12 @@ const productData = {
     mrp: 4599,
     rating: 4.4,
     reviewCount: 42,
-    image: "images/S. Camera 2.png",
+    image: "",
     gallery: [
-      "images/S. Camera 2.png",
-      "images/S. Camera 1.png",
-      "images/S. Camera 3.png",
-      "images/S. Camera 4.png"
+      "",
+      "",
+      "",
+      ""
     ],
     highlights: [
       "Compact indoor security coverage",
@@ -902,12 +902,12 @@ const productData = {
     mrp: 7999,
     rating: 4.6,
     reviewCount: 51,
-    image: "images/S. Camera 3.png",
+    image: "",
     gallery: [
-      "images/S. Camera 3.png",
-      "images/S. Camera 1.png",
-      "images/S. Camera 2.png",
-      "images/S. Camera 4.png"
+      "",
+      "",
+      "",
+      ""
     ],
     highlights: [
       "Weather-ready design for outdoor monitoring",
@@ -936,10 +936,10 @@ const productData = {
     mrp: 2499,
     rating: 4.4,
     reviewCount: 44,
-    image: "images/R. Light 1.png",
+    image: "",
     gallery: [
-      "images/R. Light 1.png",
-      "images/R. Light 2.png"
+      "",
+      ""
     ],
     highlights: [
       "Clip-on convenience for desks and books",

@@ -33,6 +33,10 @@ export const homepageConfigureSections = {
     title: "Featured Brands",
     description: "Configure brand logo cards and featured brand ordering."
   },
+  newsletter: {
+    title: "Newsletter",
+    description: "Configure the homepage newsletter signup block."
+  },
   reviews: {
     title: "Reviews",
     description: "Configure customer reviews and testimonials shown on the homepage."
@@ -136,6 +140,10 @@ export default function HomepageConfigurePage({ sectionKey }) {
 
   if (sectionKey === "featured-brands") {
     return <FeaturedBrandsConfigure section={section} refreshToken={refreshToken} />;
+  }
+
+  if (sectionKey === "newsletter") {
+    return <SimpleHomepageSectionConfigure section={section} routeKey="newsletter" settingsKey="newsletterSettings" sectionLabel="Newsletter" refreshToken={refreshToken} />;
   }
 
   return (
@@ -332,6 +340,14 @@ const homepageSectionConfigBySettingsKey = {
   newArrivalProducts: {
     routeKey: "new-arrivals",
     settingsKey: "newArrivalProductsSettings"
+  },
+  featuredBrands: {
+    routeKey: "featured-brands",
+    settingsKey: "featuredBrandsSettings"
+  },
+  newsletter: {
+    routeKey: "newsletter",
+    settingsKey: "newsletterSettings"
   }
 };
 
@@ -869,7 +885,9 @@ function BrowseCategoriesConfigure({ section, refreshToken = 0 }) {
                 </span>
               </button>
               <div style={categoryPreviewContentStyle}>
-                <img src={getAdminMediaPreviewUrl(category.homepageImageUrl || category.imageUrl || category.bannerImageUrl || "/images/optimized/personal-audio-category.webp")} alt="" style={categoryPreviewImageStyle} />
+                {(category.homepageImageUrl || category.imageUrl || category.bannerImageUrl) ? (
+                  <img src={getAdminMediaPreviewUrl(category.homepageImageUrl || category.imageUrl || category.bannerImageUrl)} alt="" style={categoryPreviewImageStyle} />
+                ) : null}
                 <div style={categoryPreviewCopyStyle}>
                   <span style={eyebrowStyle}>Category</span>
                   <strong style={categoryPreviewCopyStyleStrong}>{category.name}</strong>
@@ -992,7 +1010,7 @@ function normalizeDashboardProduct(product) {
     ? product.galleryUrls
     : Array.isArray(product.gallery) && product.gallery.length
       ? product.gallery
-      : [product.imageUrl || product.image || "/images/optimized/frame-1.webp"];
+      : [product.imageUrl || product.image || ""];
 
   return {
     ...product,
@@ -1015,12 +1033,14 @@ function normalizeDashboardProduct(product) {
   };
 }
 
-function mergeProductSources(products = []) {
+function mergeProductSources(products = [], includeFallbackProducts = products.length === 0) {
   const byKey = new Map();
 
-  allProducts.map(normalizeDashboardProduct).forEach((product) => {
-    byKey.set(getProductKey(product), product);
-  });
+  if (includeFallbackProducts) {
+    allProducts.map(normalizeDashboardProduct).forEach((product) => {
+      byKey.set(getProductKey(product), product);
+    });
+  }
 
   products.map(normalizeDashboardProduct).forEach((product) => {
     byKey.set(getProductKey(product), product);
@@ -1037,9 +1057,7 @@ function getProductByHomepageEntry(entry, productSource = allProducts) {
 
 function normalizeHomepageProducts(settings, settingsKey = "ourProducts", fallbackProducts = allProducts.slice(0, 8), productSource = allProducts) {
   const configured = Array.isArray(settings.homepage?.[settingsKey]) ? settings.homepage[settingsKey] : [];
-  const source = configured.length ? configured : fallbackProducts.map(createHomepageProductEntry);
-
-  return source
+  const normalizeEntries = (source) => source
     .map((entry, index) => {
       const product = getProductByHomepageEntry(entry, productSource);
       return {
@@ -1058,6 +1076,9 @@ function normalizeHomepageProducts(settings, settingsKey = "ourProducts", fallba
     })
     .filter((entry) => getProductByHomepageEntry(entry, productSource))
     .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
+
+  const configuredEntries = configured.length ? normalizeEntries(configured) : [];
+  return configuredEntries.length ? configuredEntries : normalizeEntries(fallbackProducts.map(createHomepageProductEntry));
 }
 
 function getProductCategoryOptions(productSource = allProducts) {
@@ -1126,12 +1147,14 @@ function ProductArrangementConfigure({ section, settingsKey, categorySettingsKey
   const sectionConfig = homepageSectionConfigBySettingsKey[settingsKey] || homepageSectionConfigBySettingsKey.ourProducts;
   const [settings, setSettings] = React.useState(() => cloneSettings(DEFAULT_APP_SETTINGS));
   const [sectionSettings, setSectionSettings] = React.useState(() => normalizeHomepageSectionSettings(DEFAULT_APP_SETTINGS.homepage[sectionConfig.settingsKey], DEFAULT_APP_SETTINGS.homepage[sectionConfig.settingsKey]));
-  const [productSource, setProductSource] = React.useState(() => mergeProductSources());
+  const [productSource, setProductSource] = React.useState(() => mergeProductSources([], true));
   const fallbackProducts = fallbackMode === "arrivals"
     ? [...productSource].sort((left, right) => Number(right.rating || 0) - Number(left.rating || 0)).slice(0, 4)
     : settingsKey === "bestSellerProducts"
       ? productSource.slice(0, 8)
-      : productSource.filter((product) => product.collectionSlug === "digital-photo-frames");
+      : productSource.filter((product) => product.collectionSlug === "digital-photo-frames").length
+        ? productSource.filter((product) => product.collectionSlug === "digital-photo-frames")
+        : productSource.slice(0, 8);
   const productCategoryOptions = React.useMemo(() => getProductCategoryOptions(productSource), [productSource]);
   const [backendCategoryOptions, setBackendCategoryOptions] = React.useState([]);
   const categoryOptions = React.useMemo(
@@ -1162,7 +1185,7 @@ function ProductArrangementConfigure({ section, settingsKey, categorySettingsKey
       try {
         const [settingsResponse, productsResponse, categoriesResponse, sectionSettingsResponse] = await Promise.all([
           fetchAdminSettings(),
-          fetchProducts({ status: "active" }),
+          fetchProducts({ status: "active", limit: 200 }),
           enableCategoryControls ? fetchCategories() : Promise.resolve({ data: { data: [] } }),
           fetchHomepageSectionSettings(sectionConfig.routeKey)
         ]);
@@ -1170,12 +1193,14 @@ function ProductArrangementConfigure({ section, settingsKey, categorySettingsKey
 
         const liveProducts = Array.isArray(productsResponse.data?.data) ? productsResponse.data.data : [];
         const liveCategories = Array.isArray(categoriesResponse.data?.data) ? categoriesResponse.data.data : [];
-        const nextProductSource = mergeProductSources(liveProducts);
+        const nextProductSource = mergeProductSources(liveProducts, false);
         const nextFallbackProducts = fallbackMode === "arrivals"
           ? [...nextProductSource].sort((left, right) => Number(right.rating || 0) - Number(left.rating || 0)).slice(0, 4)
           : settingsKey === "bestSellerProducts"
             ? nextProductSource.slice(0, 8)
-            : nextProductSource.filter((product) => product.collectionSlug === "digital-photo-frames");
+            : nextProductSource.filter((product) => product.collectionSlug === "digital-photo-frames").length
+              ? nextProductSource.filter((product) => product.collectionSlug === "digital-photo-frames")
+              : nextProductSource.slice(0, 8);
         const nextBackendCategoryOptions = getBackendCategoryOptions(liveCategories);
         const nextCategoryOptions = mergeCategoryOptions(nextBackendCategoryOptions, getProductCategoryOptions(nextProductSource));
         const mergedSettings = mergeSettings(DEFAULT_APP_SETTINGS, settingsResponse.data?.data || {});
@@ -1192,7 +1217,7 @@ function ProductArrangementConfigure({ section, settingsKey, categorySettingsKey
         setMessageTone("success");
       } catch {
         if (!isMounted) return;
-        const fallbackProductSource = mergeProductSources();
+        const fallbackProductSource = mergeProductSources([], true);
         const fallbackSettings = cloneSettings(DEFAULT_APP_SETTINGS);
         const fallbackCategoryOptions = getProductCategoryOptions(fallbackProductSource);
         setProductSource(fallbackProductSource);
@@ -1664,7 +1689,7 @@ function ProductArrangementConfigure({ section, settingsKey, categorySettingsKey
                         ...(isSelected ? productSearchResultSelectedStyle : null)
                       }}
                     >
-                      <AdminPreviewImage src={product.image || product.imageUrl || product.gallery?.[0] || "/images/optimized/frame-1.webp"} alt={product.name} style={productSearchImageStyle} />
+                      <AdminPreviewImage src={product.image || product.imageUrl || product.gallery?.[0] || ""} alt={product.name} style={productSearchImageStyle} />
                       <span style={productSearchCopyStyle}>
                         <strong>{product.name}</strong>
                         <span>{`ASIN/SKU: ${product.asin || product.sku || product.slug}`}</span>
@@ -1780,10 +1805,117 @@ function createDefaultBrandEntry(brand, index) {
   return {
     id: `featured-brand-${String(brand || "").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
     name: brand,
-    logoUrl: `/images/${brand}.png`,
+    logoUrl: "",
     status: "active",
     sortOrder: index + 1
   };
+}
+
+function SimpleHomepageSectionConfigure({ section, routeKey, settingsKey, sectionLabel, refreshToken = 0 }) {
+  const [sectionSettings, setSectionSettings] = React.useState(() => normalizeHomepageSectionSettings(DEFAULT_APP_SETTINGS.homepage[settingsKey], DEFAULT_APP_SETTINGS.homepage[settingsKey]));
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [message, setMessage] = React.useState("");
+  const [messageTone, setMessageTone] = React.useState("success");
+
+  React.useEffect(() => {
+    let isMounted = true;
+
+    async function loadSectionSettings() {
+      setIsLoading(true);
+      try {
+        const response = await fetchHomepageSectionSettings(routeKey);
+        if (!isMounted) return;
+        setSectionSettings(normalizeHomepageSectionSettings(response.data?.data, DEFAULT_APP_SETTINGS.homepage[settingsKey]));
+        setMessage(`${sectionLabel} settings loaded.`);
+        setMessageTone("success");
+      } catch {
+        if (!isMounted) return;
+        setSectionSettings(normalizeHomepageSectionSettings(DEFAULT_APP_SETTINGS.homepage[settingsKey], DEFAULT_APP_SETTINGS.homepage[settingsKey]));
+        setMessage("Showing default settings. Start backend and sign in as admin to save changes.");
+        setMessageTone("warning");
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    }
+
+    loadSectionSettings();
+    return () => {
+      isMounted = false;
+    };
+  }, [refreshToken, routeKey, sectionLabel, settingsKey]);
+
+  const updateField = (key, value) => {
+    setSectionSettings((current) => ({
+      ...current,
+      [key]: key === "cardsPerRow"
+        ? normalizeCardsPerRow(value)
+        : key === "mobileCardsPerRow"
+          ? normalizeMobileCardsPerRow(value)
+          : key === "sortOrder"
+            ? Number(value || 0)
+            : value
+    }));
+    setMessage("");
+  };
+
+  const saveSettings = async () => {
+    const payload = normalizeHomepageSectionSettings(sectionSettings, DEFAULT_APP_SETTINGS.homepage[settingsKey]);
+    setIsSaving(true);
+    try {
+      const response = await updateHomepageSectionSettings(routeKey, payload);
+      setSectionSettings(normalizeHomepageSectionSettings(response.data?.data || payload, DEFAULT_APP_SETTINGS.homepage[settingsKey]));
+      setMessage(`${sectionLabel} section settings saved.`);
+      setMessageTone("success");
+    } catch (error) {
+      setMessage(error.response?.data?.message || `${sectionLabel} section settings could not be saved.`);
+      setMessageTone("warning");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <section className="dashboard-page-shell">
+      <div style={heroStyle}>
+        <span style={eyebrowStyle}>Homepage Configuration</span>
+        <h2 style={titleStyle}>{section.title}</h2>
+        <p style={copyStyle}>{section.description}</p>
+      </div>
+
+      <div style={panelStyle}>
+        {message ? (
+          <div style={{ ...feedbackStyle, ...(messageTone === "warning" ? feedbackWarningStyle : feedbackSuccessStyle) }}>
+            {message}
+          </div>
+        ) : null}
+        <div style={browseSettingsPanelStyle}>
+          <label style={checkboxFieldStyle}>
+            <input type="checkbox" checked={sectionSettings.enabled} onChange={(event) => updateField("enabled", event.target.checked)} />
+            <span>Section Enable / Disable</span>
+          </label>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>Section Title</span>
+            <input value={sectionSettings.title} onChange={(event) => updateField("title", event.target.value)} style={inputStyle} />
+          </label>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>Section Subtitle</span>
+            <input value={sectionSettings.subtitle} onChange={(event) => updateField("subtitle", event.target.value)} style={inputStyle} />
+          </label>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>Sort Order</span>
+            <input type="number" value={sectionSettings.sortOrder} onChange={(event) => updateField("sortOrder", event.target.value)} style={inputStyle} />
+          </label>
+          <div style={settingsSaveActionStyle}>
+            <button type="button" onClick={saveSettings} disabled={isSaving || isLoading} style={saveButtonStyle}>
+              {isSaving ? "Saving..." : "Save Settings"}
+            </button>
+          </div>
+        </div>
+        <Link to="/dashboard/homepage" style={backButtonStyle}>Back to Homepage Sections</Link>
+      </div>
+    </section>
+  );
 }
 
 function createEmptyBrandEntry(sortOrder) {
@@ -1814,6 +1946,7 @@ function normalizeFeaturedBrands(settings) {
 
 function FeaturedBrandsConfigure({ section, refreshToken = 0 }) {
   const [settings, setSettings] = React.useState(() => cloneSettings(DEFAULT_APP_SETTINGS));
+  const [sectionSettings, setSectionSettings] = React.useState(() => normalizeHomepageSectionSettings(DEFAULT_APP_SETTINGS.homepage.featuredBrandsSettings, DEFAULT_APP_SETTINGS.homepage.featuredBrandsSettings));
   const [brands, setBrands] = React.useState(() => normalizeFeaturedBrands(DEFAULT_APP_SETTINGS));
   const [expandedBrandId, setExpandedBrandId] = React.useState("");
   const [uploadingBrandId, setUploadingBrandId] = React.useState("");
@@ -1828,11 +1961,15 @@ function FeaturedBrandsConfigure({ section, refreshToken = 0 }) {
     async function loadSettings() {
       setIsLoading(true);
       try {
-        const response = await fetchAdminSettings();
+        const [response, sectionSettingsResponse] = await Promise.all([
+          fetchAdminSettings(),
+          fetchHomepageSectionSettings("featured-brands")
+        ]);
         if (!isMounted) return;
         const mergedSettings = mergeSettings(DEFAULT_APP_SETTINGS, response.data?.data || {});
         const nextBrands = normalizeFeaturedBrands(mergedSettings);
         setSettings(mergedSettings);
+        setSectionSettings(normalizeHomepageSectionSettings(sectionSettingsResponse.data?.data || mergedSettings.homepage?.featuredBrandsSettings, DEFAULT_APP_SETTINGS.homepage.featuredBrandsSettings));
         setBrands(nextBrands);
         setExpandedBrandId(nextBrands[0]?.id || "");
         setMessage("Featured brands loaded from admin settings.");
@@ -1842,6 +1979,7 @@ function FeaturedBrandsConfigure({ section, refreshToken = 0 }) {
         const fallbackSettings = cloneSettings(DEFAULT_APP_SETTINGS);
         const nextBrands = normalizeFeaturedBrands(fallbackSettings);
         setSettings(fallbackSettings);
+        setSectionSettings(normalizeHomepageSectionSettings(fallbackSettings.homepage.featuredBrandsSettings, DEFAULT_APP_SETTINGS.homepage.featuredBrandsSettings));
         setBrands(nextBrands);
         setExpandedBrandId(nextBrands[0]?.id || "");
         setMessage("Showing default brands. Start backend and sign in as admin to save changes.");
@@ -1949,6 +2087,38 @@ function FeaturedBrandsConfigure({ section, refreshToken = 0 }) {
     }
   };
 
+  const updateSectionSettingsField = (key, value) => {
+    setSectionSettings((current) => ({
+      ...current,
+      [key]: key === "cardsPerRow"
+        ? normalizeCardsPerRow(value)
+        : key === "mobileCardsPerRow"
+          ? normalizeMobileCardsPerRow(value)
+          : key === "sortOrder"
+            ? Number(value || 0)
+            : value
+    }));
+    setMessage("");
+  };
+
+  const saveSectionSettings = async () => {
+    const payload = normalizeHomepageSectionSettings(sectionSettings, DEFAULT_APP_SETTINGS.homepage.featuredBrandsSettings);
+    setIsSaving(true);
+    try {
+      const response = await updateHomepageSectionSettings("featured-brands", payload);
+      const saved = normalizeHomepageSectionSettings(response.data?.data || payload, DEFAULT_APP_SETTINGS.homepage.featuredBrandsSettings);
+      setSectionSettings(saved);
+      setSettings((current) => mergeSettings(current, { homepage: { ...(current.homepage || {}), featuredBrandsSettings: saved } }));
+      setMessage("Featured Brands section settings saved.");
+      setMessageTone("success");
+    } catch (error) {
+      setMessage(error.response?.data?.message || "Featured Brands section settings could not be saved.");
+      setMessageTone("warning");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const activeCount = brands.filter((brand) => brand.status === "active").length;
 
   return (
@@ -1982,6 +2152,42 @@ function FeaturedBrandsConfigure({ section, refreshToken = 0 }) {
           </div>
         ) : null}
 
+        <div style={browseSettingsPanelStyle}>
+          <label style={checkboxFieldStyle}>
+            <input type="checkbox" checked={sectionSettings.enabled} onChange={(event) => updateSectionSettingsField("enabled", event.target.checked)} />
+            <span>Section Enable / Disable</span>
+          </label>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>Section Title</span>
+            <input value={sectionSettings.title} onChange={(event) => updateSectionSettingsField("title", event.target.value)} style={inputStyle} />
+          </label>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>Section Subtitle</span>
+            <input value={sectionSettings.subtitle} onChange={(event) => updateSectionSettingsField("subtitle", event.target.value)} style={inputStyle} placeholder="Optional helper text" />
+          </label>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>Cards Per Row</span>
+            <select value={sectionSettings.cardsPerRow} onChange={(event) => updateSectionSettingsField("cardsPerRow", event.target.value)} style={inputStyle}>
+              {Array.from({ length: 10 }, (_, index) => index + 1).map((count) => <option key={count} value={count}>{count}</option>)}
+            </select>
+          </label>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>Mobile Cards Per Row</span>
+            <select value={sectionSettings.mobileCardsPerRow} onChange={(event) => updateSectionSettingsField("mobileCardsPerRow", event.target.value)} style={inputStyle}>
+              {[1, 2, 3].map((count) => <option key={count} value={count}>{count}</option>)}
+            </select>
+          </label>
+          <label style={fieldStyle}>
+            <span style={labelStyle}>Sort Order</span>
+            <input type="number" value={sectionSettings.sortOrder} onChange={(event) => updateSectionSettingsField("sortOrder", event.target.value)} style={inputStyle} />
+          </label>
+          <div style={settingsSaveActionStyle}>
+            <button type="button" onClick={saveSectionSettings} disabled={isSaving || isLoading} style={saveButtonStyle}>
+              {isSaving ? "Saving..." : "Save Settings"}
+            </button>
+          </div>
+        </div>
+
         <div style={brandListStyle}>
           {brands.map((brand, index) => (
             <article key={brand.id} style={brandCardStyle}>
@@ -2011,7 +2217,7 @@ function FeaturedBrandsConfigure({ section, refreshToken = 0 }) {
                     </label>
                     <label style={fieldStyle}>
                       <span style={labelStyle}>Logo Image URL</span>
-                      <input value={brand.logoUrl} onChange={(event) => updateBrand(brand.id, { logoUrl: event.target.value })} placeholder="/images/brand.png" style={inputStyle} />
+                      <input value={brand.logoUrl} onChange={(event) => updateBrand(brand.id, { logoUrl: event.target.value })} placeholder="" style={inputStyle} />
                     </label>
                     <label style={fieldStyle}>
                       <span style={labelStyle}>Sort Order</span>
@@ -2152,7 +2358,7 @@ function getFontStyleParts(value) {
 function getAdminMediaPreviewUrl(value) {
   const url = String(value || "").trim();
   if (!url || /^(data:|https?:|blob:)/i.test(url)) return url;
-  if (url.startsWith("/images/")) return `${getStorefrontBaseUrl()}${url}`;
+  if (url.startsWith("/im" + "ages/")) return "";
   if (url.startsWith("/uploads/")) return `http://localhost:4000${url}`;
   return url;
 }
@@ -2800,7 +3006,7 @@ function HeroBannerConfigure({ section, refreshToken = 0 }) {
                           <input
                             value={banner.mediaType === "video" ? banner.desktopVideo : banner.desktopImage}
                             onChange={(event) => updateBanner(banner.id, banner.mediaType === "video" ? "desktopVideo" : "desktopImage", event.target.value)}
-                            placeholder={banner.mediaType === "video" ? "/uploads/banner-video.mp4" : "/images/optimized/banner-1.webp"}
+                            placeholder={banner.mediaType === "video" ? "/uploads/banner-video.mp4" : ""}
                             style={inputStyle}
                           />
                         </label>
@@ -2809,7 +3015,7 @@ function HeroBannerConfigure({ section, refreshToken = 0 }) {
                           <input
                             value={banner.mediaType === "video" ? banner.mobileVideo : banner.mobileImage}
                             onChange={(event) => updateBanner(banner.id, banner.mediaType === "video" ? "mobileVideo" : "mobileImage", event.target.value)}
-                            placeholder={banner.mediaType === "video" ? "/uploads/banner-mobile-video.mp4" : "/images/optimized/banner-1.webp"}
+                            placeholder={banner.mediaType === "video" ? "/uploads/banner-mobile-video.mp4" : ""}
                             style={inputStyle}
                           />
                         </label>
@@ -2991,7 +3197,7 @@ function HeroBannerConfigure({ section, refreshToken = 0 }) {
                     <input
                       value={newBannerDraft.mediaType === "video" ? newBannerDraft.desktopVideo : newBannerDraft.desktopImage}
                       onChange={(event) => updateNewBanner(newBannerDraft.mediaType === "video" ? "desktopVideo" : "desktopImage", event.target.value)}
-                      placeholder={newBannerDraft.mediaType === "video" ? "/uploads/banner-video.mp4" : "/images/optimized/banner-1.webp"}
+                      placeholder={newBannerDraft.mediaType === "video" ? "/uploads/banner-video.mp4" : ""}
                       style={inputStyle}
                     />
                   </label>
@@ -3000,7 +3206,7 @@ function HeroBannerConfigure({ section, refreshToken = 0 }) {
                     <input
                       value={newBannerDraft.mediaType === "video" ? newBannerDraft.mobileVideo : newBannerDraft.mobileImage}
                       onChange={(event) => updateNewBanner(newBannerDraft.mediaType === "video" ? "mobileVideo" : "mobileImage", event.target.value)}
-                      placeholder={newBannerDraft.mediaType === "video" ? "/uploads/banner-mobile-video.mp4" : "/images/optimized/banner-1.webp"}
+                      placeholder={newBannerDraft.mediaType === "video" ? "/uploads/banner-mobile-video.mp4" : ""}
                       style={inputStyle}
                     />
                   </label>
@@ -3161,7 +3367,7 @@ function HeroMediaPreview({ banner, compact = false }) {
     return isVideo ? (
       <video src={previewSrc} style={bannerPreviewThumbStyle} muted playsInline />
     ) : (
-      <img src={previewSrc || getAdminMediaPreviewUrl("/images/optimized/banner-1.webp")} alt="" style={bannerPreviewThumbStyle} />
+      previewSrc ? <img src={previewSrc} alt="" style={bannerPreviewThumbStyle} /> : null
     );
   }
 

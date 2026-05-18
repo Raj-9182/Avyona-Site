@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Link, Navigate, useParams } from "react-router-dom";
+import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
 import { trackAnalyticsEvent } from "../api/analyticsApi";
 import { fetchStorefrontProducts } from "../api/productApi";
 import ProductCard from "../components/product/ProductCard";
 import { flattenCategoryTree, fallbackCategoryTree } from "../data/category-data";
-import { allProducts } from "../data/storefront-content";
 import { formatCurrency } from "../utils/storefront";
 
 function normalizeBackendProduct(product) {
@@ -75,28 +74,45 @@ function getCategoryTreeFromContext(context) {
   return context.siteCategories && context.siteCategories.length ? context.siteCategories : fallbackCategoryTree;
 }
 
+function getListParam(searchParams, key) {
+  return String(searchParams.get(key) || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function getNumberParam(searchParams, key, fallback = 0) {
+  const value = Number(searchParams.get(key));
+  return Number.isFinite(value) ? value : fallback;
+}
+
 export default function CollectionPage({ context }) {
   const { slug } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const searchParamString = searchParams.toString();
   const pageRef = useRef(null);
   const trackedCategoryRef = useRef("");
   const trackedFilterRef = useRef("");
   const categoryTree = getCategoryTreeFromContext(context);
-  const productCatalog = context.allProducts && context.allProducts.length ? context.allProducts : allProducts;
+  const productCatalog = Array.isArray(context.allProducts) ? context.allProducts : [];
   const flatCategories = useMemo(() => flattenCategoryTree(categoryTree), [categoryTree]);
   const categoryLookup = useMemo(() => new Map(flatCategories.map((category) => [category.id, category])), [flatCategories]);
   const currentCategory = flatCategories.find((category) => category.slug === slug);
   const childCategories = currentCategory?.children || [];
-  const [selectedSubcategories, setSelectedSubcategories] = useState([]);
-  const [selectedBrands, setSelectedBrands] = useState([]);
-  const [availability, setAvailability] = useState([]);
-  const [rating, setRating] = useState(0);
-  const [sortBy, setSortBy] = useState("featured");
+  const selectedSubcategories = useMemo(() => getListParam(searchParams, "subcategory"), [searchParamString]);
+  const selectedBrands = useMemo(() => getListParam(searchParams, "brand"), [searchParamString]);
+  const availability = useMemo(() => {
+    const stockValues = getListParam(searchParams, "stock");
+    return stockValues.length ? stockValues : getListParam(searchParams, "availability");
+  }, [searchParamString]);
+  const rating = getNumberParam(searchParams, "rating", 0);
+  const sortBy = searchParams.get("sort") || "latest";
+  const page = Math.max(1, getNumberParam(searchParams, "page", 1));
   const [filterOpen, setFilterOpen] = useState(false);
   const [animationSeed, setAnimationSeed] = useState(0);
   const [serverProducts, setServerProducts] = useState([]);
   const [serverUnavailable, setServerUnavailable] = useState(false);
   const [pagination, setPagination] = useState({ page: 1, limit: 24, total: 0, totalPages: 1 });
-  const [page, setPage] = useState(1);
 
   const fallbackBaseProducts = useMemo(() => {
     if (!currentCategory) return [];
@@ -121,54 +137,58 @@ export default function CollectionPage({ context }) {
   }, [baseProducts, childCategories, currentCategory]);
 
   const prices = productsWithSubcategory.map((product) => product.price);
-  const [priceRange, setPriceRange] = useState(() => {
-    const min = prices.length ? Math.min(...prices) : 0;
-    const max = prices.length ? Math.max(...prices) : 0;
-    return [min, max];
-  });
-
   const brands = [...new Set(productsWithSubcategory.map((product) => product.brand))];
   const minPrice = prices.length ? Math.min(...prices) : 0;
   const maxPrice = prices.length ? Math.max(...prices) : 0;
+  const priceRange = useMemo(() => [
+    searchParams.has("minPrice") ? getNumberParam(searchParams, "minPrice", minPrice) : minPrice,
+    searchParams.has("maxPrice") ? getNumberParam(searchParams, "maxPrice", maxPrice) : maxPrice
+  ], [maxPrice, minPrice, searchParamString]);
   const totalProductCount = baseProducts.length;
 
-  const filtered = productsWithSubcategory
+  const filtered = serverUnavailable ? productsWithSubcategory
     .filter((product) => !selectedSubcategories.length || selectedSubcategories.includes(product.subcategorySlug))
     .filter((product) => !selectedBrands.length || selectedBrands.includes(product.brand))
     .filter((product) => !availability.length || availability.includes(product.stockTone))
     .filter((product) => Number(product.rating || 0) >= rating)
     .filter((product) => Number(product.price || 0) >= priceRange[0] && Number(product.price || 0) <= priceRange[1])
     .sort((left, right) => {
-      if (sortBy === "price-low-high") return left.price - right.price;
-      if (sortBy === "price-high-low") return right.price - left.price;
+      if (["price", "price-low-high", "price-asc"].includes(sortBy)) return left.price - right.price;
+      if (["price-high-low", "price-desc"].includes(sortBy)) return right.price - left.price;
       if (sortBy === "rating-high-low") return Number(right.rating || 0) - Number(left.rating || 0);
+      if (["popularity", "popular"].includes(sortBy)) return Number(right.reviewCount || 0) - Number(left.reviewCount || 0);
       return 0;
+    }) : productsWithSubcategory;
+
+  const updateFilters = (updates, { resetPage = true } = {}) => {
+    const next = new URLSearchParams(searchParams);
+    Object.entries(updates).forEach(([key, value]) => {
+      if (Array.isArray(value)) {
+        if (value.length) next.set(key, value.join(","));
+        else next.delete(key);
+        return;
+      }
+      if (value === undefined || value === null || value === "" || value === 0) next.delete(key);
+      else next.set(key, String(value));
     });
+    if (resetPage) next.delete("page");
+    setSearchParams(next);
+  };
+
+  const toggleFilterValue = (key, value, current) => {
+    updateFilters({
+      [key]: current.includes(value) ? current.filter((item) => item !== value) : [...current, value]
+    });
+  };
 
   const resetFilters = () => {
-    setSelectedSubcategories([]);
-    setSelectedBrands([]);
-    setAvailability([]);
-    setRating(0);
-    setSortBy("featured");
-    setPriceRange([minPrice, maxPrice]);
+    setSearchParams(new URLSearchParams());
     setFilterOpen(false);
   };
 
   useEffect(() => {
-    setSelectedSubcategories([]);
-    setSelectedBrands([]);
-    setAvailability([]);
-    setRating(0);
-    setSortBy("featured");
-    setPriceRange([minPrice, maxPrice]);
     setFilterOpen(false);
-    setPage(1);
-  }, [slug, minPrice, maxPrice]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [selectedBrands, availability, sortBy, rating, priceRange]);
+  }, [slug]);
 
   useEffect(() => {
     if (!currentCategory) return undefined;
@@ -178,12 +198,13 @@ export default function CollectionPage({ context }) {
       try {
         const response = await fetchStorefrontProducts({
           status: "active",
-          categorySlug: currentCategory.slug,
-          brand: selectedBrands.length === 1 ? selectedBrands[0] : "",
-          availability: availability.length === 1 ? availability[0] : "",
-          minPrice: priceRange[0] || "",
-          maxPrice: priceRange[1] || "",
-          sort: sortBy === "featured" ? "newest" : sortBy,
+          categorySlug: selectedSubcategories.length ? selectedSubcategories.join(",") : currentCategory.slug,
+          brand: selectedBrands.join(","),
+          stock: availability.join(","),
+          minPrice: searchParams.has("minPrice") ? priceRange[0] : "",
+          maxPrice: searchParams.has("maxPrice") ? priceRange[1] : "",
+          rating: rating || "",
+          sort: sortBy,
           page,
           limit: 24
         });
@@ -203,7 +224,7 @@ export default function CollectionPage({ context }) {
     return () => {
       isMounted = false;
     };
-  }, [availability, currentCategory, page, priceRange, selectedBrands, sortBy]);
+  }, [availability, currentCategory, page, priceRange, rating, searchParamString, selectedBrands, selectedSubcategories, sortBy]);
 
   useEffect(() => {
     document.body.classList.add("collection-page");
@@ -267,7 +288,7 @@ export default function CollectionPage({ context }) {
       || selectedBrands.length
       || availability.length
       || rating
-      || sortBy !== "featured"
+      || sortBy !== "latest"
       || priceRange[0] !== minPrice
       || priceRange[1] !== maxPrice;
     if (!hasFilter) return;
@@ -355,10 +376,11 @@ export default function CollectionPage({ context }) {
                 </button>
                 <label className="collection-sort-control">
                   <span className="collection-sort-label">Sort By</span>
-                  <select className="collection-sort-select" value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
-                    <option value="featured">Featured</option>
+                  <select className="collection-sort-select" value={sortBy} onChange={(event) => updateFilters({ sort: event.target.value })}>
+                    <option value="latest">Latest</option>
                     <option value="price-low-high">Price: Low to High</option>
                     <option value="price-high-low">Price: High to Low</option>
+                    <option value="popularity">Popularity</option>
                     <option value="rating-high-low">Top Rated</option>
                   </select>
                 </label>
@@ -382,7 +404,7 @@ export default function CollectionPage({ context }) {
                         <input
                           type="checkbox"
                           checked={selectedSubcategories.includes(child.slug)}
-                          onChange={() => setSelectedSubcategories((current) => current.includes(child.slug) ? current.filter((value) => value !== child.slug) : [...current, child.slug])}
+                          onChange={() => toggleFilterValue("subcategory", child.slug, selectedSubcategories)}
                         />
                         <span>{child.name}</span>
                       </label>
@@ -397,10 +419,10 @@ export default function CollectionPage({ context }) {
                   {brands.map((brand) => (
                     <label key={brand} className="filter-option">
                       <input
-                        type="checkbox"
-                        checked={selectedBrands.includes(brand)}
-                        onChange={() => setSelectedBrands((current) => current.includes(brand) ? current.filter((value) => value !== brand) : [...current, brand])}
-                      />
+                          type="checkbox"
+                          checked={selectedBrands.includes(brand)}
+                          onChange={() => toggleFilterValue("brand", brand, selectedBrands)}
+                        />
                       <span>{brand}</span>
                     </label>
                   ))}
@@ -415,7 +437,7 @@ export default function CollectionPage({ context }) {
                       <input
                         type="checkbox"
                         checked={availability.includes(value)}
-                        onChange={() => setAvailability((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value])}
+                        onChange={() => toggleFilterValue("stock", value, availability)}
                       />
                       <span>{value === "in-stock" ? "In Stock" : "Out of Stock"}</span>
                     </label>
@@ -430,8 +452,8 @@ export default function CollectionPage({ context }) {
                 </div>
                 <div className="range-slider-group">
                   <div className="range-track"></div>
-                  <input type="range" min={minPrice} max={maxPrice} value={priceRange[0]} onChange={(event) => setPriceRange(([_, currentMax]) => [Math.min(Number(event.target.value), currentMax), currentMax])} />
-                  <input type="range" min={minPrice} max={maxPrice} value={priceRange[1]} onChange={(event) => setPriceRange(([currentMin]) => [currentMin, Math.max(Number(event.target.value), currentMin)])} />
+                  <input type="range" min={minPrice} max={maxPrice} value={priceRange[0]} onChange={(event) => updateFilters({ minPrice: Math.min(Number(event.target.value), priceRange[1]) })} disabled={!productsWithSubcategory.length || minPrice === maxPrice} />
+                  <input type="range" min={minPrice} max={maxPrice} value={priceRange[1]} onChange={(event) => updateFilters({ maxPrice: Math.max(Number(event.target.value), priceRange[0]) })} disabled={!productsWithSubcategory.length || minPrice === maxPrice} />
                 </div>
               </div>
 
@@ -449,7 +471,7 @@ export default function CollectionPage({ context }) {
                         type="radio"
                         name="collection-rating"
                         checked={rating === option.value}
-                        onChange={() => setRating(option.value)}
+                        onChange={() => updateFilters({ rating: option.value })}
                       />
                       <span>{option.label}</span>
                     </label>
@@ -480,9 +502,9 @@ export default function CollectionPage({ context }) {
               {!filtered.length ? <div className="collection-empty-state">No products match the selected filters.</div> : null}
               {!serverUnavailable && pagination.totalPages > 1 ? (
                 <div className="dashboard-toolbar-actions" style={{ justifyContent: "center", marginTop: "24px" }}>
-                  <button className="collection-reset-button" type="button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
+                  <button className="collection-reset-button" type="button" disabled={page <= 1} onClick={() => updateFilters({ page: Math.max(1, page - 1) }, { resetPage: false })}>Previous</button>
                   <span>{`Page ${pagination.page} of ${pagination.totalPages}`}</span>
-                  <button className="collection-reset-button" type="button" disabled={!pagination.hasNextPage} onClick={() => setPage((current) => current + 1)}>Next</button>
+                  <button className="collection-reset-button" type="button" disabled={!pagination.hasNextPage} onClick={() => updateFilters({ page: page + 1 }, { resetPage: false })}>Next</button>
                 </div>
               ) : null}
             </div>

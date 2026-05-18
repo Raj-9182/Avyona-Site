@@ -83,6 +83,9 @@ export default function Orders() {
   const [paymentStatusFilter, setPaymentStatusFilter] = React.useState("all");
   const [dateFrom, setDateFrom] = React.useState("");
   const [dateTo, setDateTo] = React.useState("");
+  const [currentPage, setCurrentPage] = React.useState(1);
+  const [rowsPerPage, setRowsPerPage] = React.useState(50);
+  const [selectedOrderIds, setSelectedOrderIds] = React.useState([]);
   const canEditOrders = canAccess("orders", "edit");
   const canDeleteOrders = canAccess("orders", "delete");
 
@@ -119,12 +122,46 @@ export default function Orders() {
     });
   }, [dateFrom, dateTo, orderRows, orderStatusFilter, paymentStatusFilter, searchTerm]);
 
+  React.useEffect(() => {
+    setCurrentPage(1);
+    setSelectedOrderIds([]);
+  }, [searchTerm, orderStatusFilter, paymentStatusFilter, dateFrom, dateTo, rowsPerPage]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / rowsPerPage));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const pageStart = filteredOrders.length ? (safeCurrentPage - 1) * rowsPerPage : 0;
+  const paginatedOrders = filteredOrders.slice(pageStart, pageStart + rowsPerPage);
+  const pageEnd = filteredOrders.length ? pageStart + paginatedOrders.length : 0;
+  const visibleOrderIds = React.useMemo(() => paginatedOrders.map((order) => String(order.id)), [paginatedOrders]);
+  const isCurrentPageSelected = visibleOrderIds.length > 0 && visibleOrderIds.every((id) => selectedOrderIds.includes(id));
+
   const handleDeleteOrder = (orderId) => {
     const shouldDelete = window.confirm("Delete this order from the local admin table?");
 
     if (!shouldDelete) return;
 
     setOrderRows((currentOrders) => currentOrders.filter((order) => order.id !== orderId));
+    setSelectedOrderIds((current) => current.filter((id) => String(id) !== String(orderId)));
+  };
+
+  const toggleSelectedOrder = (orderId) => {
+    const id = String(orderId);
+    setSelectedOrderIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  };
+
+  const toggleCurrentPageSelection = () => {
+    setSelectedOrderIds((current) => {
+      if (isCurrentPageSelected) return current.filter((id) => !visibleOrderIds.includes(id));
+      return Array.from(new Set([...current, ...visibleOrderIds]));
+    });
+  };
+
+  const handleBulkOrderDelete = () => {
+    if (!selectedOrderIds.length) return;
+    const confirmed = window.confirm(`Delete ${selectedOrderIds.length} selected order(s) from this dashboard table?`);
+    if (!confirmed) return;
+    setOrderRows((currentOrders) => currentOrders.filter((order) => !selectedOrderIds.includes(String(order.id))));
+    setSelectedOrderIds([]);
   };
 
   React.useEffect(() => {
@@ -163,6 +200,8 @@ export default function Orders() {
     setPaymentStatusFilter("all");
     setDateFrom("");
     setDateTo("");
+    setRowsPerPage(50);
+    setSelectedOrderIds([]);
   };
 
   return (
@@ -188,6 +227,7 @@ export default function Orders() {
         <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
           <span style={summaryPillStyle}>{`All Orders: ${orderRows.length}`}</span>
           <span style={summaryPillStyle}>{`Visible Orders: ${filteredOrders.length}`}</span>
+          <span style={summaryPillStyle}>{`Selected: ${selectedOrderIds.length}`}</span>
         </div>
       </div>
 
@@ -239,16 +279,31 @@ export default function Orders() {
             aria-label="Filter orders to date"
           />
 
+          <select value={rowsPerPage} onChange={(event) => setRowsPerPage(Number(event.target.value))} style={filterInputStyle}>
+            {[10, 20, 50, 100].map((count) => <option key={count} value={count}>{`${count} / page`}</option>)}
+          </select>
+
           <button type="button" onClick={resetFilters} style={secondaryButtonStyle}>
             Reset
           </button>
         </div>
       </section>
 
+      {selectedOrderIds.length ? (
+        <section style={bulkPanelStyle}>
+          <strong>{`${selectedOrderIds.length} order(s) selected`}</strong>
+          {canDeleteOrders ? <button type="button" style={dangerActionButtonStyle} onClick={handleBulkOrderDelete}>Delete Selected</button> : null}
+          <button type="button" style={secondaryButtonStyle} onClick={() => setSelectedOrderIds([])}>Clear</button>
+        </section>
+      ) : null}
+
       <div style={tableCardStyle}>
         <table className="dashboard-data-table dashboard-orders-admin-table" style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed" }}>
           <thead>
             <tr style={{ background: "#f8fafc" }}>
+              <th style={tableHeaderStyle}>
+                <input type="checkbox" checked={isCurrentPageSelected} onChange={toggleCurrentPageSelection} aria-label="Select all orders on this page" />
+              </th>
               <th style={tableHeaderStyle}>Order ID</th>
               <th style={tableHeaderStyle}>Customer Name</th>
               <th style={tableHeaderStyle}>Date</th>
@@ -261,8 +316,11 @@ export default function Orders() {
             </tr>
           </thead>
           <tbody>
-            {filteredOrders.map((order) => (
+            {paginatedOrders.map((order) => (
               <tr key={order.id} style={tableRowStyle}>
+                <td style={tableCellStyle}>
+                  <input type="checkbox" checked={selectedOrderIds.includes(String(order.id))} onChange={() => toggleSelectedOrder(order.id)} aria-label={`Select order ${order.orderNumber}`} />
+                </td>
                 <td style={tableCellStyle}>
                   <div style={{ display: "grid", gap: "4px" }}>
                     <strong>{order.orderNumber}</strong>
@@ -330,9 +388,9 @@ export default function Orders() {
                 </td>
               </tr>
             ))}
-            {!filteredOrders.length ? (
+            {!paginatedOrders.length ? (
               <tr>
-                <td colSpan="9" style={{ ...tableCellStyle, textAlign: "center", color: "#64748b", padding: "28px 16px" }}>
+                <td colSpan="10" style={{ ...tableCellStyle, textAlign: "center", color: "#64748b", padding: "28px 16px" }}>
                   No orders matched the current search and filters.
                 </td>
               </tr>
@@ -340,6 +398,17 @@ export default function Orders() {
           </tbody>
         </table>
       </div>
+
+      <section style={paginationBarStyle}>
+        <div>
+          <strong>{`Page ${safeCurrentPage} of ${totalPages}`}</strong>
+          <p style={{ margin: "4px 0 0", color: "#64748b" }}>{filteredOrders.length ? `Showing ${pageStart + 1}-${pageEnd} of ${filteredOrders.length}.` : "No orders available."}</p>
+        </div>
+        <div style={actionGroupStyle}>
+          <button type="button" style={secondaryButtonStyle} disabled={safeCurrentPage === 1} onClick={() => setCurrentPage((current) => Math.max(1, current - 1))}>Previous</button>
+          <button type="button" style={secondaryButtonStyle} disabled={safeCurrentPage === totalPages} onClick={() => setCurrentPage((current) => Math.min(totalPages, current + 1))}>Next</button>
+        </div>
+      </section>
     </div>
   );
 }
@@ -358,6 +427,30 @@ const tableCardStyle = {
   border: "1px solid rgba(203, 213, 225, 0.7)",
   boxShadow: "0 14px 34px rgba(174, 203, 190, 0.18)",
   overflowX: "auto"
+};
+
+const bulkPanelStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: "10px",
+  flexWrap: "wrap",
+  background: "#fff",
+  borderRadius: "16px",
+  border: "1px solid rgba(203, 213, 225, 0.7)",
+  boxShadow: "0 14px 34px rgba(174, 203, 190, 0.18)",
+  padding: "14px"
+};
+
+const paginationBarStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "12px",
+  flexWrap: "wrap",
+  background: "#fff",
+  borderRadius: "16px",
+  border: "1px solid rgba(203, 213, 225, 0.7)",
+  padding: "14px"
 };
 
 const tableHeaderStyle = {

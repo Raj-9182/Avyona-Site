@@ -1,7 +1,10 @@
 import bcrypt from "bcryptjs";
+import crypto from "node:crypto";
 import { pool, query } from "../config/db.js";
 import { ApiError } from "../utils/apiError.js";
 import { signCustomerToken } from "../utils/jwt.js";
+import { grantSignupBonus } from "../services/creditPointsRewards.js";
+import { validateReferralAtSignup } from "../services/creditPointsSecurity.js";
 
 function publicCustomer(customer) {
   const [firstName = "", ...lastParts] = String(customer.fullName || "").split(/\s+/).filter(Boolean);
@@ -32,6 +35,37 @@ function mapProductRow(row) {
     image: row.imageUrl || "/images/optimized/frame-1.webp",
     variantLabel: row.variantLabel || ""
   };
+}
+
+function mapAddressRow(row) {
+  return {
+    id: row.id,
+    addressType: row.addressType || "Home",
+    fullName: row.fullName,
+    phone: row.phone || "",
+    line1: row.line1,
+    line2: row.line2 || "",
+    city: row.city,
+    state: row.state,
+    pincode: row.pincode,
+    country: row.country || "India",
+    isDefault: Boolean(row.isDefault)
+  };
+}
+
+async function ensurePasswordResetTable() {
+  await query(
+    `CREATE TABLE IF NOT EXISTS customer_password_resets (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      customer_id INT UNSIGNED NOT NULL,
+      token_hash VARCHAR(128) NOT NULL,
+      expires_at DATETIME NOT NULL,
+      used_at DATETIME NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_customer_password_resets_token (token_hash),
+      CONSTRAINT fk_customer_password_resets_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+    )`
+  );
 }
 
 async function findProduct(connection, item) {
@@ -70,22 +104,50 @@ async function getOrCreateCart(connection, customerId) {
 
 export async function signupCustomer(request, response) {
   const fullName = String(request.body?.fullName || "").trim();
-  const email = String(request.body?.email || "").trim().toLowerCase();
-  const phone = String(request.body?.mobile || request.body?.phone || "").trim();
+  const email    = String(request.body?.email    || "").trim().toLowerCase();
+  const phone    = String(request.body?.mobile   || request.body?.phone || "").trim();
   const password = String(request.body?.password || "");
+  const referredByCode = String(request.body?.referralCode || "").trim().toUpperCase() || null;
+  const ipAddress = request.headers["x-forwarded-for"]?.split(",")[0]?.trim() || request.ip || null;
+  const rawDevice = String(request.body?.deviceFingerprint || request.headers["x-device-fingerprint"] || request.headers["user-agent"] || "").trim();
+  const deviceHash = rawDevice ? crypto.createHash("sha256").update(rawDevice).digest("hex") : null;
 
   if (!fullName || !email || !phone || password.length < 6) {
     throw new ApiError(400, "Full name, email, mobile, and a 6+ character password are required");
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
-  const existing = await query("SELECT id, password_hash AS passwordHash FROM customers WHERE email = ? LIMIT 1", [email]);
 
-  if (existing[0]?.passwordHash) {
+  if (referredByCode) {
+    await validateReferralAtSignup({ referralCode: referredByCode, email, phone, deviceHash, ipAddress });
+  }
+
+  // ── Abuse check 1: duplicate email ────────────────────────────────────────
+  const byEmail = await query(
+    "SELECT id, password_hash AS passwordHash FROM customers WHERE email = ? LIMIT 1",
+    [email]
+  );
+  if (byEmail[0]?.passwordHash) {
     throw new ApiError(409, "An account with that email already exists");
   }
 
-  let customerId = existing[0]?.id || null;
+  // ── Abuse check 2: duplicate phone ───────────────────────────────────────
+  // Prevent creating multiple accounts under different emails with the same
+  // phone number to farm signup bonuses.
+  if (phone) {
+    const byPhone = await query(
+      "SELECT id FROM customers WHERE phone = ? AND password_hash IS NOT NULL AND status = 'active' LIMIT 1",
+      [phone]
+    );
+    if (byPhone[0]) {
+      throw new ApiError(409, "A verified account is already registered with that mobile number");
+    }
+  }
+
+  // ── Create or finalise the customer record ────────────────────────────────
+  let customerId = byEmail[0]?.id || null;
+  const isNewAccount = !customerId;
+
   if (customerId) {
     await query(
       `UPDATE customers
@@ -102,8 +164,44 @@ export async function signupCustomer(request, response) {
     customerId = result.insertId;
   }
 
-  const rows = await query("SELECT id, full_name AS fullName, email, phone, city, state FROM customers WHERE id = ? LIMIT 1", [customerId]);
+  // ── Store referral code if provided (validated in reward service) ─────────
+  if (referredByCode && isNewAccount) {
+    await query(
+      `INSERT INTO customer_referral_codes
+         (customer_id, referral_code, referred_by_code, referral_status, signup_ip, signup_device_hash, referred_at)
+       VALUES (?, ?, ?, 'pending', ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE
+         referred_by_code = IF(referred_by_code IS NULL, VALUES(referred_by_code), referred_by_code),
+         referral_status = IF(referral_status IN ('none', 'blocked'), VALUES(referral_status), referral_status),
+         signup_ip = COALESCE(signup_ip, VALUES(signup_ip)),
+         signup_device_hash = COALESCE(signup_device_hash, VALUES(signup_device_hash)),
+         referred_at = COALESCE(referred_at, VALUES(referred_at))`,
+      [customerId, _generateReferralCode(customerId), referredByCode, ipAddress, deviceHash]
+    );
+  } else if (isNewAccount) {
+    await query(
+      `INSERT INTO customer_referral_codes
+         (customer_id, referral_code, referral_status, signup_ip, signup_device_hash)
+       VALUES (?, ?, 'none', ?, ?)
+       ON DUPLICATE KEY UPDATE
+         signup_ip = COALESCE(signup_ip, VALUES(signup_ip)),
+         signup_device_hash = COALESCE(signup_device_hash, VALUES(signup_device_hash))`,
+      [customerId, _generateReferralCode(customerId), ipAddress, deviceHash]
+    );
+  }
+
+  const rows = await query(
+    "SELECT id, full_name AS fullName, email, phone, city, state FROM customers WHERE id = ? LIMIT 1",
+    [customerId]
+  );
   const customer = rows[0];
+
+  // ── Grant signup bonus (non-fatal — fires after response for new accounts) ─
+  // Only new accounts receive the bonus; updating a password-less stub does not.
+  if (isNewAccount) {
+    // Fire-and-forget: do not await — response is already sent
+    grantSignupBonus(customerId, { ipAddress }).catch(() => {});
+  }
 
   response.status(201).json({
     success: true,
@@ -112,6 +210,13 @@ export async function signupCustomer(request, response) {
       customer: publicCustomer(customer)
     }
   });
+}
+
+function _generateReferralCode(customerId) {
+  const prefix  = "AVY";
+  const padded  = String(customerId).padStart(5, "0");
+  const check   = (customerId * 7 + 13) % 10;
+  return `${prefix}${padded}${check}`;
 }
 
 export async function loginCustomer(request, response) {
@@ -150,12 +255,177 @@ export async function loginCustomer(request, response) {
   });
 }
 
+export async function requestCustomerPasswordReset(request, response) {
+  const identity = String(request.body?.identity || "").trim().toLowerCase();
+
+  if (!identity) {
+    throw new ApiError(400, "Email or mobile number is required");
+  }
+
+  const rows = await query(
+    `SELECT id
+     FROM customers
+     WHERE LOWER(email) = ? OR LOWER(phone) = ?
+     LIMIT 1`,
+    [identity, identity]
+  );
+
+  if (rows[0]) {
+    await ensurePasswordResetTable();
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(resetToken).digest("hex");
+    await query(
+      `INSERT INTO customer_password_resets (customer_id, token_hash, expires_at)
+       VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 30 MINUTE))`,
+      [rows[0].id, tokenHash]
+    );
+  }
+
+  response.json({
+    success: true,
+    message: "If an account exists, password reset instructions will be sent shortly."
+  });
+}
+
 export async function getCurrentCustomer(request, response) {
   response.json({
     success: true,
     data: {
       customer: publicCustomer(request.customer)
     }
+  });
+}
+
+export async function updateCurrentCustomer(request, response) {
+  const fullName = String(request.body?.fullName || request.body?.name || "").trim();
+  const email = String(request.body?.email || "").trim().toLowerCase();
+  const phone = String(request.body?.mobile || request.body?.phone || "").trim();
+  const city = String(request.body?.city || "").trim();
+  const state = String(request.body?.state || "").trim();
+
+  if (!fullName || !email) {
+    throw new ApiError(400, "Full name and email are required");
+  }
+
+  const existing = await query(
+    "SELECT id FROM customers WHERE email = ? AND id <> ? LIMIT 1",
+    [email, request.customer.id]
+  );
+
+  if (existing[0]) {
+    throw new ApiError(409, "Another account is already using that email");
+  }
+
+  await query(
+    `UPDATE customers
+     SET full_name = ?, email = ?, phone = ?, city = ?, state = ?
+     WHERE id = ?`,
+    [fullName, email, phone || null, city || null, state || null, request.customer.id]
+  );
+
+  const rows = await query("SELECT id, full_name AS fullName, email, phone, city, state FROM customers WHERE id = ? LIMIT 1", [request.customer.id]);
+
+  response.json({
+    success: true,
+    message: "Profile updated",
+    data: {
+      customer: publicCustomer(rows[0])
+    }
+  });
+}
+
+export async function getCustomerAddresses(request, response) {
+  const rows = await query(
+    `SELECT
+      id,
+      address_type AS addressType,
+      full_name AS fullName,
+      phone,
+      line1,
+      line2,
+      city,
+      state,
+      pincode,
+      country,
+      is_default AS isDefault
+     FROM customer_addresses
+     WHERE customer_id = ?
+     ORDER BY is_default DESC, updated_at DESC`,
+    [request.customer.id]
+  );
+
+  response.json({
+    success: true,
+    count: rows.length,
+    data: rows.map(mapAddressRow)
+  });
+}
+
+export async function saveCustomerAddress(request, response) {
+  const addressId = Number(request.params.addressId || request.body?.id || 0);
+  const addressType = String(request.body?.addressType || "Home").trim() || "Home";
+  const fullName = String(request.body?.fullName || request.customer.fullName || "").trim();
+  const phone = String(request.body?.phone || request.customer.phone || "").trim();
+  const line1 = String(request.body?.line1 || "").trim();
+  const line2 = String(request.body?.line2 || "").trim();
+  const city = String(request.body?.city || "").trim();
+  const state = String(request.body?.state || "").trim();
+  const pincode = String(request.body?.pincode || "").trim();
+  const country = String(request.body?.country || "India").trim() || "India";
+  const isDefault = request.body?.isDefault === true || request.body?.isDefault === 1;
+
+  if (!fullName || !phone || !line1 || !city || !state || !pincode) {
+    throw new ApiError(400, "Full name, phone, address, city, state, and pincode are required");
+  }
+
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    if (isDefault) {
+      await connection.execute("UPDATE customer_addresses SET is_default = 0 WHERE customer_id = ?", [request.customer.id]);
+    }
+
+    if (addressId) {
+      await connection.execute(
+        `UPDATE customer_addresses
+         SET address_type = ?, full_name = ?, phone = ?, line1 = ?, line2 = ?, city = ?, state = ?, pincode = ?, country = ?, is_default = ?
+         WHERE id = ? AND customer_id = ?`,
+        [addressType, fullName, phone, line1, line2 || null, city, state, pincode, country, isDefault ? 1 : 0, addressId, request.customer.id]
+      );
+    } else {
+      await connection.execute(
+        `INSERT INTO customer_addresses
+          (customer_id, address_type, full_name, phone, line1, line2, city, state, pincode, country, is_default)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [request.customer.id, addressType, fullName, phone, line1, line2 || null, city, state, pincode, country, isDefault ? 1 : 0]
+      );
+    }
+
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+
+  await getCustomerAddresses(request, response);
+}
+
+export async function deleteCustomerAddress(request, response) {
+  const addressId = Number(request.params.addressId || 0);
+
+  if (!addressId) {
+    throw new ApiError(400, "Address id is required");
+  }
+
+  await query("DELETE FROM customer_addresses WHERE id = ? AND customer_id = ?", [addressId, request.customer.id]);
+
+  response.json({
+    success: true,
+    message: "Address deleted"
   });
 }
 

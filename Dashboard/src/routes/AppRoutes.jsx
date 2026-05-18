@@ -5,10 +5,12 @@ import { allProducts as storefrontProducts } from "../data/storefront-content";
 
 const AddCategory = React.lazy(() => import("../pages/categories/AddCategory"));
 const Categories = React.lazy(() => import("../pages/categories/Categories"));
+const ContactEnquiries = React.lazy(() => import("../pages/contact-enquiries/ContactEnquiries"));
 const CustomerDetails = React.lazy(() => import("../pages/customers/CustomerDetails"));
 const Customers = React.lazy(() => import("../pages/customers/Customers"));
 const Coupons = React.lazy(() => import("../pages/coupons/Coupons"));
 const DashboardHome = React.lazy(() => import("../pages/dashboard/DashboardHome"));
+const CreditPoints = React.lazy(() => import("../pages/credit-points/CreditPoints"));
 const Homepage = React.lazy(() => import("../pages/homepage/Homepage"));
 const HomepageConfigurePage = React.lazy(() => import("../pages/homepage/HomepageConfigurePage"));
 const OrderDetails = React.lazy(() => import("../pages/orders/OrderDetails"));
@@ -53,12 +55,16 @@ export default function AppRoutes({ context, allProducts }) {
         <Route element={<AdminLayout />}>
           <Route index element={<DashboardHome context={resolvedContext} allProducts={resolvedProducts} />} />
           <Route path="homepage" element={<Homepage />} />
+          <Route path="credit-points" element={<Navigate to="/dashboard/homepage/credit-points" replace />} />
+          <Route path="homepage/credit-points" element={<CreditPoints />} />
+          <Route path="homepage/credit-points-section" element={<Navigate to="/dashboard/homepage/credit-points" replace />} />
           <Route path="homepage/hero-banner" element={<HomepageConfigurePage sectionKey="hero-banner" />} />
           <Route path="homepage/browse-categories" element={<HomepageConfigurePage sectionKey="browse-categories" />} />
           <Route path="homepage/our-products" element={<HomepageConfigurePage sectionKey="our-products" />} />
           <Route path="homepage/best-sellers" element={<HomepageConfigurePage sectionKey="best-sellers" />} />
           <Route path="homepage/new-arrivals" element={<HomepageConfigurePage sectionKey="new-arrivals" />} />
           <Route path="homepage/featured-brands" element={<HomepageConfigurePage sectionKey="featured-brands" />} />
+          <Route path="homepage/newsletter" element={<HomepageConfigurePage sectionKey="newsletter" />} />
           <Route path="homepage/reviews" element={<Navigate to="/dashboard/reviews" replace />} />
           <Route path="products" element={<Products />} />
           <Route path="products/new" element={<AddProduct />} />
@@ -74,6 +80,7 @@ export default function AppRoutes({ context, allProducts }) {
           <Route path="orders/:orderId" element={<OrderDetails />} />
           <Route path="customers" element={<Customers />} />
           <Route path="customers/:customerId" element={<CustomerDetails />} />
+          <Route path="contact-enquiries" element={<ContactEnquiries />} />
           <Route path="reviews" element={<Reviews />} />
           <Route path="reviews/new" element={<Reviews />} />
           <Route path="settings" element={<Settings />} />

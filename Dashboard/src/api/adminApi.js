@@ -1,6 +1,7 @@
 import axios from "axios";
 
 const ADMIN_TOKEN_KEY = "avyonaAdminToken";
+const ADMIN_LOGGED_OUT_KEY = "avyonaAdminLoggedOut";
 const ADMIN_AUTH_EVENT = "avyonaAdminAuthChanged";
 const LOCAL_DEV_ADMIN_TOKEN = "local-dev-admin-token";
 
@@ -17,17 +18,22 @@ function notifyAuthChanged() {
 
 export function getAdminToken() {
   if (typeof window === "undefined") return "";
-  return window.localStorage.getItem(ADMIN_TOKEN_KEY) || getLocalDevAdminToken();
+  const storedToken = window.localStorage.getItem(ADMIN_TOKEN_KEY);
+  if (storedToken) return storedToken;
+  if (window.localStorage.getItem(ADMIN_LOGGED_OUT_KEY) === "true") return "";
+  return getLocalDevAdminToken();
 }
 
 export function setAdminToken(token) {
   if (typeof window === "undefined") return;
   if (!token) {
     window.localStorage.removeItem(ADMIN_TOKEN_KEY);
+    window.localStorage.setItem(ADMIN_LOGGED_OUT_KEY, "true");
     notifyAuthChanged();
     return;
   }
 
+  window.localStorage.removeItem(ADMIN_LOGGED_OUT_KEY);
   window.localStorage.setItem(ADMIN_TOKEN_KEY, token);
   notifyAuthChanged();
 }
@@ -35,6 +41,7 @@ export function setAdminToken(token) {
 export function clearAdminToken() {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(ADMIN_TOKEN_KEY);
+  window.localStorage.setItem(ADMIN_LOGGED_OUT_KEY, "true");
   notifyAuthChanged();
 }
 
@@ -116,6 +123,14 @@ export function updateAdminSettings(payload) {
   return adminApi.put("/settings", payload);
 }
 
+export function fetchGeneralSettings() {
+  return adminApi.get("/settings/general");
+}
+
+export function updateGeneralSettings(payload) {
+  return adminApi.put("/settings/general", payload);
+}
+
 export function fetchBrowseCategoriesSettings() {
   return adminApi.get("/settings/homepage/browse-categories");
 }
@@ -130,6 +145,78 @@ export function fetchHomepageSectionSettings(sectionKey) {
 
 export function updateHomepageSectionSettings(sectionKey, payload) {
   return adminApi.put(`/settings/homepage/sections/${sectionKey}`, payload);
+}
+
+export function fetchCreditSummary() {
+  return adminApi.get("/admin/credits/summary");
+}
+
+export function fetchCreditRules(params) {
+  return adminApi.get("/admin/credits/rules", { params });
+}
+
+export function createCreditRule(payload) {
+  return adminApi.post("/admin/credits/rules", payload);
+}
+
+export function updateCreditRule(ruleId, payload) {
+  return adminApi.put(`/admin/credits/rules/${ruleId}`, payload);
+}
+
+export function updateCreditRuleStatus(ruleId, status) {
+  return adminApi.patch(`/admin/credits/rules/${ruleId}/status`, { status });
+}
+
+export function deleteCreditRule(ruleId) {
+  return adminApi.delete(`/admin/credits/rules/${ruleId}`);
+}
+
+export function fetchCreditSettings() {
+  return adminApi.get("/admin/credits/settings");
+}
+
+export function updateCreditSettings(payload) {
+  return adminApi.put("/admin/credits/settings", payload);
+}
+
+export function fetchCreditWallets(params) {
+  return adminApi.get("/admin/credits/wallets", { params });
+}
+
+export function fetchCreditWalletDetails(customerId) {
+  return adminApi.get(`/admin/credits/wallets/${customerId}`);
+}
+
+export function adjustCreditWallet(customerId, payload) {
+  return adminApi.post(`/admin/credits/wallets/${customerId}/adjust`, payload);
+}
+
+export function updateCreditWalletBlocked(customerId, isBlocked) {
+  return adminApi.patch(`/admin/credits/wallets/${customerId}/block`, { isBlocked });
+}
+
+export function resetCreditWallet(customerId, payload = {}) {
+  return adminApi.post(`/admin/credits/wallets/${customerId}/reset`, payload);
+}
+
+export function fetchCreditTransactions(params) {
+  return adminApi.get("/admin/credits/transactions", { params });
+}
+
+export function runCreditExpiryJob() {
+  return adminApi.post("/admin/credits/expiry/run");
+}
+
+export function fetchUpcomingCreditExpirations(params) {
+  return adminApi.get("/admin/credits/expiry/upcoming", { params });
+}
+
+export function fetchCreditFraudLogs(params) {
+  return adminApi.get("/admin/credits/fraud-logs", { params });
+}
+
+export function reviewCreditFraudLog(logId) {
+  return adminApi.patch(`/admin/credits/fraud-logs/${logId}/review`);
 }
 
 export function fetchProducts(params) {
@@ -260,6 +347,18 @@ export function deleteCategory(categoryId) {
   return adminApi.delete(`/categories/${categoryId}`);
 }
 
+export function fetchContactEnquiries(params) {
+  return adminApi.get("/contact-enquiries", { params });
+}
+
+export function fetchContactEnquiry(enquiryId) {
+  return adminApi.get(`/contact-enquiries/${enquiryId}`);
+}
+
+export function updateContactEnquiryStatus(enquiryId, status) {
+  return adminApi.patch(`/contact-enquiries/${enquiryId}/status`, { status });
+}
+
 export function fetchOrders() {
   return adminApi.get("/orders");
 }
@@ -309,6 +408,18 @@ export function uploadAdminImage(file) {
   formData.append("image", file);
 
   return adminApi.post("/uploads/image", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data"
+    }
+  });
+}
+
+export function uploadSettingsAsset(file, assetType) {
+  const formData = new FormData();
+  formData.append("asset", file);
+  if (assetType) formData.append("assetType", assetType);
+
+  return adminApi.post("/settings/upload", formData, {
     headers: {
       "Content-Type": "multipart/form-data"
     }

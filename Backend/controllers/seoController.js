@@ -4,7 +4,7 @@ import { env } from "../config/env.js";
 const DEFAULT_DESCRIPTION = "Shop premium electronics from Avyona including personal audio, professional audio, digital cameras, security cameras, digital photo frames, reading lights, offers, and buying guides.";
 
 function getSiteOrigin() {
-  return String(env.siteUrl || env.frontendOrigin || "http://127.0.0.1:5174").replace(/\/+$/, "");
+  return String(env.siteUrl || env.frontendOrigin || "http://localhost:5173").replace(/\/+$/, "");
 }
 
 function toAbsoluteUrl(value = "") {
@@ -104,6 +104,24 @@ function pageSchema(title, path, description) {
   };
 }
 
+function categoryPageSchema(category, path, products = []) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    name: category.name,
+    description: truncate(category.metaDescription || category.description || DEFAULT_DESCRIPTION),
+    url: toAbsoluteUrl(path),
+    mainEntity: {
+      "@type": "ItemList",
+      itemListElement: products.map((product, index) => ({
+        "@type": "ListItem",
+        position: index + 1,
+        url: toAbsoluteUrl(productPath(product))
+      }))
+    }
+  };
+}
+
 function organizationSchema() {
   return {
     "@context": "https://schema.org",
@@ -195,6 +213,20 @@ async function getCategoryBySlug(slug) {
   return rows[0] || null;
 }
 
+async function getCategoryProducts(categoryId) {
+  return query(
+    `SELECT slug, asin, id
+     FROM products
+     WHERE category_id = ?
+       AND status = 'active'
+       AND is_visible = 1
+       AND is_deleted = 0
+     ORDER BY updated_at DESC, name ASC
+     LIMIT 100`,
+    [categoryId]
+  );
+}
+
 function sendSeo(response, seo) {
   response.json({
     success: true,
@@ -243,6 +275,7 @@ export async function getPageSeo(request, response) {
     if (category) {
       const path = categoryPath(category);
       const description = truncate(category.metaDescription || category.description || DEFAULT_DESCRIPTION);
+      const products = await getCategoryProducts(category.id);
       sendSeo(response, {
         title: category.metaTitle || `${category.name} | Avyona`,
         description,
@@ -258,11 +291,36 @@ export async function getPageSeo(request, response) {
             { name: "Home", path: "/" },
             { name: "Collections", path: "/collections" },
             { name: category.name, path }
-          ])
+          ]),
+          categoryPageSchema(category, path, products)
         ]
       });
       return;
     }
+  }
+
+  if (pathname === "/contact-us") {
+    const title = "Contact Us | Avyona";
+    const description = "Need help with an order or business enquiry? Contact Avyona for customer support, delivery help, warranty support, bulk orders, dealership, partnerships, and corporate enquiries.";
+
+    sendSeo(response, {
+      title,
+      description,
+      keywords: "Avyona contact, customer support, business enquiry, bulk orders, warranty support",
+      robots: "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1",
+      path: "/contact-us",
+      image: "/images/optimized/banner-1.webp",
+      type: "website",
+      schema: [
+        organizationSchema(),
+        pageSchema(title, "/contact-us", description),
+        breadcrumbSchema([
+          { name: "Home", path: "/" },
+          { name: "Contact Us", path: "/contact-us" }
+        ])
+      ]
+    });
+    return;
   }
 
   sendSeo(response, {
@@ -282,7 +340,7 @@ async function getSitemapUrls() {
   const staticUrls = [
     { loc: "/", priority: "1.0", changefreq: "daily", lastmod: now },
     { loc: "/collections", priority: "0.8", changefreq: "weekly", lastmod: now },
-    { loc: "/contact", priority: "0.5", changefreq: "monthly", lastmod: now },
+    { loc: "/contact-us", priority: "0.5", changefreq: "monthly", lastmod: now },
     { loc: "/track-order", priority: "0.3", changefreq: "monthly", lastmod: now }
   ];
   const [products, categories] = await Promise.all([

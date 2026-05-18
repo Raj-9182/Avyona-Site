@@ -61,6 +61,11 @@ const pageMeta = [
     subtitle: "View customer records, order history, and business insights."
   },
   {
+    path: "/dashboard/contact-enquiries",
+    title: "Contact Enquiries",
+    subtitle: "Review customer support and business enquiry messages from the website."
+  },
+  {
     path: "/dashboard/settings",
     title: "Settings",
     subtitle: "Manage backend access, uploads, and store-level configuration."

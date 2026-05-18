@@ -33,9 +33,19 @@ const homepageSections = [
     description: "Select brand highlights and logo placements for the homepage."
   },
   {
+    title: "Newsletter",
+    path: "/dashboard/homepage/newsletter",
+    description: "Enable, rename, and position the homepage newsletter signup block."
+  },
+  {
     title: "Reviews",
     path: "/dashboard/reviews",
     description: "Manage customer reviews and testimonials displayed on the homepage."
+  },
+  {
+    title: "Credit Points",
+    path: "/dashboard/homepage/credit-points",
+    description: "Manage the full rewards module with overview, earning rules, customer points, transactions, referrals, expiry, and settings."
   }
 ];
 

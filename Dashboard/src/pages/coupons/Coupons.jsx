@@ -105,6 +105,9 @@ export default function Coupons() {
   const [isLoading, setIsLoading] = React.useState(true);
   const [isSaving, setIsSaving] = React.useState(false);
   const [editingCouponId, setEditingCouponId] = React.useState(null);
+  const [currentPage, setCurrentPage] = React.useState(1);
+  const [rowsPerPage, setRowsPerPage] = React.useState(50);
+  const [selectedCouponIds, setSelectedCouponIds] = React.useState([]);
   const canCreateCoupons = canAccess("coupons", "create");
   const canEditCoupons = canAccess("coupons", "edit");
   const canDeleteCoupons = canAccess("coupons", "delete");
@@ -153,6 +156,19 @@ export default function Coupons() {
     const matchesStatus = statusFilter === "all" || coupon.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+    setSelectedCouponIds([]);
+  }, [searchTerm, statusFilter, rowsPerPage]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredCoupons.length / rowsPerPage));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const pageStart = filteredCoupons.length ? (safeCurrentPage - 1) * rowsPerPage : 0;
+  const paginatedCoupons = filteredCoupons.slice(pageStart, pageStart + rowsPerPage);
+  const pageEnd = filteredCoupons.length ? pageStart + paginatedCoupons.length : 0;
+  const visibleCouponIds = React.useMemo(() => paginatedCoupons.map((coupon) => String(coupon.id)), [paginatedCoupons]);
+  const isCurrentPageSelected = visibleCouponIds.length > 0 && visibleCouponIds.every((id) => selectedCouponIds.includes(id));
 
   const toggleCouponStatus = async (couponId) => {
     const currentCoupon = coupons.find((coupon) => Number(coupon.id) === Number(couponId));
@@ -217,10 +233,51 @@ export default function Coupons() {
     try {
       await deleteCoupon(couponId);
       setSourceMessage("Coupon deleted.");
+      setSelectedCouponIds((current) => current.filter((id) => String(id) !== String(couponId)));
       if (Number(editingCouponId) === Number(couponId)) resetForm();
     } catch (error) {
       setSourceMessage(error.response?.data?.message || "Unable to delete coupon.");
       loadCoupons();
+    }
+  };
+
+  const toggleSelectedCoupon = (couponId) => {
+    const id = String(couponId);
+    setSelectedCouponIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  };
+
+  const toggleCurrentPageSelection = () => {
+    setSelectedCouponIds((current) => {
+      if (isCurrentPageSelected) return current.filter((id) => !visibleCouponIds.includes(id));
+      return Array.from(new Set([...current, ...visibleCouponIds]));
+    });
+  };
+
+  const handleBulkCouponStatus = async (status) => {
+    if (!selectedCouponIds.length) return;
+    try {
+      await Promise.all(selectedCouponIds.map((couponId) => updateCouponStatus(couponId, status)));
+      setSourceMessage(`${selectedCouponIds.length} coupon(s) updated.`);
+      setSelectedCouponIds([]);
+      await loadCoupons();
+    } catch (error) {
+      setSourceMessage(error.response?.data?.message || "Selected coupons could not be updated.");
+      await loadCoupons();
+    }
+  };
+
+  const handleBulkCouponDelete = async () => {
+    if (!selectedCouponIds.length) return;
+    const confirmed = window.confirm(`Delete ${selectedCouponIds.length} selected coupon(s)?`);
+    if (!confirmed) return;
+    try {
+      await Promise.all(selectedCouponIds.map((couponId) => deleteCoupon(couponId)));
+      setSourceMessage("Selected coupons deleted.");
+      setSelectedCouponIds([]);
+      await loadCoupons();
+    } catch (error) {
+      setSourceMessage(error.response?.data?.message || "Selected coupons could not be deleted.");
+      await loadCoupons();
     }
   };
 
@@ -291,6 +348,7 @@ export default function Coupons() {
         <div style={headerPillsStyle}>
           <span style={summaryPillStyle}>{`Total: ${coupons.length}`}</span>
           <span style={summaryPillStyle}>{`Active: ${coupons.filter((coupon) => coupon.status === "active").length}`}</span>
+          <span style={summaryPillStyle}>{`Selected: ${selectedCouponIds.length}`}</span>
           {canCreateCoupons ? (
             <button
               type="button"
@@ -441,19 +499,44 @@ export default function Coupons() {
           <option value="paused">Paused</option>
           <option value="expired">Expired</option>
         </select>
+        <select value={rowsPerPage} onChange={(event) => setRowsPerPage(Number(event.target.value))} style={inputStyle}>
+          {[10, 20, 50, 100].map((count) => <option key={count} value={count}>{`${count} / page`}</option>)}
+        </select>
+        <label style={selectAllStyle}>
+          <input type="checkbox" checked={isCurrentPageSelected} onChange={toggleCurrentPageSelection} />
+          <span>Select page</span>
+        </label>
       </section>
+
+      {selectedCouponIds.length ? (
+        <section style={bulkPanelStyle}>
+          <strong>{`${selectedCouponIds.length} coupon(s) selected`}</strong>
+          {canEditCoupons ? (
+            <>
+              <button type="button" style={activateButtonStyle} onClick={() => handleBulkCouponStatus("active")}>Activate</button>
+              <button type="button" style={pauseButtonStyle} onClick={() => handleBulkCouponStatus("paused")}>Pause</button>
+            </>
+          ) : null}
+          {canDeleteCoupons ? <button type="button" style={deleteButtonStyle} onClick={handleBulkCouponDelete}>Delete Selected</button> : null}
+          <button type="button" style={secondaryButtonStyle} onClick={() => setSelectedCouponIds([])}>Clear</button>
+        </section>
+      ) : null}
 
       <section style={gridStyle}>
         {isLoading ? (
           <div style={{ ...cardStyle, gridColumn: "1 / -1", color: "#475569", fontWeight: 800 }}>Loading coupons...</div>
         ) : null}
-        {filteredCoupons.map((coupon) => {
+        {paginatedCoupons.map((coupon) => {
           const usagePercent = coupon.usageLimit ? Math.round((Number(coupon.usedCount || 0) / Number(coupon.usageLimit || 1)) * 100) : 0;
           const categorySummary = getCategorySummary(coupon.eligibleCategories);
           const conditions = getConditionSummary(coupon);
 
           return (
             <article key={coupon.id} style={cardStyle}>
+              <label style={cardSelectStyle}>
+                <input type="checkbox" checked={selectedCouponIds.includes(String(coupon.id))} onChange={() => toggleSelectedCoupon(coupon.id)} />
+                <span>Select</span>
+              </label>
               <div style={cardHeadStyle}>
                 <div>
                   <span style={codeStyle}>{coupon.code}</span>
@@ -510,9 +593,18 @@ export default function Coupons() {
             </article>
           );
         })}
-        {!isLoading && !filteredCoupons.length ? (
+        {!isLoading && !paginatedCoupons.length ? (
           <div style={{ ...cardStyle, gridColumn: "1 / -1", color: "#64748b" }}>No coupons found for the current filters.</div>
         ) : null}
+      </section>
+
+      <section style={paginationBarStyle}>
+        <strong>{`Page ${safeCurrentPage} of ${totalPages}`}</strong>
+        <span style={mutedTextStyle}>{filteredCoupons.length ? `Showing ${pageStart + 1}-${pageEnd} of ${filteredCoupons.length}.` : "No coupons available."}</span>
+        <div style={actionRowStyle}>
+          <button type="button" style={secondaryButtonStyle} disabled={safeCurrentPage === 1} onClick={() => setCurrentPage((current) => Math.max(1, current - 1))}>Previous</button>
+          <button type="button" style={secondaryButtonStyle} disabled={safeCurrentPage === totalPages} onClick={() => setCurrentPage((current) => Math.min(totalPages, current + 1))}>Next</button>
+        </div>
       </section>
     </div>
   );
@@ -549,7 +641,7 @@ const summaryPillStyle = {
 };
 const toolbarStyle = {
   display: "grid",
-  gridTemplateColumns: "minmax(260px, 1fr) minmax(180px, 220px)",
+  gridTemplateColumns: "minmax(260px, 1fr) minmax(180px, 220px) minmax(140px, 170px) 150px",
   gap: "14px",
   padding: "14px",
   borderRadius: "16px",
@@ -557,6 +649,8 @@ const toolbarStyle = {
   background: "rgba(255, 255, 255, 0.86)",
   boxShadow: "0 10px 24px rgba(15, 23, 42, 0.04)"
 };
+const bulkPanelStyle = { display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", padding: "14px", borderRadius: "16px", border: "1px solid rgba(203, 213, 225, 0.7)", background: "#ffffff" };
+const selectAllStyle = { minHeight: "44px", display: "inline-flex", alignItems: "center", gap: "8px", padding: "0 12px", borderRadius: "10px", border: "1px solid #cbd5e1", background: "#fff", color: "#334155", fontWeight: 800 };
 const inputStyle = {
   width: "100%",
   minHeight: "44px",
@@ -581,6 +675,7 @@ const cardStyle = {
   boxShadow: "0 12px 26px rgba(15, 23, 42, 0.06)"
 };
 const formCardStyle = { ...cardStyle, padding: "22px" };
+const cardSelectStyle = { display: "inline-flex", alignItems: "center", gap: "8px", color: "#475569", fontWeight: 800, fontSize: "12px" };
 const cardHeadStyle = { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px" };
 const codeStyle = { color: "#0f766e", fontSize: "12px", fontWeight: 900, letterSpacing: "0.08em" };
 const cardTitleStyle = { margin: "6px 0 0", color: "#0f172a", overflowWrap: "anywhere", fontSize: "21px", lineHeight: 1.18 };
@@ -640,7 +735,7 @@ const usageBlockStyle = { display: "grid", gap: "8px" };
 const usageHeadStyle = { display: "flex", justifyContent: "space-between", color: "#475569", fontWeight: 700 };
 const progressTrackStyle = { height: "8px", borderRadius: "999px", background: "#e2e8f0", overflow: "hidden" };
 const progressFillStyle = { height: "100%", borderRadius: "999px", background: "#16a34a" };
-const actionRowStyle = { display: "flex", justifyContent: "flex-end", gap: "8px", flexWrap: "nowrap", paddingTop: "2px" };
+const actionRowStyle = { display: "flex", justifyContent: "flex-end", gap: "8px", flexWrap: "wrap", paddingTop: "2px" };
 const primaryButtonStyle = { minHeight: "40px", padding: "0 16px", borderRadius: "10px", border: "1px solid #16a34a", background: "#16a34a", color: "#fff", fontWeight: 800, cursor: "pointer" };
 const secondaryButtonStyle = { minHeight: "36px", padding: "0 13px", borderRadius: "9px", border: "1px solid #cbd5e1", background: "#fff", color: "#334155", fontWeight: 800, cursor: "pointer" };
 const activateButtonStyle = { ...secondaryButtonStyle, background: "#16a34a", color: "#fff", borderColor: "#16a34a" };
@@ -656,3 +751,4 @@ const toggleStyle = { display: "flex", alignItems: "center", gap: "10px", minHei
 const previewBoxStyle = { padding: "14px", borderRadius: "14px", background: "#f0fdf4", border: "1px solid #bbf7d0", color: "#166534" };
 const errorBoxStyle = { padding: "12px 14px", borderRadius: "12px", background: "#fff1f2", border: "1px solid #fecaca", color: "#b91c1c", fontWeight: 700 };
 const formActionsStyle = { display: "flex", justifyContent: "flex-end", gap: "10px", flexWrap: "nowrap" };
+const paginationBarStyle = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", padding: "14px", borderRadius: "16px", border: "1px solid rgba(203, 213, 225, 0.7)", background: "#ffffff" };

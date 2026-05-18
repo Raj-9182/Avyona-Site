@@ -1,5 +1,5 @@
 import React from "react";
-import { fetchAdminSettings, updateAdminSettings } from "../../api/adminApi";
+import { fetchAdminSettings, fetchGeneralSettings, updateAdminSettings, updateGeneralSettings, uploadSettingsAsset } from "../../api/adminApi";
 import {
   cloneSettings,
   DEFAULT_APP_SETTINGS,
@@ -75,6 +75,287 @@ function renderFieldControl(field, value, onChange) {
   );
 }
 
+const API_MEDIA_ORIGIN = (import.meta.env?.VITE_API_BASE_URL || "http://localhost:4000/api/v1")
+  .replace(/\/api\/v\d+\/?$/i, "")
+  .replace(/\/$/, "");
+const allowedBrandAssetExtensions = new Set(["png", "jpg", "jpeg", "webp", "svg"]);
+const logoMaxSizeBytes = 2 * 1024 * 1024;
+const faviconMaxSizeBytes = 1 * 1024 * 1024;
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const phonePattern = /^[+]?[\d\s().-]{7,20}$/;
+const gstPattern = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/i;
+
+function getMediaPreviewUrl(value) {
+  const url = String(value || "").trim();
+  if (!url) return "";
+  if (/^(data|blob|https?):/i.test(url)) return url;
+  if (url.startsWith("/uploads/")) return `${API_MEDIA_ORIGIN}${url}`;
+  return url.startsWith("/") ? url : `/${url}`;
+}
+
+function getStoredMediaUrl(value) {
+  const url = String(value || "").trim();
+  if (!url) return "";
+  if (url.startsWith("/uploads/")) return `${API_MEDIA_ORIGIN}${url}`;
+  return url;
+}
+
+function validateBrandAssetFile(file, maxSizeBytes) {
+  const extension = String(file?.name || "").split(".").pop()?.toLowerCase() || "";
+  if (!allowedBrandAssetExtensions.has(extension)) {
+    return "Upload a PNG, JPG, JPEG, WebP, or SVG image.";
+  }
+  if (file.size > maxSizeBytes) {
+    return `Image is too large. Maximum size is ${Math.round(maxSizeBytes / 1024 / 1024)} MB.`;
+  }
+  return "";
+}
+
+function validateGeneralSettings(general = {}) {
+  if (!String(general.storeName || "").trim()) return "Store Name is required.";
+  if (!emailPattern.test(String(general.supportEmail || "").trim())) return "Support Email must be a valid email address.";
+  const phone = String(general.supportPhone || "").trim();
+  if (phone && !phonePattern.test(phone)) return "Support Phone must be a valid phone number.";
+  const gstNumber = String(general.gstNumber || "").trim();
+  if (gstNumber && !gstPattern.test(gstNumber)) return "GST Number format is invalid.";
+  if (String(general.businessAddress || "").length > 500) return "Business Address must be 500 characters or less.";
+  if (String(general.workingHours || "").length > 200) return "Working Hours must be 200 characters or less.";
+  if (String(general.brandTagline || "").length > 160) return "Brand Tagline must be 160 characters or less.";
+  return "";
+}
+
+function GeneralSettingsPanel({ settings, isSaving, isLoading, uploadStates, onFieldChange, onSave, onUpload, onClearUploadError }) {
+  const general = settings.general || {};
+
+  return (
+    <>
+      <section style={heroCardStyle}>
+        <span style={eyebrowStyle}>General Settings</span>
+        <h3 style={{ margin: 0, fontSize: "32px", color: "#0f172a" }}>Store Identity</h3>
+        <p style={{ margin: 0, color: "#526377", maxWidth: "760px" }}>
+          Manage the identity that appears across the storefront, checkout, footer, and future invoices or emails.
+        </p>
+      </section>
+
+      <section style={sectionActionBarStyle}>
+        <div style={{ display: "grid", gap: "4px" }}>
+          <span style={eyebrowStyle}>Active Tab</span>
+          <strong style={{ color: "#0f172a", fontSize: "18px" }}>General</strong>
+        </div>
+        <button type="button" onClick={onSave} disabled={isSaving || isLoading} style={saveButtonStyle}>
+          {isSaving ? "Saving General..." : "Save General"}
+        </button>
+      </section>
+
+      <div style={contentGridStyle}>
+        <article style={panelStyle}>
+          <div>
+            <h4 style={{ margin: 0, color: "#0f172a", fontSize: "20px" }}>Brand Assets</h4>
+          </div>
+          <div style={{ display: "grid", gap: "14px" }}>
+            <label style={settingRowStyle}>
+              <span style={settingLabelStyle}>Store Name</span>
+              <input value={general.storeName || ""} onChange={(event) => onFieldChange("general.storeName", event.target.value)} style={inputStyle} />
+            </label>
+            <ImageUploadSetting
+              label="Store Logo"
+              value={general.logoUrl || ""}
+              onChange={(value) => onFieldChange("general.logoUrl", value)}
+              onUpload={(file) => onUpload("general.logoUrl", file)}
+              onRemove={() => onFieldChange("general.logoUrl", "")}
+              uploadState={uploadStates["general.logoUrl"]}
+              onClearError={() => onClearUploadError("general.logoUrl")}
+              maxSizeBytes={logoMaxSizeBytes}
+              helper="PNG, JPG, JPEG, WebP, or SVG. Max 2 MB."
+            />
+            <ImageUploadSetting
+              label="Favicon"
+              value={general.faviconUrl || ""}
+              onChange={(value) => onFieldChange("general.faviconUrl", value)}
+              onUpload={(file) => onUpload("general.faviconUrl", file)}
+              onRemove={() => onFieldChange("general.faviconUrl", "")}
+              uploadState={uploadStates["general.faviconUrl"]}
+              onClearError={() => onClearUploadError("general.faviconUrl")}
+              maxSizeBytes={faviconMaxSizeBytes}
+              helper="PNG, JPG, JPEG, WebP, or SVG. Max 1 MB."
+              compact
+            />
+            <label style={settingRowStyle}>
+              <span style={settingLabelStyle}>Brand Tagline</span>
+              <input value={general.brandTagline || ""} onChange={(event) => onFieldChange("general.brandTagline", event.target.value)} style={inputStyle} />
+            </label>
+          </div>
+        </article>
+
+        <article style={panelStyle}>
+          <div>
+            <h4 style={{ margin: 0, color: "#0f172a", fontSize: "20px" }}>Support & Business Details</h4>
+          </div>
+          <div style={{ display: "grid", gap: "14px" }}>
+            <label style={settingRowStyle}>
+              <span style={settingLabelStyle}>Business / Legal Name</span>
+              <input value={general.businessLegalName || ""} onChange={(event) => onFieldChange("general.businessLegalName", event.target.value)} style={inputStyle} />
+            </label>
+            <label style={settingRowStyle}>
+              <span style={settingLabelStyle}>Support Email</span>
+              <input type="email" value={general.supportEmail || ""} onChange={(event) => onFieldChange("general.supportEmail", event.target.value)} style={inputStyle} />
+            </label>
+            <label style={settingRowStyle}>
+              <span style={settingLabelStyle}>Support Phone</span>
+              <input value={general.supportPhone || ""} onChange={(event) => onFieldChange("general.supportPhone", event.target.value)} style={inputStyle} />
+            </label>
+            <label style={settingRowStyle}>
+              <span style={settingLabelStyle}>Business Address</span>
+              <textarea value={general.businessAddress || ""} onChange={(event) => onFieldChange("general.businessAddress", event.target.value)} rows={3} style={textareaStyle} />
+            </label>
+            <label style={settingRowStyle}>
+              <span style={settingLabelStyle}>GST Number</span>
+              <input value={general.gstNumber || ""} onChange={(event) => onFieldChange("general.gstNumber", event.target.value)} style={inputStyle} />
+            </label>
+            <label style={settingRowStyle}>
+              <span style={settingLabelStyle}>Working Hours</span>
+              <textarea value={general.workingHours || ""} onChange={(event) => onFieldChange("general.workingHours", event.target.value)} rows={3} style={textareaStyle} />
+            </label>
+          </div>
+        </article>
+      </div>
+
+      <GeneralSettingsPreview general={general} />
+    </>
+  );
+}
+
+function GeneralSettingsPreview({ general = {} }) {
+  const logoPreviewUrl = getMediaPreviewUrl(general.logoUrl);
+  const faviconPreviewUrl = getMediaPreviewUrl(general.faviconUrl);
+  const details = [
+    ["Store Name", general.storeName],
+    ["Brand Tagline", general.brandTagline],
+    ["Business / Legal Name", general.businessLegalName],
+    ["Support Email", general.supportEmail],
+    ["Support Phone", general.supportPhone],
+    ["Business Address", general.businessAddress],
+    ["GST Number", general.gstNumber],
+    ["Working Hours", general.workingHours],
+    ["Store Logo URL", general.logoUrl],
+    ["Favicon URL", general.faviconUrl]
+  ];
+
+  return (
+    <section style={savedDetailsPanelStyle}>
+      <div style={{ display: "grid", gap: "6px" }}>
+        <span style={eyebrowStyle}>Visible Details</span>
+        <h4 style={{ margin: 0, color: "#0f172a", fontSize: "20px" }}>Current General Details</h4>
+      </div>
+
+      <div style={brandPreviewGridStyle}>
+        <div style={brandPreviewTileStyle}>
+          <span style={settingLabelStyle}>Store Logo</span>
+          {logoPreviewUrl ? (
+            <img src={logoPreviewUrl} alt="Current store logo" style={logoPreviewStyle} />
+          ) : (
+            <strong style={emptyValueStyle}>Not uploaded</strong>
+          )}
+        </div>
+        <div style={brandPreviewTileStyle}>
+          <span style={settingLabelStyle}>Favicon</span>
+          {faviconPreviewUrl ? (
+            <img src={faviconPreviewUrl} alt="Current favicon" style={faviconPreviewStyle} />
+          ) : (
+            <strong style={emptyValueStyle}>Not uploaded</strong>
+          )}
+        </div>
+      </div>
+
+      <div style={detailsGridStyle}>
+        {details.map(([label, value]) => (
+          <div key={label} style={detailItemStyle}>
+            <span style={settingLabelStyle}>{label}</span>
+            <strong style={detailValueStyle}>{String(value || "Not set")}</strong>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ImageUploadSetting({ label, value, onChange, onUpload, onRemove, uploadState, onClearError, maxSizeBytes, helper, compact = false }) {
+  const inputRef = React.useRef(null);
+  const [isDragging, setIsDragging] = React.useState(false);
+  const previewUrl = getMediaPreviewUrl(value);
+  const isUploading = uploadState?.status === "uploading";
+  const error = uploadState?.error || "";
+  const hasSuccess = Boolean(value) && !error && !isUploading;
+
+  const handleFiles = (files) => {
+    const file = files?.[0];
+    if (!file) return;
+    const validationMessage = validateBrandAssetFile(file, maxSizeBytes);
+    if (validationMessage) {
+      onClearError(validationMessage);
+      return;
+    }
+    onClearError("");
+    onUpload(file);
+  };
+
+  return (
+    <div style={settingRowStyle}>
+      <span style={settingLabelStyle}>{label}</span>
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        onDragEnter={(event) => {
+          event.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragOver={(event) => {
+          event.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={(event) => {
+          event.preventDefault();
+          setIsDragging(false);
+          handleFiles(event.dataTransfer.files);
+        }}
+        style={{
+          ...uploadBoxStyle,
+          ...(compact ? compactUploadBoxStyle : null),
+          ...(isDragging ? uploadBoxActiveStyle : null)
+        }}
+      >
+        {isUploading ? (
+          <span style={uploadCopyStyle}>
+            <strong>Uploading...</strong>
+            <small>Please wait</small>
+          </span>
+        ) : previewUrl ? <img src={previewUrl} alt={label} style={compact ? faviconPreviewStyle : logoPreviewStyle} /> : (
+          <span style={uploadCopyStyle}>
+            <strong>Drag & drop image here</strong>
+            <small>or click to upload</small>
+          </span>
+        )}
+      </button>
+      <input ref={inputRef} type="file" accept="image/*" onChange={(event) => handleFiles(event.target.files)} style={{ display: "none" }} />
+      <div style={assetActionRowStyle}>
+        <button type="button" onClick={() => inputRef.current?.click()} disabled={isUploading} style={assetButtonStyle}>
+          {value ? "Replace Image" : "Upload Image"}
+        </button>
+        {value ? (
+          <button type="button" onClick={onRemove} disabled={isUploading} style={assetDangerButtonStyle}>
+            Remove Image
+          </button>
+        ) : null}
+      </div>
+      <input value={value || ""} onChange={(event) => onChange(event.target.value)} style={inputStyle} />
+      {hasSuccess ? <small style={fieldSuccessStyle}>Image uploaded successfully.</small> : null}
+      {helper ? <small style={settingValueStyle}>{helper}</small> : null}
+      {error ? <small style={fieldErrorStyle}>{error}</small> : null}
+    </div>
+  );
+}
+
 export default function Settings() {
   const [activeSection, setActiveSection] = React.useState(SETTINGS_SECTIONS[0].id);
   const [settings, setSettings] = React.useState(() => cloneSettings(DEFAULT_APP_SETTINGS));
@@ -82,6 +363,7 @@ export default function Settings() {
   const [isSaving, setIsSaving] = React.useState(false);
   const [statusMessage, setStatusMessage] = React.useState("");
   const [usingFallback, setUsingFallback] = React.useState(false);
+  const [uploadStates, setUploadStates] = React.useState({});
 
   const currentSection = React.useMemo(
     () => SETTINGS_NAV_SECTIONS.find((section) => section.id === activeSection) || SETTINGS_SECTIONS[0],
@@ -103,11 +385,21 @@ export default function Settings() {
       setIsLoading(true);
 
       try {
-        const response = await fetchAdminSettings();
+        const [settingsResult, generalResult] = await Promise.allSettled([
+          fetchAdminSettings(),
+          fetchGeneralSettings()
+        ]);
         if (!isMounted) return;
-        setSettings(mergeSettings(DEFAULT_APP_SETTINGS, response.data?.data || {}));
-        setUsingFallback(false);
-        setStatusMessage("Settings loaded from backend.");
+        const settingsData = settingsResult.status === "fulfilled" ? settingsResult.value.data?.data || {} : {};
+        const generalData = generalResult.status === "fulfilled" ? generalResult.value.data?.data || {} : {};
+        const mergedSettings = mergeSettings(DEFAULT_APP_SETTINGS, settingsData);
+        setSettings(mergeSettings(mergedSettings, { general: generalData }));
+        setUsingFallback(settingsResult.status === "rejected" || generalResult.status === "rejected");
+        setStatusMessage(
+          settingsResult.status === "fulfilled" && generalResult.status === "fulfilled"
+            ? "Settings loaded from backend."
+            : "General settings loaded. Sign in as admin to load and save all settings."
+        );
       } catch (error) {
         if (!isMounted) return;
         setSettings(cloneSettings(DEFAULT_APP_SETTINGS));
@@ -131,17 +423,68 @@ export default function Settings() {
     setSettings((current) => setSettingValue(current, fieldKey, nextValue));
   };
 
+  const setUploadState = (fieldKey, nextState) => {
+    setUploadStates((current) => ({
+      ...current,
+      [fieldKey]: {
+        ...(current[fieldKey] || {}),
+        ...nextState
+      }
+    }));
+  };
+
+  const handleGeneralUpload = async (fieldKey, file) => {
+    setStatusMessage("");
+    const validationMessage = validateBrandAssetFile(file, fieldKey.endsWith("faviconUrl") ? faviconMaxSizeBytes : logoMaxSizeBytes);
+    if (validationMessage) {
+      setUploadState(fieldKey, { status: "error", error: validationMessage });
+      setUsingFallback(true);
+      setStatusMessage(validationMessage);
+      return;
+    }
+
+    try {
+      setUploadState(fieldKey, { status: "uploading", error: "" });
+      const response = await uploadSettingsAsset(file, fieldKey.endsWith("faviconUrl") ? "favicon" : "logo");
+      const uploadedUrl = getStoredMediaUrl(response.data?.data?.url || "");
+      setSettings((current) => setSettingValue(current, fieldKey, uploadedUrl));
+      setUploadState(fieldKey, { status: "success", error: "" });
+      setUsingFallback(false);
+      setStatusMessage(`${fieldKey.endsWith("faviconUrl") ? "Favicon" : "Store logo"} uploaded. Save General to publish it.`);
+    } catch (error) {
+      setUploadState(fieldKey, { status: "error", error: error.response?.data?.message || "Upload failed." });
+      setUsingFallback(true);
+      setStatusMessage(error.response?.data?.message || "Image upload failed. Check login and upload permissions.");
+    }
+  };
+
   const handleSave = async () => {
+    if (activeSection === "general") {
+      const validationMessage = validateGeneralSettings(settings.general || {});
+      if (validationMessage) {
+        setUsingFallback(true);
+        setStatusMessage(validationMessage);
+        return;
+      }
+    }
+
     setIsSaving(true);
 
     try {
-      const response = await updateAdminSettings({ settings });
-      setSettings(mergeSettings(DEFAULT_APP_SETTINGS, response.data?.data || settings));
+      const response = activeSection === "general"
+        ? await updateGeneralSettings(settings.general || {})
+        : await updateAdminSettings({ settings });
+      setSettings((current) => {
+        if (activeSection === "general") {
+          return mergeSettings(current, { general: response.data?.data || current.general || {} });
+        }
+        return mergeSettings(DEFAULT_APP_SETTINGS, response.data?.data || settings);
+      });
       setUsingFallback(false);
-      setStatusMessage("Settings saved to backend successfully.");
+      setStatusMessage(activeSection === "general" ? "General settings saved successfully." : "Settings saved to backend successfully.");
     } catch (error) {
       setUsingFallback(true);
-      setStatusMessage("Settings updated locally for preview. Sign in as admin to persist them to backend.");
+      setStatusMessage(error.response?.data?.message || "Settings updated locally for preview. Sign in as admin to persist them to backend.");
     } finally {
       setIsSaving(false);
     }
@@ -211,6 +554,19 @@ export default function Settings() {
                 </section>
               ) : null}
 
+              {activeSection === "general" ? (
+                <GeneralSettingsPanel
+                  settings={settings}
+                  isSaving={isSaving}
+                  isLoading={isLoading}
+                  uploadStates={uploadStates}
+                  onFieldChange={handleFieldChange}
+                  onSave={handleSave}
+                  onUpload={handleGeneralUpload}
+                  onClearUploadError={(fieldKey, error = "") => setUploadState(fieldKey, { status: error ? "error" : "", error })}
+                />
+              ) : (
+                <>
               <section style={impactCardStyle}>
                 <div style={{ display: "grid", gap: "8px" }}>
                   <span style={eyebrowStyle}>{currentSection.impact.eyebrow}</span>
@@ -250,6 +606,8 @@ export default function Settings() {
                   </article>
                 ))}
               </div>
+                </>
+              )}
             </>
           )}
         </div>
@@ -456,6 +814,134 @@ const settingLabelStyle = {
 
 const settingValueStyle = {
   color: "#0f172a",
+  fontSize: "13px"
+};
+
+const uploadBoxStyle = {
+  width: "100%",
+  minHeight: "132px",
+  border: "1px dashed #94a3b8",
+  borderRadius: "14px",
+  background: "#ffffff",
+  display: "grid",
+  placeItems: "center",
+  padding: "14px",
+  cursor: "pointer"
+};
+
+const compactUploadBoxStyle = {
+  minHeight: "96px"
+};
+
+const uploadBoxActiveStyle = {
+  borderColor: "#0f766e",
+  background: "#f0fdfa"
+};
+
+const uploadCopyStyle = {
+  display: "grid",
+  gap: "4px",
+  textAlign: "center",
+  color: "#475569"
+};
+
+const logoPreviewStyle = {
+  maxWidth: "220px",
+  maxHeight: "82px",
+  objectFit: "contain"
+};
+
+const faviconPreviewStyle = {
+  width: "48px",
+  height: "48px",
+  objectFit: "contain"
+};
+
+const assetActionRowStyle = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "10px"
+};
+
+const assetButtonStyle = {
+  minHeight: "34px",
+  padding: "0 12px",
+  borderRadius: "999px",
+  border: "1px solid #cbd5e1",
+  background: "#ffffff",
+  color: "#0f172a",
+  fontWeight: 700,
+  cursor: "pointer"
+};
+
+const assetDangerButtonStyle = {
+  ...assetButtonStyle,
+  borderColor: "#fecaca",
+  color: "#991b1b",
+  background: "#fff7f7"
+};
+
+const fieldErrorStyle = {
+  color: "#b91c1c",
+  fontSize: "13px",
+  fontWeight: 700
+};
+
+const fieldSuccessStyle = {
+  color: "#047857",
+  fontSize: "13px",
+  fontWeight: 700
+};
+
+const savedDetailsPanelStyle = {
+  ...panelStyle,
+  gap: "18px"
+};
+
+const brandPreviewGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: "14px"
+};
+
+const brandPreviewTileStyle = {
+  minHeight: "118px",
+  borderRadius: "14px",
+  border: "1px solid #e5edf5",
+  background: "#f8fafc",
+  display: "grid",
+  alignContent: "center",
+  justifyItems: "center",
+  gap: "10px",
+  padding: "14px"
+};
+
+const detailsGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: "12px"
+};
+
+const detailItemStyle = {
+  display: "grid",
+  gap: "6px",
+  padding: "12px",
+  borderRadius: "12px",
+  border: "1px solid #e5edf5",
+  background: "#ffffff",
+  minWidth: 0
+};
+
+const detailValueStyle = {
+  color: "#0f172a",
+  fontSize: "14px",
+  lineHeight: 1.45,
+  overflowWrap: "anywhere",
+  whiteSpace: "pre-wrap"
+};
+
+const emptyValueStyle = {
+  color: "#94a3b8",
   fontSize: "13px"
 };
 

@@ -101,7 +101,7 @@ function ImageUploadBox({ label, value, helper, isUploading, onUpload, onChange 
         type="text"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        placeholder="/images/optimized/category.webp"
+        placeholder=""
         style={inputStyle}
       />
       <small style={helperTextStyle}>{helper}</small>
@@ -533,4 +533,3 @@ const eyebrowStyle = {
   letterSpacing: "0.08em",
   textTransform: "uppercase"
 };
-

@@ -12,8 +12,10 @@ const rolePermissionMap = {
     variations: ["view", "create", "edit", "delete", "export"],
     orders: ["view", "create", "edit", "export"],
     customers: ["view", "edit", "export"],
+    contact_enquiries: ["view", "edit", "export"],
     coupons: ["view", "create", "edit", "delete", "export"],
     homepage: ["view", "create", "edit", "delete"],
+    credit_points: ["view", "create", "edit", "delete"],
     reviews: ["view", "create", "edit", "delete", "export"],
     settings: ["view", "edit"]
   },
@@ -28,18 +30,21 @@ const rolePermissionMap = {
   order_manager: {
     dashboard: ["view"],
     orders: ["view", "create", "edit", "export"],
-    customers: ["view", "edit"]
+    customers: ["view", "edit"],
+    contact_enquiries: ["view", "edit"]
   },
   marketing_manager: {
     dashboard: ["view"],
     coupons: ["view", "create", "edit", "delete", "export"],
     homepage: ["view", "create", "edit", "delete"],
+    credit_points: ["view", "create", "edit", "delete"],
     reviews: ["view", "create", "edit", "delete", "export"]
   },
   support_staff: {
     dashboard: ["view"],
     orders: ["view", "edit"],
-    customers: ["view", "edit"]
+    customers: ["view", "edit"],
+    contact_enquiries: ["view", "edit"]
   },
   viewer: {
     dashboard: ["view"],
@@ -49,8 +54,10 @@ const rolePermissionMap = {
     variations: ["view"],
     orders: ["view"],
     customers: ["view"],
+    contact_enquiries: ["view"],
     coupons: ["view"],
     homepage: ["view"],
+    credit_points: ["view"],
     reviews: ["view"],
     settings: ["view"]
   },

@@ -195,6 +195,58 @@ async function getUploadedImageAssets(references, metadata) {
   }).filter((asset) => !asset.isDeleted);
 }
 
+async function getProductImageLinks() {
+  const linksByUrl = new Map();
+
+  function addLink(url, product) {
+    const normalizedUrl = normalizeAssetUrl(url);
+    if (!normalizedUrl) return;
+    const links = linksByUrl.get(normalizedUrl) || [];
+    links.push({
+      productId: product.productId || product.id || "",
+      productName: product.productName || product.name || "",
+      asin: product.asin || "",
+      sku: product.sku || "",
+      source: product.source || "product"
+    });
+    linksByUrl.set(normalizedUrl, links);
+  }
+
+  try {
+    const productRows = await query(
+      `SELECT id AS productId, name AS productName, asin, sku, image_url AS url
+       FROM products
+       WHERE is_deleted = 0 AND image_url IS NOT NULL AND image_url <> ''`
+    );
+    productRows.forEach((row) => addLink(row.url, { ...row, source: "primary_image" }));
+  } catch (error) {
+    if (!isDatabaseUnavailable(error)) throw error;
+  }
+
+  try {
+    const mediaRows = await query(
+      `SELECT
+        p.id AS productId,
+        p.name AS productName,
+        p.asin,
+        p.sku,
+        pm.url,
+        CASE WHEN pm.is_primary = 1 THEN 'product_media_primary' ELSE 'product_media_gallery' END AS source
+       FROM product_media pm
+       JOIN products p ON p.id = pm.product_id
+       WHERE p.is_deleted = 0
+         AND pm.media_type = 'image'
+         AND pm.url IS NOT NULL
+         AND pm.url <> ''`
+    );
+    mediaRows.forEach((row) => addLink(row.url, row));
+  } catch (error) {
+    if (!isDatabaseUnavailable(error)) throw error;
+  }
+
+  return linksByUrl;
+}
+
 async function trackUploadedAsset(request, assetType) {
   try {
     await query(
@@ -219,14 +271,21 @@ async function trackUploadedAsset(request, assetType) {
 export async function listImageAssets(_request, response) {
   const metadata = await readImageMetadata();
   const references = await getImageReferences();
-  const [uploadedAssets, staticAssets] = await Promise.all([
+  const [uploadedAssets, staticAssets, productLinks] = await Promise.all([
     getUploadedImageAssets(references, metadata),
-    getStaticImageAssets(references, metadata)
+    getStaticImageAssets(references, metadata),
+    getProductImageLinks()
   ]);
   const assetsByUrl = new Map();
 
   [...uploadedAssets, ...staticAssets].forEach((asset) => {
-    assetsByUrl.set(asset.url, asset);
+    const linkedProducts = productLinks.get(asset.url) || [];
+    assetsByUrl.set(asset.url, {
+      ...asset,
+      linkedProducts,
+      linkedAsins: [...new Set(linkedProducts.map((product) => product.asin).filter(Boolean))],
+      linkedSkus: [...new Set(linkedProducts.map((product) => product.sku).filter(Boolean))]
+    });
   });
 
   response.json({

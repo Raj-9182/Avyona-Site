@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
-import { loginCustomer, signupCustomer } from "../api/customerApi";
+import { Link, Navigate, useNavigate } from "react-router-dom";
+import { loginCustomer, requestCustomerPasswordReset, signupCustomer } from "../api/customerApi";
 import { getOptimizedAssetPath } from "../utils/storefront";
 
 export default function AccountPage({ context }) {
@@ -9,7 +9,7 @@ export default function AccountPage({ context }) {
   const [forgotOpen, setForgotOpen] = useState(false);
   const [loginIdentity, setLoginIdentity] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
-  const [signup, setSignup] = useState({ fullName: "", email: "", mobile: "", password: "", confirmPassword: "" });
+  const [signup, setSignup] = useState({ fullName: "", email: "", mobile: "", referralCode: "", password: "", confirmPassword: "" });
   const [forgotIdentity, setForgotIdentity] = useState("");
   const [signupConsent, setSignupConsent] = useState(false);
   const [error, setError] = useState("");
@@ -66,6 +66,7 @@ export default function AccountPage({ context }) {
         fullName: signup.fullName.trim(),
         email: signup.email.trim(),
         mobile: signup.mobile.trim(),
+        referralCode: signup.referralCode.trim(),
         password: signup.password
       });
       const customer = response.data?.customer;
@@ -78,16 +79,21 @@ export default function AccountPage({ context }) {
     }
   };
 
-  const submitForgot = (event) => {
+  const submitForgot = async (event) => {
     event.preventDefault();
     if (!forgotIdentity.trim()) {
       setError("Please enter your email address or mobile number.");
       return;
     }
-    context.notify("Reset link sent");
-    setForgotIdentity("");
-    setForgotOpen(false);
-    setError("");
+    try {
+      const response = await requestCustomerPasswordReset({ identity: forgotIdentity.trim() });
+      context.notify(response.message || "Password reset instructions sent");
+      setForgotIdentity("");
+      setForgotOpen(false);
+      setError("");
+    } catch (error) {
+      setError(error.message || "Unable to request password reset.");
+    }
   };
 
   const signInGoogle = async () => {
@@ -114,13 +120,19 @@ export default function AccountPage({ context }) {
       <section className="account-shell">
         <div className="account-brand-panel">
           <div className="account-brand-top">
-            <img className="account-brand-logo" src={getOptimizedAssetPath("/images/avyona logo.png")} alt="Avyona logo" />
+            <span className="account-brand-logo">Avyona</span>
             <p className="account-brand-caption">Avyona Account</p>
           </div>
           <div className="account-brand-copy"><p className="eyebrow">Welcome</p><h1>Welcome to Avyona</h1><p>Create your Avyona account to enjoy a smooth shopping experience.</p></div>
         </div>
         <div className="account-form-panel">
-          <div className="account-form-header"><img className="account-form-logo" src={getOptimizedAssetPath("/images/avyona logo.png")} alt="Avyona logo" /><p className="account-trust-line">Your information is secure with Avyona.</p></div>
+          <div className="account-form-header">
+            <div>
+              <span className="account-form-logo">Avyona</span>
+              <p className="account-trust-line">Your information is secure with Avyona.</p>
+            </div>
+            <Link className="account-back-link" to="/">Continue Shopping</Link>
+          </div>
           <div className="account-heading-block"><p className="eyebrow">Avyona Account</p><h2>{mode === "login" ? "Welcome Back" : "Create Your Account"}</h2><p>{mode === "login" ? "Login to access your orders, saved details, and wishlist." : "Register your Avyona profile and start shopping with ease."}</p></div>
           <div className="account-tab-switcher" role="tablist">
             <button className={`account-tab ${mode === "login" ? "active" : ""}`} type="button" onClick={() => { setMode("login"); setError(""); }}>Login</button>
@@ -153,6 +165,7 @@ export default function AccountPage({ context }) {
                 <label className="account-field" htmlFor="account-signup-full-name"><span>Full Name</span><input id="account-signup-full-name" name="fullName" autoComplete="name" value={signup.fullName} onChange={(event) => setSignup({ ...signup, fullName: event.target.value })} required /></label>
                 <label className="account-field" htmlFor="account-signup-email"><span>Email Address</span><input id="account-signup-email" name="email" type="email" autoComplete="email" value={signup.email} onChange={(event) => setSignup({ ...signup, email: event.target.value })} required /></label>
                 <label className="account-field" htmlFor="account-signup-mobile"><span>Mobile Number</span><input id="account-signup-mobile" name="mobile" autoComplete="tel" value={signup.mobile} onChange={(event) => setSignup({ ...signup, mobile: event.target.value })} required /></label>
+                <label className="account-field" htmlFor="account-signup-referral"><span>Referral Code</span><input id="account-signup-referral" name="referralCode" autoComplete="off" value={signup.referralCode} onChange={(event) => setSignup({ ...signup, referralCode: event.target.value.toUpperCase() })} placeholder="Optional" /></label>
                 <label className="account-field" htmlFor="account-signup-password"><span>Password</span><input id="account-signup-password" name="password" type="password" autoComplete="new-password" value={signup.password} onChange={(event) => setSignup({ ...signup, password: event.target.value })} required /></label>
                 <label className="account-field" htmlFor="account-signup-confirm-password"><span>Confirm Password</span><input id="account-signup-confirm-password" name="confirmPassword" type="password" autoComplete="new-password" value={signup.confirmPassword} onChange={(event) => setSignup({ ...signup, confirmPassword: event.target.value })} required /></label>
                 <label className="account-checkbox" htmlFor="account-signup-consent">

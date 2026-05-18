@@ -694,6 +694,36 @@ body {
   cursor: not-allowed;
 }
 
+.dashboard-primary-button:disabled,
+.dashboard-icon-action:disabled,
+.dashboard-bulk-action-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.dashboard-bulk-action-select {
+  min-height: 2.5rem;
+  min-width: min(100%, 220px);
+  padding: 0 0.85rem;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+  font-weight: 800;
+}
+
+.dashboard-action-feedback {
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid #bbf7d0;
+  border-radius: 999px;
+  background: #f0fdf4;
+  color: #166534;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
 .dashboard-filter-panel,
 .dashboard-table-card,
 .dashboard-pagination-card {
@@ -770,37 +800,37 @@ body {
 
 .dashboard-products-admin-table th:nth-child(1),
 .dashboard-products-admin-table td:nth-child(1) {
-  width: 23%;
+  width: 3%;
 }
 
 .dashboard-products-admin-table th:nth-child(2),
 .dashboard-products-admin-table td:nth-child(2) {
-  width: 10%;
+  width: 3%;
 }
 
 .dashboard-products-admin-table th:nth-child(3),
 .dashboard-products-admin-table td:nth-child(3) {
-  width: 11%;
+  width: 18%;
 }
 
 .dashboard-products-admin-table th:nth-child(4),
 .dashboard-products-admin-table td:nth-child(4) {
-  width: 11%;
+  width: 9%;
 }
 
 .dashboard-products-admin-table th:nth-child(5),
 .dashboard-products-admin-table td:nth-child(5) {
-  width: 7%;
+  width: 9%;
 }
 
 .dashboard-products-admin-table th:nth-child(6),
 .dashboard-products-admin-table td:nth-child(6) {
-  width: 7%;
+  width: 8%;
 }
 
 .dashboard-products-admin-table th:nth-child(7),
 .dashboard-products-admin-table td:nth-child(7) {
-  width: 9%;
+  width: 7%;
 }
 
 .dashboard-products-admin-table th:nth-child(8),
@@ -810,7 +840,22 @@ body {
 
 .dashboard-products-admin-table th:nth-child(9),
 .dashboard-products-admin-table td:nth-child(9) {
-  width: 15%;
+  width: 12%;
+}
+
+.dashboard-products-admin-table th:nth-child(10),
+.dashboard-products-admin-table td:nth-child(10) {
+  width: 8%;
+}
+
+.dashboard-products-admin-table th:nth-child(11),
+.dashboard-products-admin-table td:nth-child(11) {
+  width: 7%;
+}
+
+.dashboard-products-admin-table th:nth-child(12),
+.dashboard-products-admin-table td:nth-child(12) {
+  width: 9%;
 }
 
 .dashboard-product-cell {
@@ -865,8 +910,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.45rem;
-  flex-wrap: nowrap;
-  white-space: nowrap;
+  flex-wrap: wrap;
 }
 
 .dashboard-icon-action {
@@ -876,44 +920,89 @@ body {
   font-size: clamp(0.72rem, 0.62vw, 0.78rem);
 }
 
+.dashboard-drag-handle {
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid #dbe6ef;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #64748b;
+  cursor: grab;
+}
+
+.dashboard-drag-handle:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.dashboard-row-dragging td {
+  background: #f0fdf4 !important;
+}
+
+.dashboard-sort-input {
+  width: 74px;
+  min-height: 2rem;
+  padding: 0 0.45rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #0f172a;
+  font-weight: 800;
+}
+
 .dashboard-inline-table-card {
   box-shadow: none;
 }
 
 .dashboard-categories-admin-table th:nth-child(1),
 .dashboard-categories-admin-table td:nth-child(1) {
-  width: 7%;
+  width: 3%;
 }
 
 .dashboard-categories-admin-table th:nth-child(2),
 .dashboard-categories-admin-table td:nth-child(2) {
-  width: 20%;
+  width: 3%;
 }
 
 .dashboard-categories-admin-table th:nth-child(3),
 .dashboard-categories-admin-table td:nth-child(3) {
-  width: 14%;
+  width: 8%;
 }
 
 .dashboard-categories-admin-table th:nth-child(4),
 .dashboard-categories-admin-table td:nth-child(4) {
-  width: 17%;
+  width: 19%;
 }
 
 .dashboard-categories-admin-table th:nth-child(5),
-.dashboard-categories-admin-table td:nth-child(5),
+.dashboard-categories-admin-table td:nth-child(5) {
+  width: 13%;
+}
+
 .dashboard-categories-admin-table th:nth-child(6),
-.dashboard-categories-admin-table td:nth-child(6),
+.dashboard-categories-admin-table td:nth-child(6) {
+  width: 14%;
+}
+
 .dashboard-categories-admin-table th:nth-child(7),
 .dashboard-categories-admin-table td:nth-child(7),
 .dashboard-categories-admin-table th:nth-child(8),
-.dashboard-categories-admin-table td:nth-child(8) {
+.dashboard-categories-admin-table td:nth-child(8),
+.dashboard-categories-admin-table th:nth-child(9),
+.dashboard-categories-admin-table td:nth-child(9) {
   width: 8%;
 }
 
-.dashboard-categories-admin-table th:nth-child(9),
-.dashboard-categories-admin-table td:nth-child(9) {
-  width: 18%;
+.dashboard-categories-admin-table th:nth-child(10),
+.dashboard-categories-admin-table td:nth-child(10) {
+  width: 7%;
+}
+
+.dashboard-categories-admin-table th:nth-child(11),
+.dashboard-categories-admin-table td:nth-child(11) {
+  width: 12%;
 }
 
 .dashboard-orders-admin-table th:nth-child(1),
@@ -953,6 +1042,35 @@ body {
 .dashboard-orders-admin-table th:nth-child(9),
 .dashboard-orders-admin-table td:nth-child(9) {
   width: 22%;
+}
+
+.dashboard-contact-enquiries-table th:nth-child(1),
+.dashboard-contact-enquiries-table td:nth-child(1) {
+  width: 17%;
+}
+
+.dashboard-contact-enquiries-table th:nth-child(2),
+.dashboard-contact-enquiries-table td:nth-child(2) {
+  width: 8%;
+}
+
+.dashboard-contact-enquiries-table th:nth-child(3),
+.dashboard-contact-enquiries-table td:nth-child(3) {
+  width: 18%;
+}
+
+.dashboard-contact-enquiries-table th:nth-child(4),
+.dashboard-contact-enquiries-table td:nth-child(4),
+.dashboard-contact-enquiries-table th:nth-child(5),
+.dashboard-contact-enquiries-table td:nth-child(5),
+.dashboard-contact-enquiries-table th:nth-child(6),
+.dashboard-contact-enquiries-table td:nth-child(6) {
+  width: 12%;
+}
+
+.dashboard-contact-enquiries-table th:nth-child(7),
+.dashboard-contact-enquiries-table td:nth-child(7) {
+  width: 27%;
 }
 
 .dashboard-customers-admin-table th:nth-child(1),
@@ -999,6 +1117,12 @@ body {
 .dashboard-icon-action.is-edit {
   background: #16a34a;
   color: #ffffff;
+}
+
+.dashboard-icon-action.is-status {
+  background: #f8fafc;
+  color: #0f172a;
+  border-color: #cbd5e1;
 }
 
 .dashboard-icon-action.is-delete {

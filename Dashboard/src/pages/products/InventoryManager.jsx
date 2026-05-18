@@ -237,7 +237,7 @@ const excelTemplates = [
     id: "stock-update",
     name: "Stock Update Template",
     fileName: "avyona-stock-update-template.xlsx",
-    description: "Use this for inventory quantity and stock visibility updates.",
+    description: "Use this for inventory quantity and stock visibility updates. Stock Status accepts in-stock, active, available, out-of-stock, inactive, and unavailable.",
     columns: [
       "ASIN",
       "SKU",
@@ -339,7 +339,7 @@ export default function InventoryManager() {
   const [historyMessage, setHistoryMessage] = React.useState("");
   const [categories, setCategories] = React.useState([]);
   const [exportFilters, setExportFilters] = React.useState({
-    exportType: "all",
+    exportType: "complete",
     category: "",
     subcategory: "",
     brand: "",
@@ -1267,8 +1267,8 @@ export default function InventoryManager() {
           <div style={placeholderStyle}>
             <strong>{`${activeTabConfig.title} workspace`}</strong>
             <p>
-              This area is ready for the next step: file upload handling, backend validation, progress tracking,
-              history storage, failed-row reporting, and ASIN plus SKU based inventory export actions.
+              This workspace is connected to backend validation, import progress, history, failed-row reporting,
+              ASIN/SKU matching, and inventory export actions.
             </p>
           </div>
         </article>

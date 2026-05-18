@@ -1,5 +1,6 @@
 import React from "react";
 import { formatCurrency } from "../utils/storefront";
+import { trackStorefrontOrder } from "../api/orderApi";
 import trackOrders from "../data/track-orders";
 import { formatOrderStatusLabel, ORDER_STATUS_FLOW } from "../../../shared/orderStatusFlow";
 
@@ -95,27 +96,33 @@ export default function TrackOrderPage({ context }) {
   const [result, setResult] = React.useState(null);
   const [errorMessage, setErrorMessage] = React.useState("");
 
-  const handleTrackOrder = (event) => {
+  const handleTrackOrder = async (event) => {
     event.preventDefault();
 
     const safeOrderId = orderId.trim().toLowerCase();
     const safeContact = contactValue.trim().toLowerCase();
 
     setSearched(true);
-
-    const matchedOrder = trackOrders.find((entry) => (
-      entry.orderId.toLowerCase() === safeOrderId
-      && (entry.email.toLowerCase() === safeContact || entry.phone.toLowerCase() === safeContact)
-    ));
-
-    if (!matchedOrder) {
-      setResult(null);
-      setErrorMessage("We could not find an order matching that Order ID and email/phone combination.");
-      return;
-    }
-
-    setResult(matchedOrder);
     setErrorMessage("");
+
+    try {
+      const response = await trackStorefrontOrder({ orderNumber: safeOrderId, contact: safeContact });
+      setResult(response.data || null);
+      return;
+    } catch (error) {
+      const matchedOrder = trackOrders.find((entry) => (
+        entry.orderId.toLowerCase() === safeOrderId
+        && (entry.email.toLowerCase() === safeContact || entry.phone.toLowerCase() === safeContact)
+      ));
+
+      if (matchedOrder) {
+        setResult(matchedOrder);
+        return;
+      }
+
+      setResult(null);
+      setErrorMessage(error.message || "We could not find an order matching that Order ID and email/phone combination.");
+    }
   };
 
   return (

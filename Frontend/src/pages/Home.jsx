@@ -8,7 +8,6 @@ import {
   featuredBrands,
   featuredProducts,
   frameProducts,
-  homeBanners,
   offerConfigs
 } from "../data/storefront-content";
 import { copyText } from "../utils/storefront";
@@ -31,7 +30,7 @@ const API_MEDIA_ORIGIN = (import.meta.env.VITE_API_BASE_URL || "http://localhost
   .replace(/\/api\/v\d+\/?$/i, "")
   .replace(/\/$/, "");
 
-function resolveStorefrontMediaUrl(value, fallback = "/images/optimized/personal-audio-category.webp") {
+function resolveStorefrontMediaUrl(value, fallback = "") {
   const url = String(value || "").trim();
   if (!url) return fallback;
   if (/^(data|blob):/i.test(url)) return url;
@@ -41,7 +40,7 @@ function resolveStorefrontMediaUrl(value, fallback = "/images/optimized/personal
 }
 
 function handleCategoryImageError(event) {
-  const fallback = "/images/optimized/personal-audio-category.webp";
+  const fallback = "";
   if (event.currentTarget.src.endsWith(fallback)) return;
   event.currentTarget.src = fallback;
 }
@@ -71,7 +70,8 @@ function getBrowseCategoriesSettings(homepageSettings = {}) {
     title: String(settings.title || "Shop by Category").trim(),
     subtitle: String(settings.subtitle || "").trim(),
     cardsPerRow: normalizeCardsPerRow(settings.cardsPerRow),
-    mobileCardsPerRow: normalizeMobileCardsPerRow(settings.mobileCardsPerRow)
+    mobileCardsPerRow: normalizeMobileCardsPerRow(settings.mobileCardsPerRow),
+    sortOrder: Number.isFinite(Number(settings.sortOrder)) ? Number(settings.sortOrder) : 10
   };
 }
 
@@ -91,6 +91,12 @@ function getHomepageSectionSettings(homepageSettings = {}, key, fallback) {
 
 function isActiveProduct(product) {
   return String(product?.status || "active").toLowerCase() === "active";
+}
+
+function getLiveSectionProducts(productCatalog, predicate, fallbackProducts) {
+  const liveProducts = productCatalog.filter((product) => isActiveProduct(product) && (!predicate || predicate(product)));
+  if (liveProducts.length) return liveProducts;
+  return productCatalog.filter(isActiveProduct);
 }
 
 function getHomepageBrowseCategories(siteCategories, homepageSettings) {
@@ -195,6 +201,22 @@ export default function Home({ context }) {
     mobileCardsPerRow: 2,
     sortOrder: 60
   });
+  const featuredBrandsSettings = getHomepageSectionSettings(homepageSettings, "featuredBrandsSettings", {
+    enabled: true,
+    title: "Featured Brands",
+    subtitle: "",
+    cardsPerRow: 6,
+    mobileCardsPerRow: 2,
+    sortOrder: 80
+  });
+  const newsletterSettings = getHomepageSectionSettings(homepageSettings, "newsletterSettings", {
+    enabled: true,
+    title: "Stay Updated",
+    subtitle: "Get offers, product launches, and helpful buying guides from Avyona.",
+    cardsPerRow: 1,
+    mobileCardsPerRow: 1,
+    sortOrder: 90
+  });
   const mainCategories = getHomepageBrowseCategories(siteCategories, homepageSettings);
   const activeTopCategories = flattenCategoryTree(siteCategories)
     .filter((category) => !category.parentId && category.status === "active")
@@ -207,21 +229,7 @@ export default function Home({ context }) {
       (banner.desktopImage || banner.mobileImage || banner.desktopVideo || banner.mobileVideo)
     )
     .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
-  const activeHeroBanners = heroBanners.length
-    ? heroBanners
-    : homeBanners.map((image, index) => ({
-        id: `fallback-${index}`,
-        desktopImage: image,
-        mobileImage: image,
-        title: "",
-        subtitle: "",
-        altText: "Avyona featured banner",
-        textEnabled: true,
-        ctaEnabled: true,
-        buttonText: "View All Collections",
-        buttonLink: "/collections",
-        sortOrder: index + 1
-      }));
+  const activeHeroBanners = heroBanners;
   const currentBanner = activeHeroBanners[bannerIndex] || activeHeroBanners[0];
   const currentVideoUrl = currentBanner?.desktopVideo || currentBanner?.mobileVideo || "";
   const currentMobileVideoUrl = currentBanner?.mobileVideo || currentBanner?.desktopVideo || "";
@@ -248,7 +256,6 @@ export default function Home({ context }) {
     fontStyle: currentBanner?.fontStyle || undefined,
     fontWeight: currentBanner?.fontWeight === "800" ? "700" : currentBanner?.fontWeight || undefined
   };
-
   useEffect(() => {
     if (isHeroPaused || activeHeroBanners.length < 2) return undefined;
 
@@ -298,22 +305,31 @@ export default function Home({ context }) {
   const configuredOurProducts = Array.isArray(homepageSettings.ourProducts)
     ? getConfiguredHomepageProducts("ourProducts")
     : [];
-  const homepageOurProducts = (configuredOurProducts.length ? configuredOurProducts : frameProducts)
+  const ourProductsFallback = getLiveSectionProducts(
+    productCatalog,
+    (product) => String(product.collectionSlug || "").toLowerCase() === "digital-photo-frames",
+    frameProducts
+  );
+  const homepageOurProducts = (configuredOurProducts.length ? configuredOurProducts : ourProductsFallback)
     .filter((product) => isActiveProduct(product) && product.showInOurProducts !== false);
   const configuredBestSellerProducts = getConfiguredHomepageProducts("bestSellerProducts");
+  const liveBestSellerFallback = getLiveSectionProducts(productCatalog, null, featuredProducts);
   const allowBestSellerCategory = (product) =>
-    !hasBestSellerCategoryConfig || selectedBestSellerCategories.includes(product.collectionSlug);
+    !hasBestSellerCategoryConfig ||
+    selectedBestSellerCategories.includes(product.collectionSlug) ||
+    productCatalog.length > 0;
   const bestSellerCategoryTabs = hasBestSellerCategoryConfig
     ? activeTopCategories.filter((category) => selectedBestSellerCategories.includes(category.slug))
     : activeTopCategories;
-  const bestSellerSourceProducts = (configuredBestSellerProducts.length ? configuredBestSellerProducts : featuredProducts)
+  const bestSellerSourceProducts = (configuredBestSellerProducts.length ? configuredBestSellerProducts : liveBestSellerFallback)
     .filter(allowBestSellerCategory)
     .filter((product) => isActiveProduct(product) && product.bestSeller !== false && product.trending !== false);
   const homepageBestSellerProducts = activeCategory === "all"
     ? bestSellerSourceProducts
     : bestSellerSourceProducts.filter((product) => product.collectionSlug === activeCategory);
   const configuredNewArrivalProducts = getConfiguredHomepageProducts("newArrivalProducts");
-  const homepageNewArrivalProducts = (configuredNewArrivalProducts.length ? configuredNewArrivalProducts : arrivalProducts)
+  const liveArrivalFallback = getLiveSectionProducts(productCatalog, null, arrivalProducts);
+  const homepageNewArrivalProducts = (configuredNewArrivalProducts.length ? configuredNewArrivalProducts : liveArrivalFallback)
     .filter((product) => isActiveProduct(product) && product.newArrival !== false);
   const configuredFeaturedBrands = Array.isArray(homepageSettings.featuredBrands)
     ? homepageSettings.featuredBrands
@@ -325,7 +341,7 @@ export default function Home({ context }) {
     : featuredBrands.map((brand, index) => ({
         id: `fallback-brand-${brand}`,
         name: brand,
-        logoUrl: `/images/${brand}.png`,
+        logoUrl: "",
         sortOrder: index + 1
       }));
 
@@ -337,18 +353,17 @@ export default function Home({ context }) {
   }, [activeCategory, bestSellerCategoryTabs]);
 
   return (
-    <main className="container">
+    <main className="container homepage-container">
       <section
         className="hero-banner"
+        style={{ order: 0 }}
         aria-label="Featured highlights"
         onMouseEnter={() => setIsHeroPaused(true)}
         onMouseLeave={() => setIsHeroPaused(false)}
       >
-        <div className="hero-slider">
+        {currentBanner ? <div className="hero-slider">
           <article className="hero-slide">
-            {!currentIsVideo && failedBannerMedia[currentBanner?.id] ? (
-              <img className="hero-banner-image" src="/images/optimized/banner-1.webp" alt="Avyona featured banner fallback" fetchPriority="high" />
-            ) : currentIsVideo ? (
+            {currentIsVideo ? (
               <video
                 key={`hero-video-${currentBanner.id || currentVideoSrc}`}
                 className="hero-banner-image"
@@ -366,7 +381,7 @@ export default function Home({ context }) {
                   event.currentTarget.play?.().catch?.(() => {});
                 }}
               />
-            ) : (
+            ) : (currentBanner.desktopImage || currentBanner.mobileImage) ? (
               <picture>
                 <source media="(max-width: 767px)" srcSet={currentBanner.mobileImage || currentBanner.desktopImage} />
                 <img
@@ -377,7 +392,7 @@ export default function Home({ context }) {
                   onError={() => setFailedBannerMedia((current) => ({ ...current, [currentBanner.id]: true }))}
                 />
               </picture>
-            )}
+            ) : null}
             {currentBanner.textEnabled !== false && (currentBanner.title || currentBanner.subtitle) ? (
               <div className="hero-banner-copy">
                 {currentBanner.title ? <h1 style={titleStyle}>{currentBanner.title}</h1> : null}
@@ -385,7 +400,7 @@ export default function Home({ context }) {
               </div>
             ) : null}
           </article>
-        </div>
+        </div> : null}
         {activeHeroBanners.length > 1 ? (
           <>
             <button className="hero-arrow hero-arrow-prev" type="button" onClick={() => setBannerIndex((bannerIndex - 1 + activeHeroBanners.length) % activeHeroBanners.length)}><span aria-hidden="true">&#8249;</span></button>
@@ -402,7 +417,7 @@ export default function Home({ context }) {
       </section>
 
       {browseCategoriesSettings.enabled ? (
-        <section className="section-block category-section">
+        <section className="section-block category-section" style={{ order: browseCategoriesSettings.sortOrder ?? 10 }}>
           <div className="section-heading section-heading-centered">
             <div>
               <p className="eyebrow category-heading-tag">Browse</p>
@@ -425,9 +440,9 @@ export default function Home({ context }) {
 
               return (
                 <Link key={category.slug} className="category-card category-card-link" to={buttonLink}>
-                  <div className="category-art">
+                  {categoryImage ? <div className="category-art">
                     <img src={categoryImage} alt={category.name} loading="lazy" decoding="async" onError={handleCategoryImageError} />
-                  </div>
+                  </div> : null}
                   <div className="category-copy">
                     <h3>{category.name}</h3>
                     <p>{category.description}</p>
@@ -444,7 +459,7 @@ export default function Home({ context }) {
       ) : null}
 
       {ourProductsSettings.enabled ? (
-        <section className="section-block spotlight-block">
+        <section className="section-block spotlight-block" style={{ order: ourProductsSettings.sortOrder }}>
           <div className="section-heading section-heading-centered">
             <div>
               <h3 className="section-title-large section-title-accent">{ourProductsSettings.title}</h3>
@@ -458,12 +473,14 @@ export default function Home({ context }) {
               "--homepage-mobile-cards-per-row": ourProductsSettings.mobileCardsPerRow
             }}
           >
-            {homepageOurProducts.map((product) => <ProductCard key={product.slug} product={product} context={context} />)}
+            {homepageOurProducts.map((product) => (
+              <ProductCard key={product.slug} product={product} context={context} actionLabel="View Product" actionMode="link" />
+            ))}
           </div>
         </section>
       ) : null}
 
-      <section className="trust-section">
+      <section className="trust-section" style={{ order: 30 }}>
         <div className="section-heading section-heading-centered"><div><h4 className="section-title-medium">Why Shop With Avyona</h4></div></div>
         <div className="trust-grid">
           <article><span className="trust-icon" aria-hidden="true">&#10003;</span><strong>Genuine Products</strong></article>
@@ -473,8 +490,9 @@ export default function Home({ context }) {
         </div>
       </section>
 
+      {null}
       {bestSellerProductsSettings.enabled ? (
-        <section className="section-block">
+        <section className="section-block" style={{ order: bestSellerProductsSettings.sortOrder }}>
           <div className="section-heading section-heading-centered catalog-heading">
             <div>
               <h4 className="section-title-medium">{bestSellerProductsSettings.title}</h4>
@@ -495,20 +513,22 @@ export default function Home({ context }) {
               "--homepage-mobile-cards-per-row": bestSellerProductsSettings.mobileCardsPerRow
             }}
           >
-            {homepageBestSellerProducts.map((product) => <ProductCard key={product.slug} product={product} context={context} eyebrow="Best Seller / Trending" />)}
+            {homepageBestSellerProducts.map((product) => (
+              <ProductCard key={product.slug} product={product} context={context} eyebrow="Best Seller / Trending" actionLabel="View Product" actionMode="link" />
+            ))}
           </div>
         </section>
       ) : null}
 
-      <section className="section-block limited-offers-section">
+      <section className="section-block limited-offers-section" style={{ order: 50 }}>
         <div className="offers-showcase">
           <div className="section-heading section-heading-centered offer-heading"><div><h2 className="section-title-large section-title-accent">Limited Time Offers</h2></div></div>
           <div className="offer-banner-section">
             {Object.entries(offerConfigs).map(([key, offer]) => (
               <article key={key} className={`offer-banner promo-banner offer-banner-${key}`}>
-                <div className="offer-banner-media">
+                {offer.image ? <div className="offer-banner-media">
                   <img src={offer.image} alt={offer.title} loading="lazy" decoding="async" />
-                </div>
+                </div> : null}
                 <span className="offer-tag">{offer.title}</span>
                 <div className="offer-banner-copy">
                   <p className="eyebrow">{offer.eyebrow}</p>
@@ -525,7 +545,7 @@ export default function Home({ context }) {
       </section>
 
       {newArrivalProductsSettings.enabled ? (
-        <section className="section-block">
+        <section className="section-block" style={{ order: newArrivalProductsSettings.sortOrder }}>
           <div className="section-heading section-heading-centered arrival-heading">
             <div>
               <p className="eyebrow">{newArrivalProductsSettings.title}</p>
@@ -539,18 +559,20 @@ export default function Home({ context }) {
               "--homepage-mobile-cards-per-row": newArrivalProductsSettings.mobileCardsPerRow
             }}
           >
-            {homepageNewArrivalProducts.map((product) => <ProductCard key={product.slug} product={product} context={context} eyebrow="New Arrival" />)}
+            {homepageNewArrivalProducts.map((product) => (
+              <ProductCard key={product.slug} product={product} context={context} eyebrow="New Arrival" actionLabel="View Product" actionMode="link" />
+            ))}
           </div>
         </section>
       ) : null}
 
-      <section className="section-block blog-section">
+      <section className="section-block blog-section" style={{ order: 70 }}>
         <div className="section-heading"><div><p className="eyebrow">Latest from Avyona Blog</p><h2>Buying guides and electronics insights that support discovery</h2></div></div>
         <div className="blog-grid">
           {blogEntries.map((entry) => (
             <article key={entry.title} className="blog-card">
               <Link className="blog-card-link" to={`/blog/${entry.slug}`}>
-                <div className="blog-art"><img src={entry.image} alt={entry.title} loading="lazy" decoding="async" /></div>
+                {entry.image ? <div className="blog-art"><img src={entry.image} alt={entry.title} loading="lazy" decoding="async" /></div> : null}
                 <h3>{entry.title}</h3>
                 <p>{entry.body}</p>
                 <span className="blog-read-link">Read More</span>
@@ -560,27 +582,37 @@ export default function Home({ context }) {
         </div>
       </section>
 
-      <section className="section-block brand-section" id="brands">
+      {featuredBrandsSettings.enabled ? (
+      <section className="section-block brand-section" id="brands" style={{ order: featuredBrandsSettings.sortOrder }}>
         <div className="section-heading section-heading-centered brand-heading">
           <div>
-            <p className="eyebrow">Featured Brands</p>
+            <p className="eyebrow">{featuredBrandsSettings.title}</p>
+            {featuredBrandsSettings.subtitle ? <p>{featuredBrandsSettings.subtitle}</p> : null}
           </div>
         </div>
-        <div className="brand-grid">
+        <div
+          className="brand-grid"
+          style={{
+            "--brand-cards-per-row": featuredBrandsSettings.cardsPerRow,
+            "--brand-mobile-cards-per-row": featuredBrandsSettings.mobileCardsPerRow
+          }}
+        >
           <div className="brand-track">
             {[...homepageFeaturedBrands, ...homepageFeaturedBrands].map((brand, index) => (
               <div key={`${brand.id || brand.name}-${index}`} className="brand-logo-card" aria-hidden={index >= homepageFeaturedBrands.length}>
-                <img src={brand.logoUrl || `/images/${brand.name}.png`} alt={index >= homepageFeaturedBrands.length ? "" : brand.name} loading="lazy" decoding="async" />
+                {brand.logoUrl ? <img src={brand.logoUrl} alt={index >= homepageFeaturedBrands.length ? "" : brand.name} loading="lazy" decoding="async" /> : <span>{brand.name}</span>}
               </div>
             ))}
           </div>
         </div>
       </section>
+      ) : null}
 
-      <section className="newsletter-section">
+      {newsletterSettings.enabled ? (
+      <section className="newsletter-section" style={{ order: newsletterSettings.sortOrder }}>
         <div className="newsletter-copy-group">
-          <p className="eyebrow">Stay Updated</p>
-          <p className="newsletter-copy">Get offers, product launches, and helpful buying guides from Avyona.</p>
+          <p className="eyebrow">{newsletterSettings.title}</p>
+          {newsletterSettings.subtitle ? <p className="newsletter-copy">{newsletterSettings.subtitle}</p> : null}
         </div>
         <form
           className="newsletter-form"
@@ -594,6 +626,7 @@ export default function Home({ context }) {
           <button className="primary-button" type="submit">Subscribe</button>
         </form>
       </section>
+      ) : null}
     </main>
   );
 }

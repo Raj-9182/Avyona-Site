@@ -64,6 +64,65 @@ function groupWithProductDetails(group, products) {
   };
 }
 
+function uniqueNumbers(values) {
+  return [...new Set(values.map((value) => Number(value || 0)).filter((value) => value > 0))];
+}
+
+function buildPlaceholders(values) {
+  return values.map(() => "?").join(", ");
+}
+
+async function deleteGroupsWithTooFewProducts(groupDbIds) {
+  const ids = uniqueNumbers(groupDbIds);
+  if (!ids.length) return;
+
+  const placeholders = buildPlaceholders(ids);
+  const sparseGroups = await query(
+    `SELECT vg.id, COUNT(vgp.product_id) AS productCount
+     FROM variant_groups vg
+     LEFT JOIN variant_group_products vgp ON vgp.variant_group_id = vg.id
+     WHERE vg.id IN (${placeholders})
+     GROUP BY vg.id
+     HAVING productCount < 2`,
+    ids
+  );
+  const sparseGroupIds = uniqueNumbers(sparseGroups.map((group) => group.id));
+  if (!sparseGroupIds.length) return;
+
+  const sparsePlaceholders = buildPlaceholders(sparseGroupIds);
+  await query(`UPDATE products SET variant_group_id = NULL WHERE variant_group_id IN (${sparsePlaceholders})`, sparseGroupIds);
+  await query(`DELETE FROM variant_groups WHERE id IN (${sparsePlaceholders})`, sparseGroupIds);
+}
+
+async function detachProductsFromOtherGroups(productRows, targetGroupDbId = 0) {
+  const productIds = uniqueNumbers(productRows.map((product) => product.id));
+  const previousGroupIds = uniqueNumbers(
+    productRows
+      .map((product) => product.variantGroupDbId)
+      .filter((groupDbId) => Number(groupDbId) !== Number(targetGroupDbId))
+  );
+
+  if (!productIds.length || !previousGroupIds.length) return;
+
+  const productPlaceholders = buildPlaceholders(productIds);
+  const groupPlaceholders = buildPlaceholders(previousGroupIds);
+
+  await query(
+    `DELETE FROM variant_group_products
+     WHERE product_id IN (${productPlaceholders})
+       AND variant_group_id IN (${groupPlaceholders})`,
+    [...productIds, ...previousGroupIds]
+  );
+  await query(
+    `UPDATE products
+     SET variant_group_id = NULL
+     WHERE id IN (${productPlaceholders})
+       AND variant_group_id IN (${groupPlaceholders})`,
+    [...productIds, ...previousGroupIds]
+  );
+  await deleteGroupsWithTooFewProducts(previousGroupIds);
+}
+
 async function saveLocalGroup(groupPayload, existingGroupId = "") {
   const groups = await readJsonFile(localVariantGroupsPath, []);
   const products = await readJsonFile(localProductsPath, []);
@@ -86,14 +145,6 @@ async function saveLocalGroup(groupPayload, existingGroupId = "") {
     throw new ApiError(400, `Product ${missingAsin} does not exist`);
   }
 
-  const conflictingGroup = groups.find((group) => (
-    group.groupId !== groupId &&
-    (group.products || []).some((asin) => selectedAsins.includes(String(asin)))
-  ));
-  if (conflictingGroup) {
-    throw new ApiError(400, "One or more selected ASINs are already linked to another variant group");
-  }
-
   const now = new Date().toISOString();
   const nextGroup = {
     groupId,
@@ -105,8 +156,15 @@ async function saveLocalGroup(groupPayload, existingGroupId = "") {
     updatedAt: now
   };
 
-  const nextGroups = [nextGroup, ...groups.filter((group) => group.groupId !== groupId)];
   const selectedSet = new Set(selectedAsins);
+  const remainingGroups = groups
+    .filter((group) => group.groupId !== groupId)
+    .map((group) => ({
+      ...group,
+      products: (group.products || []).filter((asin) => !selectedSet.has(String(asin)))
+    }))
+    .filter((group) => (group.products || []).length >= 2);
+  const nextGroups = [nextGroup, ...remainingGroups];
   const nextProducts = products.map((product) => {
     const belongsToThisGroup = String(product.variantGroupId || "") === groupId;
     if (!selectedSet.has(String(product.asin || "")) && !belongsToThisGroup) return product;
@@ -306,11 +364,6 @@ export async function createVariantGroup(request, response) {
     throw new ApiError(400, "One or more selected ASINs do not exist in products");
   }
 
-  const alreadyGrouped = productRows.find((product) => Number(product.variantGroupDbId || 0) > 0);
-  if (alreadyGrouped) {
-    throw new ApiError(400, `Product ${alreadyGrouped.asin} is already linked to another variant group`);
-  }
-
   const insertResult = await query(
     `INSERT INTO variant_groups (group_name, variant_type, status)
      VALUES (?, ?, ?)`,
@@ -319,6 +372,7 @@ export async function createVariantGroup(request, response) {
 
   const groupDbId = Number(insertResult.insertId);
   await attachGroupId(groupDbId);
+  await detachProductsFromOtherGroups(productRows, groupDbId);
 
   for (const product of productRows) {
     await query(
@@ -394,14 +448,7 @@ export async function updateVariantGroup(request, response) {
     throw new ApiError(400, "One or more selected ASINs do not exist in products");
   }
 
-  const alreadyGrouped = productRows.find((product) => (
-    Number(product.variantGroupDbId || 0) > 0 &&
-    Number(product.variantGroupDbId) !== groupDbId
-  ));
-  if (alreadyGrouped) {
-    throw new ApiError(400, `Product ${alreadyGrouped.asin} is already linked to another variant group`);
-  }
-
+  await detachProductsFromOtherGroups(productRows, groupDbId);
   await query(
     `UPDATE variant_groups
      SET group_name = ?, variant_type = ?, status = ?

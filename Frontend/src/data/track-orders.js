@@ -23,7 +23,7 @@ const trackOrders = [
         name: "Avyona Aura 10 Frame",
         quantity: 1,
         price: 8999,
-        image: "/images/optimized/frame-2.webp"
+        image: ""
       }
     ],
     summary: {
@@ -85,14 +85,14 @@ const trackOrders = [
         name: "JBL FlexSound Neckband",
         quantity: 1,
         price: 4499,
-        image: "/images/optimized/headphone-2.webp"
+        image: ""
       },
       {
         id: "oi-1002-2",
         name: "Glocusent Focus Reading Light",
         quantity: 2,
         price: 1999,
-        image: "/images/optimized/reading-light-1.webp"
+        image: ""
       }
     ],
     summary: {

@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { trackAnalyticsEvent } from "../api/analyticsApi";
+import { applyCustomerCreditPoints, fetchCustomerWallet } from "../api/customerApi";
 import {
   formatCurrency,
   getCheckoutPaymentMethods,
   getCheckoutShippingOptions,
   getMergedProfile,
-  getOptimizedAssetPath,
   readStorage,
   writeStorage
 } from "../utils/storefront";
@@ -20,12 +20,7 @@ export default function CheckoutPage({ context }) {
   const general = siteSettings.general || {};
   const paymentSettings = siteSettings.payment || {};
   const shippingSettings = siteSettings.shipping || {};
-  const paymentIcons = [
-    getOptimizedAssetPath("/images/payment 1.png"),
-    getOptimizedAssetPath("/images/payment 2.png"),
-    getOptimizedAssetPath("/images/payment 3.png"),
-    getOptimizedAssetPath("/images/payment 4.png")
-  ];
+  const paymentIcons = [];
   const shippingOptions = getCheckoutShippingOptions(context);
   const paymentMethods = getCheckoutPaymentMethods(context);
   const mergedProfile = getMergedProfile(context.authUser, context.customerProfile);
@@ -51,15 +46,27 @@ export default function CheckoutPage({ context }) {
   const [appliedCoupon, setAppliedCoupon] = useState(null);
   const [couponMessage, setCouponMessage] = useState("");
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+  const [pointsInput, setPointsInput] = useState("");
+  const [appliedPoints, setAppliedPoints] = useState(0);
+  const [pointsMessage, setPointsMessage] = useState("");
+  const [walletData, setWalletData] = useState(null);
+  const [walletLoading, setWalletLoading] = useState(false);
   const checkoutTrackedRef = useRef(false);
   const subtotal = context.cart.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 1), 0);
+  const customerAvailablePoints = walletData?.availablePoints || 0;
+  const pointsPerRupee   = walletData?.pointsPerRupee   || 10;
+  const maxRedeemPercent = walletData?.maxRedeemPercent || 20;
+  const minRedeemPoints  = walletData?.minRedeemPoints  || 100;
+  const maxDiscountRupees = Math.floor(subtotal * (maxRedeemPercent / 100));
+  const maxPointsUsable   = Math.min(customerAvailablePoints, maxDiscountRupees * pointsPerRupee);
   const selectedShipping = shippingOptions.find((option) => option.id === form.shippingMethod) || shippingOptions[0];
   const shipping = Number(selectedShipping?.price || 0);
   const appliedCouponResult = appliedCoupon
     ? validateCoupon(appliedCoupon.code, { items: context.cart, subtotal, coupons: availableCoupons })
     : { valid: false, discount: 0 };
   const discount = appliedCouponResult.valid ? Number(appliedCouponResult.discount || 0) : 0;
-  const total = Math.max(0, subtotal - discount) + shipping;
+  const creditDiscount = Math.floor(appliedPoints / pointsPerRupee);
+  const total = Math.max(0, subtotal - discount - creditDiscount) + shipping;
   const hasRequiredAddress = ["contact", "firstName", "lastName", "address1", "city", "state", "pinCode", "phone"].every((key) => String(form[key] || "").trim());
 
   useEffect(() => {
@@ -105,6 +112,19 @@ export default function CheckoutPage({ context }) {
   }, [form.paymentMethod, paymentMethods]);
 
   useEffect(() => {
+    if (!context.authUser) {
+      setWalletData(null);
+      setAppliedPoints(0);
+      return;
+    }
+    setWalletLoading(true);
+    fetchCustomerWallet()
+      .then((res) => setWalletData(res.data || null))
+      .catch(() => setWalletData(null))
+      .finally(() => setWalletLoading(false));
+  }, [context.authUser]);
+
+  useEffect(() => {
     if (!appliedCoupon) return;
     if (appliedCouponResult.valid) return;
     setCouponMessage(appliedCouponResult.message);
@@ -143,6 +163,59 @@ export default function CheckoutPage({ context }) {
     setCouponMessage("Coupon removed.");
   };
 
+  const applyPoints = async (event) => {
+    event.preventDefault();
+    const requested = parseInt(pointsInput, 10);
+    if (!requested || requested <= 0) {
+      setPointsMessage("Enter a valid number of points.");
+      return;
+    }
+    if (customerAvailablePoints < minRedeemPoints) {
+      setPointsMessage(`You need at least ${minRedeemPoints} points to redeem. You have ${customerAvailablePoints}.`);
+      return;
+    }
+    if (requested > customerAvailablePoints) {
+      setPointsMessage(`You only have ${customerAvailablePoints} points available.`);
+      return;
+    }
+    if (requested > maxPointsUsable) {
+      setPointsMessage(`Maximum ${maxPointsUsable} points (₹${maxDiscountRupees} off) can be used on this order.`);
+      return;
+    }
+    try {
+      const response = await applyCustomerCreditPoints({ points: requested, orderSubtotal: Math.max(0, subtotal - discount) });
+      const pointsApplied = Number(response.data?.pointsApplied || 0);
+      const discountRupees = Number(response.data?.discountRupees || 0);
+      setAppliedPoints(pointsApplied);
+      setPointsMessage(`${pointsApplied} points applied - Rs ${discountRupees} off your order.`);
+      context.notify(`${pointsApplied} credit points applied!`);
+    } catch (error) {
+      setAppliedPoints(0);
+      setPointsMessage(error.message || "Unable to apply credit points.");
+    }
+  };
+
+  const removePoints = () => {
+    setAppliedPoints(0);
+    setPointsInput("");
+    setPointsMessage("Credit points removed.");
+  };
+
+  const applyAllPoints = async () => {
+    setPointsInput(String(maxPointsUsable));
+    try {
+      const response = await applyCustomerCreditPoints({ points: maxPointsUsable, orderSubtotal: Math.max(0, subtotal - discount) });
+      const pointsApplied = Number(response.data?.pointsApplied || 0);
+      const discountRupees = Number(response.data?.discountRupees || 0);
+      setAppliedPoints(pointsApplied);
+      setPointsMessage(`${pointsApplied} points applied - Rs ${discountRupees} off your order.`);
+      context.notify(`${pointsApplied} credit points applied!`);
+    } catch (error) {
+      setAppliedPoints(0);
+      setPointsMessage(error.message || "Unable to apply credit points.");
+    }
+  };
+
   const submitOrder = async (event) => {
     event.preventDefault();
     if (!context.cart.length || !hasRequiredAddress || isSubmittingOrder) return;
@@ -151,6 +224,7 @@ export default function CheckoutPage({ context }) {
     const createdAt = new Date().toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
     const deliveryAddress = `${form.address1}${form.address2 ? `, ${form.address2}` : ""}, ${form.city}, ${form.state} - ${form.pinCode}`;
     let orderNumber = `AVY-${Date.now().toString().slice(-6)}`;
+    let backendOrder = null;
 
     try {
       const response = await createStorefrontOrder({
@@ -184,22 +258,33 @@ export default function CheckoutPage({ context }) {
         },
         paymentMethod: form.paymentMethod,
         shippingMethod: form.shippingMethod,
-        couponCode: appliedCoupon?.code || ""
+        couponCode: appliedCoupon?.code || "",
+        creditPoints: appliedPoints
       });
 
-      orderNumber = response.data?.orderNumber || orderNumber;
+      backendOrder = response.data || null;
+      orderNumber = backendOrder?.orderNumber || orderNumber;
       trackAnalyticsEvent({
         eventType: "purchase",
         orderNumber,
-        cartValue: total,
+        cartValue: Number(backendOrder?.totalAmount ?? total),
         metadata: {
           itemCount: context.cart.reduce((sum, item) => sum + Number(item.quantity || 1), 0),
-          paymentMethod: form.paymentMethod
+          paymentMethod: form.paymentMethod,
+          paymentStatus: backendOrder?.paymentStatus || ""
         }
       });
-    } catch {
-      context.notify("Backend order save is unavailable, so this order is saved locally for preview.");
+    } catch (error) {
+      context.notify(error.message || "Unable to place order. Please check stock, coupon, and delivery details.");
+      setIsSubmittingOrder(false);
+      return;
     }
+
+    const finalTotal = Number(backendOrder?.totalAmount ?? total);
+    const finalDiscount = Number(backendOrder?.discount ?? discount);
+    const finalCreditDiscount = Number(backendOrder?.creditDiscount ?? creditDiscount);
+    const finalShipping = Number(backendOrder?.shippingFee ?? shipping);
+    const paymentStatus = backendOrder?.paymentStatus || "pending";
 
     const newOrders = context.cart.map((item) => ({
       orderNumber,
@@ -209,15 +294,17 @@ export default function CheckoutPage({ context }) {
       category: item.category,
       quantity: Number(item.quantity || 1),
       total: Number(item.price || 0) * Number(item.quantity || 1),
-      orderTotal: total,
-      discount,
+      orderTotal: finalTotal,
+      discount: finalDiscount,
+      creditDiscount: finalCreditDiscount,
       couponCode: appliedCoupon?.code || "",
-      shipping,
+      shipping: finalShipping,
       paymentMethod: form.paymentMethod,
+      paymentStatus,
       deliveryAddress,
       contact: form.contact,
       date: createdAt,
-      status: "Order Confirmed"
+      status: paymentStatus === "failed" ? "Payment Failed" : "Order Confirmed"
     }));
     context.setOrders([...newOrders, ...context.orders].slice(0, 24));
     context.setCustomerProfile({
@@ -228,18 +315,22 @@ export default function CheckoutPage({ context }) {
       phone: form.phone,
       address: `${form.address1}, ${form.city}, ${form.state} - ${form.pinCode}`
     });
-    context.setCart([]);
-    context.notify("Order placed successfully");
+    if (paymentStatus !== "failed") {
+      context.setCart([]);
+    }
+    context.notify(paymentStatus === "failed" ? "Test payment failed. Order was recorded for QA." : "Order placed successfully");
     setIsSubmittingOrder(false);
     navigate(`/order-confirmation/${orderNumber}`, {
       state: {
         orderNumber,
         items: newOrders,
-        total,
-        discount,
+        total: finalTotal,
+        discount: finalDiscount,
+        creditDiscount: finalCreditDiscount,
         couponCode: appliedCoupon?.code || "",
-        shipping,
+        shipping: finalShipping,
         paymentMethod: form.paymentMethod,
+        paymentStatus,
         deliveryAddress,
         contact: form.contact,
         date: createdAt
@@ -252,7 +343,7 @@ export default function CheckoutPage({ context }) {
       <header className="checkout-header">
         <div className="container checkout-header-inner">
           <Link className="checkout-brand" to="/" aria-label={`${general.storeName || "Avyona"} home`}>
-            <img src={general.logoUrl || getOptimizedAssetPath("/images/avyona logo.png")} alt={`${general.storeName || "Avyona"} logo`} />
+            {general.logoUrl ? <img src={general.logoUrl} alt={`${general.storeName || "Avyona"} logo`} /> : <span>{general.storeName || "Avyona"}</span>}
           </Link>
           <div className="checkout-header-meta">
             <span>Secure Checkout</span>
@@ -332,7 +423,7 @@ export default function CheckoutPage({ context }) {
                           <span className="payment-support-copy">Available on eligible PIN codes</span>
                         ) : (
                           <div className="checkout-payment-icons">
-                            {paymentIcons.map((icon, index) => <img key={`${method.id}-${icon}`} src={icon} alt={`Payment icon ${index + 1}`} loading="lazy" />)}
+                            {paymentIcons.map((icon, index) => icon ? <img key={`${method.id}-${icon}`} src={icon} alt={`Payment icon ${index + 1}`} loading="lazy" /> : null)}
                           </div>
                         )}
                       </div>
@@ -388,8 +479,69 @@ export default function CheckoutPage({ context }) {
                         </button>
                       ))}
                     </div>
+                    {walletLoading && context.authUser && (
+                      <div style={{ padding: "12px 14px", border: "1px solid #bbf7d0", borderRadius: "12px", background: "#f0fdf4", color: "#166534", fontSize: "13px", fontWeight: 600, marginBottom: "4px" }}>
+                        Loading your credit points...
+                      </div>
+                    )}
+                    {!walletLoading && customerAvailablePoints > 0 && !walletData?.isBlocked && (
+                      <div style={cpWrapStyle}>
+                        <div style={cpHeaderStyle}>
+                          <div>
+                            <p style={cpEyebrowStyle}>Credit Points</p>
+                            <strong style={cpTitleStyle}>Use Credit Points</strong>
+                          </div>
+                          <div style={cpBadgeStyle}>
+                            <span style={cpBadgeLabelStyle}>{customerAvailablePoints.toLocaleString()} pts</span>
+                            <span style={cpBadgeValueStyle}>= ₹{Math.floor(customerAvailablePoints / pointsPerRupee)}</span>
+                          </div>
+                        </div>
+
+                        {appliedPoints > 0 ? (
+                          <div style={cpAppliedRowStyle}>
+                            <div>
+                              <strong style={cpAppliedTextStyle}>
+                                {appliedPoints.toLocaleString()} pts applied — saving ₹{creditDiscount}
+                              </strong>
+                              <p style={cpRemainingStyle}>
+                                {(customerAvailablePoints - appliedPoints).toLocaleString()} pts remaining after this order
+                              </p>
+                            </div>
+                            <button type="button" style={cpRemoveButtonStyle} onClick={removePoints}>Remove</button>
+                          </div>
+                        ) : (
+                          <form style={cpFormStyle} onSubmit={applyPoints}>
+                            <div style={cpInputRowStyle}>
+                              <input
+                                style={cpInputStyle}
+                                type="number"
+                                min="1"
+                                max={maxPointsUsable}
+                                placeholder={`Max ${maxPointsUsable} pts`}
+                                value={pointsInput}
+                                onChange={(e) => setPointsInput(e.target.value)}
+                              />
+                              <button type="submit" style={cpApplyButtonStyle} disabled={!context.cart.length}>
+                                Apply
+                              </button>
+                            </div>
+                            <button type="button" style={cpUseAllButtonStyle} onClick={applyAllPoints}>
+                              Use all {maxPointsUsable.toLocaleString()} pts (₹{Math.floor(maxPointsUsable / pointsPerRupee)} off)
+                            </button>
+                          </form>
+                        )}
+
+                        {pointsMessage && (
+                          <p style={appliedPoints > 0 ? cpMessageSuccessStyle : cpMessageNeutralStyle}>
+                            {pointsMessage}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
                     <div className="summary-row"><span>Subtotal</span><strong>{formatCurrency(subtotal, context)}</strong></div>
                     {discount > 0 ? <div className="summary-row discount-row"><span>{`Coupon${appliedCoupon?.code ? ` (${appliedCoupon.code})` : ""}`}</span><strong>{`-${formatCurrency(discount, context)}`}</strong></div> : null}
+                    {creditDiscount > 0 ? <div className="summary-row discount-row"><span>Credit Points ({appliedPoints.toLocaleString()} pts)</span><strong>{`-₹${creditDiscount}`}</strong></div> : null}
                     <div className="summary-row"><span>Shipping</span><strong>{shipping === 0 ? "Free" : formatCurrency(shipping, context)}</strong></div>
                     <div className="summary-row total-row"><span>Total</span><strong>{formatCurrency(total, context)}</strong></div>
                   </div>
@@ -402,3 +554,148 @@ export default function CheckoutPage({ context }) {
     </div>
   );
 }
+
+/* ─── Credit Points Styles ─────────────────────────────────────────────── */
+const cpWrapStyle = {
+  display: "grid",
+  gap: "12px",
+  padding: "14px",
+  border: "1px solid #bbf7d0",
+  borderRadius: "12px",
+  background: "linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)",
+  marginBottom: "4px"
+};
+
+const cpHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: "10px"
+};
+
+const cpEyebrowStyle = {
+  margin: "0 0 2px",
+  color: "#166534",
+  fontSize: "10px",
+  fontWeight: 800,
+  textTransform: "uppercase",
+  letterSpacing: "0.1em"
+};
+
+const cpTitleStyle = {
+  color: "#0f172a",
+  fontSize: "15px"
+};
+
+const cpBadgeStyle = {
+  display: "grid",
+  gap: "2px",
+  padding: "8px 12px",
+  border: "1px solid #86efac",
+  borderRadius: "10px",
+  background: "#ffffff",
+  textAlign: "right"
+};
+
+const cpBadgeLabelStyle = {
+  display: "block",
+  color: "#1d4ed8",
+  fontSize: "13px",
+  fontWeight: 800
+};
+
+const cpBadgeValueStyle = {
+  display: "block",
+  color: "#166534",
+  fontSize: "12px",
+  fontWeight: 700
+};
+
+const cpFormStyle = { display: "grid", gap: "8px" };
+
+const cpInputRowStyle = { display: "flex", gap: "8px" };
+
+const cpInputStyle = {
+  flex: 1,
+  minHeight: "40px",
+  padding: "0 12px",
+  border: "1px solid #86efac",
+  borderRadius: "8px",
+  background: "#ffffff",
+  color: "#0f172a",
+  fontSize: "14px"
+};
+
+const cpApplyButtonStyle = {
+  minHeight: "40px",
+  padding: "0 16px",
+  border: "1px solid #166534",
+  borderRadius: "8px",
+  background: "#166534",
+  color: "#ffffff",
+  fontSize: "13px",
+  fontWeight: 800,
+  cursor: "pointer",
+  whiteSpace: "nowrap"
+};
+
+const cpUseAllButtonStyle = {
+  minHeight: "36px",
+  padding: "0 12px",
+  border: "1px solid #86efac",
+  borderRadius: "8px",
+  background: "#ffffff",
+  color: "#166534",
+  fontSize: "12px",
+  fontWeight: 700,
+  cursor: "pointer",
+  textAlign: "left"
+};
+
+const cpAppliedRowStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "12px",
+  flexWrap: "wrap"
+};
+
+const cpAppliedTextStyle = {
+  display: "block",
+  color: "#166534",
+  fontSize: "14px"
+};
+
+const cpRemainingStyle = {
+  margin: "4px 0 0",
+  color: "#4a9d54",
+  fontSize: "12px",
+  fontWeight: 600
+};
+
+const cpRemoveButtonStyle = {
+  minHeight: "34px",
+  padding: "0 12px",
+  border: "1px solid #fca5a5",
+  borderRadius: "8px",
+  background: "#fff1f2",
+  color: "#dc2626",
+  fontSize: "12px",
+  fontWeight: 700,
+  cursor: "pointer",
+  flexShrink: 0
+};
+
+const cpMessageSuccessStyle = {
+  margin: 0,
+  color: "#166534",
+  fontSize: "12px",
+  fontWeight: 700
+};
+
+const cpMessageNeutralStyle = {
+  margin: 0,
+  color: "#b45309",
+  fontSize: "12px",
+  fontWeight: 700
+};

@@ -19,3 +19,20 @@ export async function createStorefrontOrder(payload) {
 
   return response.json();
 }
+
+export async function trackStorefrontOrder(payload) {
+  const response = await fetch(`${API_BASE_URL}/orders/track`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}));
+    throw new Error(errorBody.message || "Unable to track order");
+  }
+
+  return response.json();
+}

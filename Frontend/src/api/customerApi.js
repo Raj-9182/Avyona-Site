@@ -56,8 +56,65 @@ export async function loginCustomer(payload) {
   return response;
 }
 
+export function requestCustomerPasswordReset(payload) {
+  return customerRequest("/customer/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
 export function fetchCurrentCustomer() {
   return customerRequest("/customer/auth/me");
+}
+
+export function fetchCustomerWallet() {
+  return customerRequest("/customer/credits/wallet");
+}
+
+export function fetchCustomerTransactions(params = {}) {
+  const qs = new URLSearchParams();
+  if (params.page)   qs.set("page",   String(params.page));
+  if (params.limit)  qs.set("limit",  String(params.limit));
+  if (params.type)   qs.set("type",   params.type);
+  if (params.status) qs.set("status", params.status);
+  const query = qs.toString();
+  return customerRequest(`/customer/credits/transactions${query ? `?${query}` : ""}`);
+}
+
+export function applyCustomerCreditPoints(payload) {
+  return customerRequest("/customer/credits/apply", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function fetchCustomerReferral() {
+  return customerRequest("/customer/credits/referral");
+}
+
+export function updateCustomerProfile(payload) {
+  return customerRequest("/customer/profile", {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function fetchCustomerAddresses() {
+  return customerRequest("/customer/addresses");
+}
+
+export function saveCustomerAddress(payload) {
+  const id = payload?.id;
+  return customerRequest(id ? `/customer/addresses/${encodeURIComponent(id)}` : "/customer/addresses", {
+    method: id ? "PUT" : "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export function deleteCustomerAddress(addressId) {
+  return customerRequest(`/customer/addresses/${encodeURIComponent(addressId)}`, {
+    method: "DELETE"
+  });
 }
 
 export function fetchCustomerCart() {

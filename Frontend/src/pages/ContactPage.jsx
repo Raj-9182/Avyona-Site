@@ -1,159 +1,205 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { submitContactEnquiry } from "../api/contactApi";
+import {
+  FaBriefcase,
+  FaBoxOpen,
+  FaClock,
+  FaEnvelope,
+  FaHeadset,
+  FaHeart,
+  FaLeaf,
+  FaLock,
+  FaMapMarkerAlt,
+  FaPhoneAlt,
+  FaRegUser,
+  FaShieldAlt,
+  FaBolt
+} from "react-icons/fa";
 
-const SUPPORT_TOPICS = [
-  "Product enquiry",
-  "Order support",
-  "Shipping and delivery",
-  "Returns or warranty",
-  "Bulk or business purchase"
+const enquiryTypes = [
+  {
+    key: "b2c",
+    title: "Customer Support",
+    label: "B2C",
+    description: "Order help, returns, warranty, delivery support."
+  },
+  {
+    key: "b2b",
+    title: "Business Enquiry",
+    label: "B2B",
+    description: "Bulk orders, dealership, partnerships, corporate enquiries."
+  }
 ];
 
 export default function ContactPage({ context }) {
   const siteSettings = context?.siteSettings || {};
   const general = siteSettings.general || {};
-  const storeName = general.storeName || "Avyona";
-  const supportPhone = general.supportPhone || "+91 98765 43210";
+  const supportPhone = general.supportPhone || "";
   const supportEmail = general.supportEmail || "support@avyona.com";
-  const [form, setForm] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    topic: SUPPORT_TOPICS[0],
-    message: ""
-  });
+  const storeAddress = general.businessAddress || "Avyona, Surat, Gujarat, India";
+  const workingHours = general.workingHours || "Mon - Sat: 10 AM - 7 PM";
+  const [enquiryType, setEnquiryType] = useState("b2c");
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const updateField = (key, value) => {
-    setSubmitted(false);
-    setForm((current) => ({ ...current, [key]: value }));
-  };
+  const selectedType = enquiryTypes.find((type) => type.key === enquiryType) || enquiryTypes[0];
 
-  const submitContact = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
-    setSubmitted(true);
-    context?.notify?.("Your message has been received");
-    setForm({
-      name: "",
-      email: "",
-      phone: "",
-      topic: SUPPORT_TOPICS[0],
-      message: ""
-    });
+    const form = event.currentTarget;
+    setSubmitted(false);
+    setError("");
+    setIsSubmitting(true);
+
+    const formData = new FormData(form);
+
+    try {
+      await submitContactEnquiry({
+        enquiryType: selectedType.label,
+        name: String(formData.get("fullName") || "").trim(),
+        companyName: String(formData.get("companyName") || "").trim(),
+        email: String(formData.get("email") || "").trim(),
+        phone: String(formData.get("phone") || "").trim(),
+        orderId: String(formData.get("orderId") || "").trim(),
+        message: String(formData.get("message") || "").trim()
+      });
+      form.reset();
+      setSubmitted(true);
+      context?.notify?.("Contact request submitted");
+    } catch (submissionError) {
+      setError(submissionError.message || "Unable to submit contact enquiry");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
-    <main className="container contact-page">
-      <nav className="breadcrumb contact-breadcrumb" aria-label="Breadcrumb">
-        <Link to="/">Home</Link>
-        <span>/</span>
-        <span>Contact Us</span>
-      </nav>
-
+    <main className={`container contact-page ${enquiryType === "b2b" ? "is-business" : "is-customer"}`}>
       <section className="contact-hero">
-        <div className="contact-hero-copy">
-          <p className="eyebrow">Support</p>
-          <h1>Contact Us</h1>
-          <p>
-            Need help with a product, order, delivery, return, or warranty? Send a message to the {storeName} support team and we will help you with the next step.
-          </p>
+        <div className="contact-hero-visual contact-hero-visual-left" aria-hidden="true">
+          <FaLeaf />
         </div>
-        <div className="contact-quick-card">
-          <span>Response Time</span>
-          <strong>Within 24 hours</strong>
-          <p>Support is available for product guidance, order assistance, and after-sales queries.</p>
+        <div className="contact-hero-copy">
+          <h1>Contact Us</h1>
+          <p>Need help with an order or business enquiry?</p>
+          <p>We're here to help.</p>
+        </div>
+        <div className="contact-hero-visual contact-hero-visual-right" aria-hidden="true">
+          <FaHeadset />
         </div>
       </section>
 
-      <section className="contact-layout">
-        <aside className="contact-info-panel">
-          <article className="contact-info-card">
-            <span>Call Support</span>
-            <a href={`tel:${supportPhone.replace(/\s+/g, "")}`}>{supportPhone}</a>
-            <p>Best for urgent order or delivery support.</p>
-          </article>
+      <section className="contact-section-heading">
+        <h2>How can we help you?</h2>
+        <span aria-hidden="true" />
+      </section>
 
-          <article className="contact-info-card">
-            <span>Email Support</span>
-            <a href={`mailto:${supportEmail}`}>{supportEmail}</a>
-            <p>Share order details, product questions, or warranty requests.</p>
-          </article>
+      <section className="contact-type-grid" aria-label="Choose enquiry type">
+        {enquiryTypes.map((type) => (
+          <button
+            key={type.key}
+            className={`contact-type-card ${enquiryType === type.key ? "is-active" : ""}`}
+            type="button"
+            onClick={() => {
+              setEnquiryType(type.key);
+              setSubmitted(false);
+              setError("");
+            }}
+          >
+            <span className="contact-type-icon" aria-hidden="true">
+              {type.key === "b2b" ? <FaBriefcase /> : <FaHeadset />}
+            </span>
+            <span className="contact-type-copy">
+              <strong>{type.title}</strong>
+              <p>{type.description}</p>
+              <span className="contact-card-cta">Continue</span>
+            </span>
+          </button>
+        ))}
+      </section>
 
-          <article className="contact-info-card">
-            <span>Helpful Links</span>
-            <div className="contact-link-list">
-              <Link to="/track-order">Track Order</Link>
-              <Link to="/collections">Browse Collections</Link>
-              <Link to="/offers">View Offers</Link>
-            </div>
-          </article>
-        </aside>
+      <section className="contact-form-panel">
+        <div className="contact-form-head">
+          <h2>{selectedType.title}</h2>
+          <span aria-hidden="true" />
+          <p>Fill in the details below and our team will get back to you.</p>
+        </div>
 
-        <section className="contact-form-panel">
-          <div className="contact-form-head">
-            <p className="eyebrow">Message Us</p>
-            <h2>Send a request</h2>
-            <p>Fill the form and our team will get back to you using your email or phone number.</p>
+        <form className="contact-form" onSubmit={handleSubmit}>
+          <div className="contact-form-grid">
+            <label className="contact-field">
+              <span className="sr-only">Name</span>
+              <FaRegUser aria-hidden="true" />
+              <input name="fullName" autoComplete="name" placeholder="Full Name *" required />
+            </label>
+            {enquiryType === "b2b" ? (
+              <label className="contact-field">
+                <span className="sr-only">Company Name</span>
+                <FaBriefcase aria-hidden="true" />
+                <input name="companyName" autoComplete="organization" placeholder="Company Name *" required />
+              </label>
+            ) : null}
+            <label className="contact-field">
+              <span className="sr-only">Email</span>
+              <FaEnvelope aria-hidden="true" />
+              <input name="email" type="email" autoComplete="email" placeholder="Email Address *" required />
+            </label>
+            <label className="contact-field">
+              <span className="sr-only">Phone</span>
+              <FaPhoneAlt aria-hidden="true" />
+              <input name="phone" type="tel" autoComplete="tel" placeholder="Phone Number *" required />
+            </label>
+            {enquiryType === "b2c" ? (
+              <label className="contact-field">
+                <span className="sr-only">Order ID optional</span>
+                <FaBoxOpen aria-hidden="true" />
+                <input name="orderId" placeholder="Order ID (Optional)" />
+              </label>
+            ) : null}
           </div>
 
-          <form className="contact-form" onSubmit={submitContact}>
-            <div className="contact-form-grid">
-              <label>
-                <span>Full Name</span>
-                <input
-                  value={form.name}
-                  onChange={(event) => updateField("name", event.target.value)}
-                  placeholder="Your name"
-                  required
-                />
-              </label>
+          <label className="contact-field contact-message-field">
+            <span className="sr-only">Message</span>
+            <textarea name="message" rows={5} placeholder="Message *" required />
+          </label>
 
-              <label>
-                <span>Email Address</span>
-                <input
-                  type="email"
-                  value={form.email}
-                  onChange={(event) => updateField("email", event.target.value)}
-                  placeholder="you@example.com"
-                  required
-                />
-              </label>
+          <button className="primary-button contact-submit-button" type="submit" disabled={isSubmitting}>
+            {isSubmitting ? "Submitting..." : "Submit Enquiry"}
+          </button>
+          {error ? <p className="contact-error">{error}</p> : null}
+          {submitted ? <p className="contact-success">Thank you. Our team will contact you shortly.</p> : null}
+        </form>
+      </section>
 
-              <label>
-                <span>Phone Number</span>
-                <input
-                  type="tel"
-                  value={form.phone}
-                  onChange={(event) => updateField("phone", event.target.value)}
-                  placeholder="+91 98765 43210"
-                />
-              </label>
+      <section className="contact-details-bar" aria-label="Contact details">
+        <article>
+          <span className="contact-detail-icon"><FaEnvelope aria-hidden="true" /></span>
+          <strong>Email Us</strong>
+          <a href={`mailto:${supportEmail}`}>{supportEmail}</a>
+        </article>
+        <article>
+          <span className="contact-detail-icon"><FaPhoneAlt aria-hidden="true" /></span>
+          <strong>Call Us</strong>
+          {supportPhone ? <a href={`tel:${supportPhone.replace(/\s+/g, "")}`}>{supportPhone}</a> : <span>Phone support coming soon</span>}
+        </article>
+        <article>
+          <span className="contact-detail-icon"><FaClock aria-hidden="true" /></span>
+          <strong>Working Hours</strong>
+          <span>{workingHours}</span>
+        </article>
+        <article>
+          <span className="contact-detail-icon"><FaMapMarkerAlt aria-hidden="true" /></span>
+          <strong>Our Address</strong>
+          <span>{storeAddress}</span>
+        </article>
+      </section>
 
-              <label>
-                <span>Topic</span>
-                <select value={form.topic} onChange={(event) => updateField("topic", event.target.value)}>
-                  {SUPPORT_TOPICS.map((topic) => (
-                    <option key={topic} value={topic}>{topic}</option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            <label>
-              <span>Message</span>
-              <textarea
-                value={form.message}
-                onChange={(event) => updateField("message", event.target.value)}
-                placeholder="Tell us how we can help."
-                rows={6}
-                required
-              />
-            </label>
-
-            <button className="primary-button contact-submit-button" type="submit">Submit Message</button>
-            {submitted ? <p className="contact-success">Thank you. Your message has been received.</p> : null}
-          </form>
-        </section>
+      <section className="contact-trust-strip" aria-label="Service commitments">
+        <span><FaBolt aria-hidden="true" /> Fast Response</span>
+        <span><FaLock aria-hidden="true" /> Secure & Safe</span>
+        <span><FaShieldAlt aria-hidden="true" /> 100% Privacy</span>
+        <span><FaHeart aria-hidden="true" /> Customer First</span>
       </section>
     </main>
   );

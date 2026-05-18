@@ -1,25 +1,30 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000/api/v1";
+const responseCache = new Map();
+const DEFAULT_CACHE_TTL_MS = 60_000;
 
-export async function fetchStorefrontProducts(params = {}) {
-  const searchParams = new URLSearchParams(params);
-  const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
-  const response = await fetch(`${API_BASE_URL}/products${suffix}`);
+async function fetchJson(url, { cacheTtl = DEFAULT_CACHE_TTL_MS } = {}) {
+  const now = Date.now();
+  const cached = responseCache.get(url);
+  if (cached && cached.expiresAt > now) return cached.data;
 
+  const response = await fetch(url);
   if (!response.ok) {
     throw new Error("Unable to fetch products");
   }
 
-  return response.json();
+  const data = await response.json();
+  responseCache.set(url, { data, expiresAt: now + cacheTtl });
+  return data;
+}
+
+export async function fetchStorefrontProducts(params = {}) {
+  const searchParams = new URLSearchParams(params);
+  const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  return fetchJson(`${API_BASE_URL}/products${suffix}`);
 }
 
 export async function fetchStorefrontProduct(productId) {
-  const response = await fetch(`${API_BASE_URL}/products/${encodeURIComponent(productId)}`);
-
-  if (!response.ok) {
-    throw new Error("Unable to fetch product");
-  }
-
-  return response.json();
+  return fetchJson(`${API_BASE_URL}/products/${encodeURIComponent(productId)}`);
 }
 
 export async function fetchStorefrontProductReviews(productId, token = "", params = {}) {
@@ -79,6 +84,23 @@ export async function submitGuestReview(payload) {
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new Error(body.message || "Unable to submit guest review");
+  }
+
+  return response.json();
+}
+
+export async function uploadGuestReviewMedia(file) {
+  const formData = new FormData();
+  formData.append("media", file);
+
+  const response = await fetch(`${API_BASE_URL}/reviews/media`, {
+    method: "POST",
+    body: formData
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.message || "Unable to upload review media");
   }
 
   return response.json();

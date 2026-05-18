@@ -778,14 +778,20 @@ body.checkout-page {
   .mini-art,
   .collection-results-content .product-art {
     min-height: 0;
-    padding: 6px;
+    aspect-ratio: 1 / 1;
+    max-height: none;
+    padding: 8px;
+    margin-bottom: 8px;
     border-radius: 10px;
   }
 
   .product-art img,
   .mini-art img,
   .collection-results-content .product-art img {
-    transform: none;
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
   }
 
   .product-topline {
@@ -941,6 +947,9 @@ body.checkout-page {
   .product-art,
   .mini-art,
   .collection-results-content .product-art {
-    min-height: 0;
+    min-height: clamp(150px, 44vw, 220px);
+    aspect-ratio: 1 / 1;
+    padding: 8px;
+    margin-bottom: 8px;
   }
 }

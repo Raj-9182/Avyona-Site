@@ -1,13 +1,15 @@
 export const DEFAULT_APP_SETTINGS = {
   general: {
     storeName: "Avyona",
-    logoUrl: "/images/optimized/avyona-logo.webp",
-    faviconUrl: "/favicon.ico",
+    logoUrl: "",
+    faviconUrl: "",
     brandTagline: "Style that moves with you",
+    businessLegalName: "Avyona",
     supportEmail: "support@avyona.com",
     supportPhone: "+91 98765 43210",
     businessAddress: "Bengaluru, Karnataka, India",
-    gstNumber: "29ABCDE1234F1Z5"
+    gstNumber: "29ABCDE1234F1Z5",
+    workingHours: "Monday to Saturday, 10:00 AM to 7:00 PM"
   },
   store: {
     defaultCurrency: "INR",
@@ -68,8 +70,8 @@ export const DEFAULT_APP_SETTINGS = {
       {
         id: "hero-1",
         mediaType: "image",
-        desktopImage: "/images/optimized/banner-1.webp",
-        mobileImage: "/images/optimized/banner-1.webp",
+        desktopImage: "",
+        mobileImage: "",
         desktopVideo: "",
         mobileVideo: "",
         altText: "Avyona featured electronics collection",
@@ -90,8 +92,8 @@ export const DEFAULT_APP_SETTINGS = {
       {
         id: "hero-2",
         mediaType: "image",
-        desktopImage: "/images/optimized/banner-2.webp",
-        mobileImage: "/images/optimized/banner-2.webp",
+        desktopImage: "",
+        mobileImage: "",
         desktopVideo: "",
         mobileVideo: "",
         altText: "Avyona setup upgrade banner",
@@ -112,8 +114,8 @@ export const DEFAULT_APP_SETTINGS = {
       {
         id: "hero-3",
         mediaType: "image",
-        desktopImage: "/images/optimized/banner-3.webp",
-        mobileImage: "/images/optimized/banner-3.webp",
+        desktopImage: "",
+        mobileImage: "",
         desktopVideo: "",
         mobileVideo: "",
         altText: "Fresh Avyona product picks",
@@ -169,6 +171,30 @@ export const DEFAULT_APP_SETTINGS = {
       mobileCardsPerRow: 2,
       sortOrder: 60
     },
+    featuredBrandsSettings: {
+      enabled: true,
+      title: "Featured Brands",
+      subtitle: "",
+      cardsPerRow: 6,
+      mobileCardsPerRow: 2,
+      sortOrder: 80
+    },
+    newsletterSettings: {
+      enabled: true,
+      title: "Stay Updated",
+      subtitle: "Get offers, product launches, and helpful buying guides from Avyona.",
+      cardsPerRow: 1,
+      mobileCardsPerRow: 1,
+      sortOrder: 90
+    },
+    creditPointsSettings: {
+      enabled: true,
+      title: "Credit Points",
+      subtitle: "Shop, earn, and save. Every purchase brings you closer to cashback rewards.",
+      cardsPerRow: 4,
+      mobileCardsPerRow: 1,
+      sortOrder: 35
+    },
     browseCategories: [],
     browseCategoryCardCount: 6,
     ourProducts: [],
@@ -202,18 +228,20 @@ export const SETTINGS_SECTIONS = [
         title: "Brand Assets",
         fields: [
           { key: "general.storeName", label: "Store Name", type: "text" },
-          { key: "general.logoUrl", label: "Logo URL", type: "text" },
-          { key: "general.faviconUrl", label: "Favicon URL", type: "text" },
+          { key: "general.logoUrl", label: "Store Logo", type: "text" },
+          { key: "general.faviconUrl", label: "Favicon", type: "text" },
           { key: "general.brandTagline", label: "Brand Tagline", type: "text" }
         ]
       },
       {
-        title: "Support & Business Details",
+        title: "Business Details",
         fields: [
+          { key: "general.businessLegalName", label: "Business / Legal Name", type: "text" },
           { key: "general.supportEmail", label: "Support Email", type: "email" },
           { key: "general.supportPhone", label: "Support Phone", type: "text" },
           { key: "general.businessAddress", label: "Business Address", type: "textarea" },
-          { key: "general.gstNumber", label: "GST Number", type: "text" }
+          { key: "general.gstNumber", label: "GST Number", type: "text" },
+          { key: "general.workingHours", label: "Working Hours", type: "textarea" }
         ]
       }
     ]
@@ -497,9 +525,12 @@ export function getPublicSettings(settings = DEFAULT_APP_SETTINGS) {
       logoUrl: settings.general.logoUrl,
       faviconUrl: settings.general.faviconUrl,
       brandTagline: settings.general.brandTagline,
+      businessLegalName: settings.general.businessLegalName,
       supportEmail: settings.general.supportEmail,
       supportPhone: settings.general.supportPhone,
-      businessAddress: settings.general.businessAddress
+      businessAddress: settings.general.businessAddress,
+      gstNumber: settings.general.gstNumber,
+      workingHours: settings.general.workingHours
     },
     store: {
       defaultCurrency: settings.store.defaultCurrency,
@@ -558,6 +589,9 @@ export function getPublicSettings(settings = DEFAULT_APP_SETTINGS) {
       ourProductsSettings: normalizePublicHomepageSectionSettings(settings.homepage?.ourProductsSettings, DEFAULT_APP_SETTINGS.homepage.ourProductsSettings),
       bestSellerProductsSettings: normalizePublicHomepageSectionSettings(settings.homepage?.bestSellerProductsSettings, DEFAULT_APP_SETTINGS.homepage.bestSellerProductsSettings),
       newArrivalProductsSettings: normalizePublicHomepageSectionSettings(settings.homepage?.newArrivalProductsSettings, DEFAULT_APP_SETTINGS.homepage.newArrivalProductsSettings),
+      featuredBrandsSettings: normalizePublicHomepageSectionSettings(settings.homepage?.featuredBrandsSettings, DEFAULT_APP_SETTINGS.homepage.featuredBrandsSettings),
+      newsletterSettings: normalizePublicHomepageSectionSettings(settings.homepage?.newsletterSettings, DEFAULT_APP_SETTINGS.homepage.newsletterSettings),
+      creditPointsSettings: normalizePublicHomepageSectionSettings(settings.homepage?.creditPointsSettings, DEFAULT_APP_SETTINGS.homepage.creditPointsSettings),
       browseCategoryCardCount: Number.isInteger(Number(settings.homepage?.browseCategoryCardCount))
         ? Math.min(10, Math.max(1, Number(settings.homepage.browseCategoryCardCount)))
         : DEFAULT_APP_SETTINGS.homepage.browseCategoryCardCount,

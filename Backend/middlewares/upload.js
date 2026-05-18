@@ -4,7 +4,11 @@ import multer from "multer";
 
 const uploadDirectory = path.resolve(process.cwd(), "uploads");
 const inventoryUploadDirectory = path.resolve(uploadDirectory, "inventory");
-const allowedImageMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+const settingsUploadDirectory = path.resolve(uploadDirectory, "settings");
+const allowedImageMimeTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/svg+xml"]);
+const allowedImageExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".svg"]);
+const allowedVideoMimeTypes = new Set(["video/mp4", "video/webm", "video/quicktime"]);
+const allowedVideoExtensions = new Set([".mp4", ".webm", ".mov"]);
 
 if (!fs.existsSync(uploadDirectory)) {
   fs.mkdirSync(uploadDirectory, { recursive: true });
@@ -12,6 +16,10 @@ if (!fs.existsSync(uploadDirectory)) {
 
 if (!fs.existsSync(inventoryUploadDirectory)) {
   fs.mkdirSync(inventoryUploadDirectory, { recursive: true });
+}
+
+if (!fs.existsSync(settingsUploadDirectory)) {
+  fs.mkdirSync(settingsUploadDirectory, { recursive: true });
 }
 
 const storage = multer.diskStorage({
@@ -34,22 +42,41 @@ const inventoryStorage = multer.diskStorage({
   }
 });
 
+const settingsAssetStorage = multer.diskStorage({
+  destination: (_request, _file, callback) => callback(null, settingsUploadDirectory),
+  filename: (_request, file, callback) => {
+    const extension = path.extname(file.originalname || "").toLowerCase();
+    const safeBaseName = String(path.basename(file.originalname || "settings-asset", extension))
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "settings-asset";
+    callback(null, `${Date.now()}-${safeBaseName}${extension}`);
+  }
+});
+
 function fileFilter(_request, file, callback) {
-  if (!allowedImageMimeTypes.has(file.mimetype)) {
-    callback(new Error("Only JPG, PNG, and WebP image uploads are allowed"));
+  const extension = path.extname(file.originalname || "").toLowerCase();
+  if (!allowedImageMimeTypes.has(file.mimetype) || !allowedImageExtensions.has(extension)) {
+    callback(new Error("Only JPG, PNG, WebP, and SVG image uploads are allowed"));
     return;
   }
   callback(null, true);
 }
 
 function mediaFileFilter(_request, file, callback) {
-  if (file.mimetype.startsWith("image/") && !allowedImageMimeTypes.has(file.mimetype)) {
-    callback(new Error("Only JPG, PNG, and WebP image uploads are allowed"));
+  const extension = path.extname(file.originalname || "").toLowerCase();
+  if (file.mimetype.startsWith("image/") && (!allowedImageMimeTypes.has(file.mimetype) || !allowedImageExtensions.has(extension))) {
+    callback(new Error("Only JPG, PNG, WebP, and SVG image uploads are allowed"));
+    return;
+  }
+
+  if (file.mimetype.startsWith("video/") && (!allowedVideoMimeTypes.has(file.mimetype) || !allowedVideoExtensions.has(extension))) {
+    callback(new Error("Only MP4, WebM, and MOV video uploads are allowed"));
     return;
   }
 
   if (!file.mimetype.startsWith("image/") && !file.mimetype.startsWith("video/")) {
-    callback(new Error("Only image and video uploads are allowed"));
+    callback(new Error("Only safe image and video uploads are allowed"));
     return;
   }
   callback(null, true);
@@ -57,7 +84,12 @@ function mediaFileFilter(_request, file, callback) {
 
 function inventoryFileFilter(_request, file, callback) {
   const extension = path.extname(file.originalname || "").toLowerCase();
-  if (extension !== ".xlsx" || file.mimetype !== "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") {
+  const allowedInventoryMimeTypes = new Set([
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/octet-stream",
+    "application/zip"
+  ]);
+  if (extension !== ".xlsx" || !allowedInventoryMimeTypes.has(file.mimetype)) {
     callback(new Error("Only .xlsx inventory files are allowed"));
     return;
   }
@@ -86,5 +118,13 @@ export const uploadInventory = multer({
   fileFilter: inventoryFileFilter,
   limits: {
     fileSize: 50 * 1024 * 1024
+  }
+});
+
+export const uploadSettingsAsset = multer({
+  storage: settingsAssetStorage,
+  fileFilter,
+  limits: {
+    fileSize: 2 * 1024 * 1024
   }
 });

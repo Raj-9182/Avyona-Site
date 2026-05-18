@@ -193,6 +193,40 @@ export async function createReview(payload) {
   try {
     await connection.beginTransaction();
 
+    if (review.customerId && review.reviewType === REVIEW_TYPES.CUSTOMER) {
+      await connection.execute(
+        "SELECT id FROM customers WHERE id = ? LIMIT 1 FOR UPDATE",
+        [review.customerId]
+      );
+
+      const [existingReviewRows] = await connection.execute(
+        `SELECT review_id
+         FROM reviews
+         WHERE customer_id = ?
+           AND product_id = ?
+           AND visibility_status <> ?
+         LIMIT 1
+         FOR UPDATE`,
+        [review.customerId, review.productId, REVIEW_VISIBILITY_STATUSES.DELETED]
+      );
+
+      if (existingReviewRows[0]) {
+        throw new ApiError(409, "You have already submitted a review for this product.");
+      }
+
+      if (review.orderId) {
+        await connection.execute(
+          `SELECT id
+           FROM orders
+           WHERE id = ?
+             AND customer_id = ?
+           LIMIT 1
+           FOR UPDATE`,
+          [review.orderId, review.customerId]
+        );
+      }
+    }
+
     const createdAtSql = review.createdAt ? ", created_at, updated_at" : "";
     const createdAtPlaceholders = review.createdAt ? ", ?, ?" : "";
     const createdAtValues = review.createdAt ? [review.createdAt, review.createdAt] : [];
@@ -527,16 +561,45 @@ export async function updateReviewVisibility(reviewId, visibilityStatus) {
     throw new ApiError(400, "Invalid review visibility status");
   }
 
-  const [result] = await pool.execute(
-    "UPDATE reviews SET visibility_status = ? WHERE review_id = ?",
-    [visibilityStatus, Number(reviewId)]
-  );
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
 
-  if (!result.affectedRows) {
-    throw new ApiError(404, "Review not found");
+    const [currentRows] = await connection.execute(
+      `SELECT review_id AS reviewId, customer_id AS customerId, product_id AS productId,
+              is_verified_purchase AS isVerifiedPurchase, visibility_status AS previousVisibilityStatus
+       FROM reviews
+       WHERE review_id = ?
+       LIMIT 1
+       FOR UPDATE`,
+      [Number(reviewId)]
+    );
+
+    if (!currentRows[0]) {
+      throw new ApiError(404, "Review not found");
+    }
+
+    await connection.execute(
+      "UPDATE reviews SET visibility_status = ? WHERE review_id = ?",
+      [visibilityStatus, Number(reviewId)]
+    );
+
+    await connection.commit();
+
+    return {
+      reviewId:           Number(reviewId),
+      visibilityStatus,
+      previousVisibilityStatus: currentRows[0].previousVisibilityStatus,
+      customerId:         currentRows[0]?.customerId || null,
+      productId:          currentRows[0]?.productId || null,
+      isVerifiedPurchase: Boolean(currentRows[0]?.isVerifiedPurchase)
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
   }
-
-  return { reviewId: Number(reviewId), visibilityStatus };
 }
 
 export async function updateReview(reviewId, payload = {}) {

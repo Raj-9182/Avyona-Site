@@ -116,7 +116,7 @@ export default function SiteHeader({ context, allProducts }) {
           <p>{shipping.freeShippingThreshold ? `Free shipping above ${shipping.freeShippingThreshold}` : "Free shipping on selected products"}</p>
           <p>{payment.codEnabled ? "COD available across India" : "Secure prepaid checkout available"}</p>
           <p>{general.brandTagline || "Genuine products from trusted brands"}</p>
-          <Link to="/contact">Need help? Talk to our team</Link>
+          <Link to="/contact-us">Need help? Talk to our team</Link>
         </div>
       </div>
       <header className="site-header">
@@ -125,9 +125,9 @@ export default function SiteHeader({ context, allProducts }) {
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16v2H4zM4 11h16v2H4zM4 15h16v2H4z" /></svg>
           </button>
           <Link className="brand-lockup" to="/" aria-label={`${general.storeName || "Avyona"} home`}>
-            <img className="brand-logo" src={general.logoUrl || "/images/optimized/avyona-logo.webp"} alt={`${general.storeName || "Avyona"} logo`} fetchPriority="high" />
+            {general.logoUrl ? <img className="brand-logo" src={general.logoUrl} alt={`${general.storeName || "Avyona"} logo`} fetchPriority="high" /> : <span className="brand-text">{general.storeName || "Avyona"}</span>}
           </Link>
-          <form className="header-search" role="search" aria-label="Search Avyona products" onSubmit={(event) => { event.preventDefault(); submitSearch(query); }}>
+          <form className="header-search" role="search" aria-label={`Search ${general.storeName || "Avyona"} products`} onSubmit={(event) => { event.preventDefault(); submitSearch(query); }}>
             <button className="search-icon search-submit-button" type="submit" aria-label="Search">&#8981;</button>
             <input
               type="search"
@@ -176,7 +176,7 @@ export default function SiteHeader({ context, allProducts }) {
                 {category.name}
               </NavLink>
             ))}
-            <NavLink to="/contact" onClick={() => setMenuOpen(false)}>Contact Us</NavLink>
+            <NavLink to="/contact-us" onClick={() => setMenuOpen(false)}>Contact Us</NavLink>
             {tracking.trackingPageEnabled ? (
               <NavLink to="/track-order" onClick={() => setMenuOpen(false)}>Track Your Order</NavLink>
             ) : null}

@@ -5,6 +5,7 @@ export { default as CollectionPage } from "./CollectionPage";
 export { default as CollectionsPage } from "./CollectionsPage";
 export { default as ContactPage } from "./ContactPage";
 export { default as Home } from "./Home";
+export { default as NotFoundPage } from "./NotFoundPage";
 export { default as OrderConfirmationPage } from "./OrderConfirmationPage";
 export { default as OffersPage } from "./OffersPage";
 export { default as ProductPage } from "./ProductPage";

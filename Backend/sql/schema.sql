@@ -119,6 +119,21 @@ CREATE TABLE IF NOT EXISTS admin_login_sessions (
   CONSTRAINT fk_admin_login_sessions_admin FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS contact_enquiries (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  enquiry_type ENUM('B2C', 'B2B') NOT NULL,
+  name VARCHAR(160) NOT NULL,
+  company_name VARCHAR(180) NULL,
+  email VARCHAR(180) NOT NULL,
+  phone VARCHAR(40) NOT NULL,
+  order_id VARCHAR(80) NULL,
+  message TEXT NOT NULL,
+  status ENUM('New', 'In Progress', 'Resolved', 'Closed') NOT NULL DEFAULT 'New',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_contact_enquiries_status_created (status, created_at),
+  KEY idx_contact_enquiries_type_created (enquiry_type, created_at)
+);
+
 CREATE TABLE IF NOT EXISTS categories (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(120) NOT NULL,
@@ -198,6 +213,7 @@ CREATE TABLE IF NOT EXISTS products (
   is_new_arrival TINYINT(1) NOT NULL DEFAULT 0,
   is_best_seller TINYINT(1) NOT NULL DEFAULT 0,
   is_visible TINYINT(1) NOT NULL DEFAULT 1,
+  sort_order INT NOT NULL DEFAULT 0,
   is_deleted TINYINT(1) NOT NULL DEFAULT 0,
   deleted_at DATETIME NULL,
   status ENUM('draft', 'active', 'archived', 'out_of_stock') NOT NULL DEFAULT 'draft',
@@ -348,6 +364,17 @@ CREATE TABLE IF NOT EXISTS customers (
 ALTER TABLE customers ADD COLUMN password_hash VARCHAR(255) NULL;
 ALTER TABLE customers ADD COLUMN status ENUM('active', 'inactive', 'blocked') NOT NULL DEFAULT 'active';
 ALTER TABLE customers ADD COLUMN last_login_at DATETIME NULL;
+
+CREATE TABLE IF NOT EXISTS customer_password_resets (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  customer_id INT UNSIGNED NOT NULL,
+  token_hash VARCHAR(128) NOT NULL,
+  expires_at DATETIME NOT NULL,
+  used_at DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_customer_password_resets_token (token_hash),
+  CONSTRAINT fk_customer_password_resets_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+);
 
 CREATE TABLE IF NOT EXISTS customer_addresses (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -1121,11 +1148,11 @@ ALTER TABLE audit_logs ADD COLUMN device_label VARCHAR(180) NULL;
 ALTER TABLE audit_logs ADD COLUMN status ENUM('success', 'failed') NOT NULL DEFAULT 'success';
 
 CREATE TABLE IF NOT EXISTS app_settings (
-  id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
-  settings_json JSON NOT NULL,
-  updated_by INT UNSIGNED NULL,
+  setting_key VARCHAR(120) NOT NULL PRIMARY KEY,
+  setting_value TEXT NULL,
+  setting_group VARCHAR(80) NOT NULL DEFAULT 'general',
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT fk_app_settings_admin FOREIGN KEY (updated_by) REFERENCES admins(id) ON DELETE SET NULL
+  INDEX idx_app_settings_group (setting_group)
 );
 
 CREATE INDEX idx_categories_parent ON categories(parent_id);
@@ -1157,6 +1184,7 @@ CREATE INDEX idx_user_custom_permissions_admin ON user_custom_permissions(admin_
 CREATE INDEX idx_audit_logs_admin_created ON audit_logs(admin_id, created_at);
 CREATE INDEX idx_audit_logs_module_created ON audit_logs(module_name, created_at);
 CREATE INDEX idx_products_visibility ON products(status, is_visible, is_deleted);
+CREATE INDEX idx_products_sort_order ON products(sort_order, created_at);
 CREATE INDEX idx_orders_number ON orders(order_number);
 CREATE INDEX idx_orders_status_created ON orders(status, created_at);
 CREATE INDEX idx_customers_email ON customers(email);
@@ -1180,3 +1208,195 @@ CREATE INDEX idx_blog_posts_status_date ON blog_posts(status, published_at);
 CREATE INDEX idx_form_leads_status ON form_leads(status, created_at);
 CREATE INDEX idx_notifications_user_read ON notifications(user_type, user_id, is_read);
 CREATE INDEX idx_analytics_events_name_date ON analytics_events(event_name, created_at);
+
+-- ─── Credit Points System ─────────────────────────────────────────────────────
+
+-- Canonical credit module table names:
+--   credit_settings
+--   customer_credit_wallets
+--   credit_transactions
+--   reward_rules
+--   customer_referral_codes
+--   credit_fraud_logs
+-- Keep this naming style consistently. Do not introduce alternate names
+-- for credit transactions or referral tracking.
+CREATE TABLE IF NOT EXISTS credit_settings (
+  id                    INT UNSIGNED  NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  points_per_rupee      INT           NOT NULL DEFAULT 10,
+  min_redeem_points     INT           NOT NULL DEFAULT 100,
+  max_redeem_percent    DECIMAL(5,2)  NOT NULL DEFAULT 20.00,
+  expiry_days           INT           NOT NULL DEFAULT 365,
+  expiry_warning_days   INT           NOT NULL DEFAULT 30,
+  referrer_bonus_points INT           NOT NULL DEFAULT 300,
+  referee_bonus_points  INT           NOT NULL DEFAULT 500,
+  updated_at            TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- One settings row is seeded on first use; subsequent changes update it.
+INSERT IGNORE INTO credit_settings (id) VALUES (1);
+
+CREATE TABLE IF NOT EXISTS customer_credit_wallets (
+  id               INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  customer_id      INT UNSIGNED NOT NULL UNIQUE,
+  total_points     INT          NOT NULL DEFAULT 0,
+  available_points INT          NOT NULL DEFAULT 0,
+  used_points      INT          NOT NULL DEFAULT 0,
+  expired_points   INT          NOT NULL DEFAULT 0,
+  is_blocked       TINYINT(1)   NOT NULL DEFAULT 0,
+  created_at       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_credit_wallet_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS credit_transactions (
+  id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  customer_id      INT UNSIGNED    NOT NULL,
+  transaction_type ENUM(
+    'signup_bonus', 'referral_bonus', 'purchase_cashback',
+    'review_reward', 'milestone_reward', 'manual_adjustment',
+    'redemption', 'expiry'
+  )                                NOT NULL,
+  points           INT             NOT NULL,
+  cashback_value   DECIMAL(10,2)   NOT NULL DEFAULT 0.00,
+  reference_id     VARCHAR(100)    NULL,
+  reference_type   VARCHAR(60)     NULL,
+  note             TEXT            NULL,
+  status           ENUM('active', 'used', 'expired', 'pending') NOT NULL DEFAULT 'active',
+  expiry_date      DATE            NULL,
+  created_at       TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_credit_tx_customer_date    (customer_id, created_at),
+  INDEX idx_credit_tx_customer_status  (customer_id, status),
+  INDEX idx_credit_tx_expiry           (expiry_date, status),
+  CONSTRAINT fk_credit_tx_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS credit_fraud_logs (
+  id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  customer_id    INT UNSIGNED    NULL,
+  violation_type VARCHAR(80)     NOT NULL,
+  metadata       JSON            NULL,
+  ip_address     VARCHAR(64)     NULL,
+  reviewed       TINYINT(1)      NOT NULL DEFAULT 0,
+  reviewed_by    INT UNSIGNED    NULL,
+  reviewed_at    DATETIME        NULL,
+  created_at     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_fraud_logs_customer      (customer_id, created_at),
+  INDEX idx_fraud_logs_type_date     (violation_type, created_at),
+  INDEX idx_fraud_logs_reviewed      (reviewed, created_at),
+  CONSTRAINT fk_fraud_logs_customer  FOREIGN KEY (customer_id)  REFERENCES customers(id) ON DELETE SET NULL,
+  CONSTRAINT fk_fraud_logs_reviewer  FOREIGN KEY (reviewed_by)  REFERENCES admins(id)    ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS reward_rules (
+  id               INT UNSIGNED   NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  rule_name        VARCHAR(120)   NOT NULL,
+  rule_type        ENUM('cashback', 'bonus', 'campaign', 'milestone') NOT NULL,
+  trigger_event    ENUM('signup', 'referral', 'purchase', 'review', 'milestone', 'manual_reward', 'festival_campaign') NOT NULL,
+  reward_points    INT            NOT NULL DEFAULT 0,
+  cashback_value   DECIMAL(10,2)  NOT NULL DEFAULT 0.00,
+  cashback_percent DECIMAL(6,3)   NULL,
+  milestone_order_count INT        NULL,
+  reward_target    ENUM('customer', 'referrer', 'referee', 'both') NOT NULL DEFAULT 'customer',
+  priority         INT            NOT NULL DEFAULT 100,
+  max_usage        INT            NULL,
+  used_count       INT            NOT NULL DEFAULT 0,
+  status           ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+  expiry_date      DATE           NULL,
+  min_order_value  DECIMAL(10,2)  NULL,
+  max_reward_limit INT            NULL,
+  is_default       TINYINT(1)     NOT NULL DEFAULT 0,
+  created_at       TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at       TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_reward_rules_type_status (rule_type, status),
+  INDEX idx_reward_rules_trigger     (trigger_event, status)
+);
+
+ALTER TABLE reward_rules ADD COLUMN cashback_percent DECIMAL(6,3) NULL;
+ALTER TABLE reward_rules ADD COLUMN milestone_order_count INT NULL;
+ALTER TABLE reward_rules ADD COLUMN reward_target ENUM('customer', 'referrer', 'referee', 'both') NOT NULL DEFAULT 'customer';
+ALTER TABLE reward_rules ADD COLUMN priority INT NOT NULL DEFAULT 100;
+ALTER TABLE reward_rules ADD COLUMN max_usage INT NULL;
+ALTER TABLE reward_rules ADD COLUMN used_count INT NOT NULL DEFAULT 0;
+CREATE INDEX idx_reward_rules_milestone ON reward_rules(trigger_event, status, milestone_order_count);
+CREATE INDEX idx_reward_rules_active_priority ON reward_rules(trigger_event, status, priority, expiry_date);
+
+UPDATE reward_rules
+SET reward_target = 'customer', priority = COALESCE(priority, 100)
+WHERE trigger_event IN ('signup', 'purchase', 'review', 'milestone');
+
+UPDATE reward_rules
+SET reward_target = 'referrer', priority = COALESCE(priority, 100)
+WHERE trigger_event = 'referral' AND rule_name IN ('Referral Bonus', 'Referrer Bonus');
+
+INSERT INTO reward_rules (rule_name, rule_type, trigger_event, reward_points, cashback_value, reward_target, priority, status, is_default)
+SELECT 'New Customer Signup', 'bonus', 'signup', 500, 50.00, 'customer', 100, 'active', 1
+WHERE NOT EXISTS (SELECT 1 FROM reward_rules WHERE trigger_event = 'signup' AND is_default = 1);
+
+INSERT INTO reward_rules (rule_name, rule_type, trigger_event, reward_points, cashback_value, reward_target, priority, status, is_default)
+SELECT 'Referral Bonus', 'bonus', 'referral', 300, 30.00, 'referrer', 100, 'active', 1
+WHERE NOT EXISTS (SELECT 1 FROM reward_rules WHERE trigger_event = 'referral' AND reward_target IN ('referrer', 'both') AND is_default = 1);
+
+INSERT INTO reward_rules (rule_name, rule_type, trigger_event, reward_points, cashback_value, reward_target, priority, status, is_default)
+SELECT 'Referral Join Bonus', 'bonus', 'referral', 500, 50.00, 'referee', 100, 'active', 1
+WHERE NOT EXISTS (SELECT 1 FROM reward_rules WHERE trigger_event = 'referral' AND reward_target IN ('referee', 'both') AND is_default = 1);
+
+INSERT INTO reward_rules (rule_name, rule_type, trigger_event, reward_points, cashback_value, cashback_percent, reward_target, priority, status, min_order_value, is_default)
+SELECT 'Purchase Cashback', 'cashback', 'purchase', 0, 0.00, 0.200, 'customer', 100, 'active', 0.00, 1
+WHERE NOT EXISTS (SELECT 1 FROM reward_rules WHERE trigger_event = 'purchase' AND is_default = 1);
+
+UPDATE reward_rules
+SET cashback_percent = COALESCE(cashback_percent, 0.200),
+    reward_points = CASE WHEN rule_name = 'Purchase Cashback' THEN 0 ELSE reward_points END,
+    cashback_value = CASE WHEN rule_name = 'Purchase Cashback' THEN 0.00 ELSE cashback_value END,
+    min_order_value = COALESCE(min_order_value, 0.00)
+WHERE trigger_event = 'purchase' AND is_default = 1;
+
+INSERT INTO reward_rules (rule_name, rule_type, trigger_event, reward_points, cashback_value, reward_target, priority, status, is_default)
+SELECT 'Verified Review Reward', 'bonus', 'review', 100, 10.00, 'customer', 100, 'active', 1
+WHERE NOT EXISTS (SELECT 1 FROM reward_rules WHERE trigger_event = 'review' AND is_default = 1);
+
+INSERT INTO reward_rules (rule_name, rule_type, trigger_event, reward_points, cashback_value, milestone_order_count, reward_target, priority, status, is_default)
+SELECT '5 Order Milestone', 'milestone', 'milestone', 500, 50.00, 5, 'customer', 100, 'active', 1
+WHERE NOT EXISTS (SELECT 1 FROM reward_rules WHERE trigger_event = 'milestone' AND is_default = 1);
+
+UPDATE reward_rules
+SET milestone_order_count = COALESCE(milestone_order_count, 5)
+WHERE trigger_event = 'milestone' AND is_default = 1;
+
+CREATE TABLE IF NOT EXISTS customer_referral_codes (
+  id                    INT UNSIGNED  NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  customer_id           INT UNSIGNED  NOT NULL UNIQUE,
+  referral_code         VARCHAR(20)   NOT NULL UNIQUE,
+  referred_by_code      VARCHAR(20)   NULL,
+  referral_status       ENUM('none', 'pending', 'successful', 'blocked') NOT NULL DEFAULT 'none',
+  blocked_reason        VARCHAR(255)  NULL,
+  signup_ip             VARCHAR(64)   NULL,
+  signup_device_hash    VARCHAR(128)  NULL,
+  referred_at           DATETIME      NULL,
+  successful_at         DATETIME      NULL,
+  total_referrals       INT           NOT NULL DEFAULT 0,
+  successful_referrals  INT           NOT NULL DEFAULT 0,
+  points_earned         INT           NOT NULL DEFAULT 0,
+  created_at            TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at            TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_referral_code          (referral_code),
+  INDEX idx_referral_referred_by   (referred_by_code),
+  INDEX idx_referral_status        (referral_status),
+  INDEX idx_referral_device        (signup_device_hash),
+  CONSTRAINT fk_referral_codes_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+);
+
+ALTER TABLE customer_referral_codes ADD COLUMN referral_status ENUM('none', 'pending', 'successful', 'blocked') NOT NULL DEFAULT 'none';
+ALTER TABLE customer_referral_codes ADD COLUMN blocked_reason VARCHAR(255) NULL;
+ALTER TABLE customer_referral_codes ADD COLUMN signup_ip VARCHAR(64) NULL;
+ALTER TABLE customer_referral_codes ADD COLUMN signup_device_hash VARCHAR(128) NULL;
+ALTER TABLE customer_referral_codes ADD COLUMN referred_at DATETIME NULL;
+ALTER TABLE customer_referral_codes ADD COLUMN successful_at DATETIME NULL;
+CREATE INDEX idx_referral_status ON customer_referral_codes(referral_status);
+CREATE INDEX idx_referral_device ON customer_referral_codes(signup_device_hash);
+
+UPDATE customer_referral_codes
+SET referral_status = 'pending',
+    referred_at = COALESCE(referred_at, created_at)
+WHERE referred_by_code IS NOT NULL
+  AND referral_status = 'none';

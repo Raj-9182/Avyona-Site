@@ -11,7 +11,15 @@
     "analytics:process": "node scripts/process-analytics-events.mjs",
     "analytics:aggregate": "node scripts/aggregate-analytics-events.mjs",
     "analytics:aggregate:watch": "node scripts/aggregate-analytics-events.mjs --watch",
-    "test:access": "node scripts/verify-access-control.mjs"
+    "test:access": "node scripts/verify-access-control.mjs",
+    "test:credit-table-names": "node scripts/verify-credit-table-names.mjs",
+    "test:credit-milestones": "node scripts/qa-credit-milestones.mjs",
+    "test:referral-abuse": "node scripts/qa-referral-abuse.mjs",
+    "test:credit-performance": "node scripts/qa-credit-performance.mjs",
+    "test:security-hardening": "node scripts/qa-security-hardening.mjs",
+    "test:production-readiness": "node scripts/verify-production-readiness.mjs",
+    "test:credit-qa": "npm run test:credit-table-names && npm run test:credit-milestones && npm run test:referral-abuse",
+    "test:production-hardening": "npm run test:credit-performance && npm run test:security-hardening && npm run test:production-readiness"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

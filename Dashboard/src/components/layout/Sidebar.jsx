@@ -5,6 +5,7 @@ import {
   FaCog,
   FaHome,
   FaImages,
+  FaEnvelope,
   FaPercent,
   FaList,
   FaShoppingCart,
@@ -26,6 +27,7 @@ const navItems = [
   { label: "Website Images", to: "/dashboard/website-images", icon: FaImages, module: "homepage" },
   { label: "Orders", to: "/dashboard/orders", icon: FaShoppingCart, module: "orders" },
   { label: "Customers", to: "/dashboard/customers", icon: FaUsers, module: "customers" },
+  { label: "Contact Enquiries", to: "/dashboard/contact-enquiries", icon: FaEnvelope, module: "contact_enquiries" },
   { label: "Settings", to: "/dashboard/settings", icon: FaCog, module: "settings" }
 ];
 

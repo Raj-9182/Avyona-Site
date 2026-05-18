@@ -77,10 +77,16 @@ body.account-page {
   background: #fff;
 }
 
-.account-form-header,
 .account-heading-block {
   display: grid;
   gap: 8px;
+}
+
+.account-form-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 .account-form-logo {
@@ -88,9 +94,32 @@ body.account-page {
 }
 
 .account-trust-line {
+  margin-top: 8px;
   color: #66717d;
   font-size: 0.92rem;
   font-weight: 600;
+}
+
+.account-back-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid #d7e1dc;
+  border-radius: 999px;
+  color: var(--brand-dark);
+  font-size: 0.88rem;
+  font-weight: 800;
+  white-space: nowrap;
+  background: #fff;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.account-back-link:hover {
+  border-color: rgba(93, 180, 103, 0.42);
+  box-shadow: 0 12px 22px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
 }
 
 .account-heading-block h2 {
@@ -348,6 +377,14 @@ body.account-page {
   .account-brand-logo,
   .account-form-logo {
     width: 122px;
+  }
+
+  .account-form-header {
+    display: grid;
+  }
+
+  .account-back-link {
+    width: 100%;
   }
 
   .account-heading-block h2 {

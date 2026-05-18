@@ -8,7 +8,8 @@
     "dev:mobile": "vite --host 0.0.0.0",
     "optimize:images": "node ../scripts/optimize-images.mjs",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:mobile-checkout-rewards": "node scripts/verify-mobile-checkout-rewards.mjs"
   },
   "dependencies": {
     "axios": "^1.9.0",

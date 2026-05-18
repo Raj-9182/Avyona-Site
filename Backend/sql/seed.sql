@@ -61,11 +61,19 @@ INSERT INTO permissions (permission_key, module_name, action_name, display_name,
   ('customers.view', 'customers', 'view', 'View Customers', 'View customer records.', 0, 1),
   ('customers.edit', 'customers', 'edit', 'Edit Customers', 'Edit customer records.', 0, 1),
   ('customers.export', 'customers', 'export', 'Export Customers', 'Export customer records.', 1, 1),
+  ('contact_enquiries.view', 'contact_enquiries', 'view', 'View Contact Enquiries', 'View customer and business contact enquiries.', 0, 1),
+  ('contact_enquiries.edit', 'contact_enquiries', 'edit', 'Edit Contact Enquiries', 'Update contact enquiry status.', 0, 1),
+  ('contact_enquiries.export', 'contact_enquiries', 'export', 'Export Contact Enquiries', 'Export contact enquiry records.', 1, 1),
   ('coupons.view', 'coupons', 'view', 'View Coupons', 'View coupon records.', 0, 1),
   ('coupons.create', 'coupons', 'create', 'Create Coupons', 'Create coupon records.', 0, 1),
   ('coupons.edit', 'coupons', 'edit', 'Edit Coupons', 'Edit coupon records.', 0, 1),
   ('coupons.delete', 'coupons', 'delete', 'Delete Coupons', 'Delete coupon records.', 0, 1),
   ('coupons.export', 'coupons', 'export', 'Export Coupons', 'Export coupon records.', 0, 1),
+  ('credit_points.view', 'credit_points', 'view', 'View Credit Points', 'View credit points rewards, wallets, transactions, and referral activity.', 0, 1),
+  ('credit_points.create', 'credit_points', 'create', 'Create Credit Point Rules', 'Create reward rules and credit point campaigns.', 0, 1),
+  ('credit_points.edit', 'credit_points', 'edit', 'Edit Credit Points', 'Edit reward settings, wallets, and expiry processing.', 1, 1),
+  ('credit_points.delete', 'credit_points', 'delete', 'Delete Credit Point Rules', 'Delete non-default reward rules.', 1, 1),
+  ('credit_points.export', 'credit_points', 'export', 'Export Credit Points', 'Export credit points wallet and transaction data.', 1, 1),
   ('homepage.view', 'homepage', 'view', 'View Homepage', 'View homepage configuration.', 0, 1),
   ('homepage.create', 'homepage', 'create', 'Create Homepage Content', 'Create homepage content blocks.', 0, 1),
   ('homepage.edit', 'homepage', 'edit', 'Edit Homepage', 'Edit homepage content.', 0, 1),
@@ -108,7 +116,9 @@ JOIN (
   SELECT 'variations' UNION ALL
   SELECT 'orders' UNION ALL
   SELECT 'customers' UNION ALL
+  SELECT 'contact_enquiries' UNION ALL
   SELECT 'coupons' UNION ALL
+  SELECT 'credit_points' UNION ALL
   SELECT 'homepage' UNION ALL
   SELECT 'reviews' UNION ALL
   SELECT 'settings' UNION ALL
@@ -135,7 +145,9 @@ JOIN (
   SELECT 'admin', 'variations', 1, 1, 1, 1, 1, 0 UNION ALL
   SELECT 'admin', 'orders', 1, 1, 1, 0, 1, 0 UNION ALL
   SELECT 'admin', 'customers', 1, 0, 1, 0, 1, 0 UNION ALL
+  SELECT 'admin', 'contact_enquiries', 1, 0, 1, 0, 1, 0 UNION ALL
   SELECT 'admin', 'coupons', 1, 1, 1, 1, 1, 0 UNION ALL
+  SELECT 'admin', 'credit_points', 1, 1, 1, 1, 1, 0 UNION ALL
   SELECT 'admin', 'homepage', 1, 1, 1, 1, 0, 0 UNION ALL
   SELECT 'admin', 'reviews', 1, 1, 1, 1, 1, 0 UNION ALL
   SELECT 'admin', 'settings', 1, 0, 1, 0, 0, 0 UNION ALL
@@ -148,13 +160,16 @@ JOIN (
   SELECT 'order_manager', 'dashboard', 1, 0, 0, 0, 0, 0 UNION ALL
   SELECT 'order_manager', 'orders', 1, 1, 1, 0, 1, 0 UNION ALL
   SELECT 'order_manager', 'customers', 1, 0, 1, 0, 0, 0 UNION ALL
+  SELECT 'order_manager', 'contact_enquiries', 1, 0, 1, 0, 0, 0 UNION ALL
   SELECT 'marketing_manager', 'dashboard', 1, 0, 0, 0, 0, 0 UNION ALL
   SELECT 'marketing_manager', 'coupons', 1, 1, 1, 1, 1, 0 UNION ALL
+  SELECT 'marketing_manager', 'credit_points', 1, 1, 1, 0, 1, 0 UNION ALL
   SELECT 'marketing_manager', 'homepage', 1, 1, 1, 1, 0, 0 UNION ALL
   SELECT 'marketing_manager', 'reviews', 1, 1, 1, 1, 1, 0 UNION ALL
   SELECT 'support_staff', 'dashboard', 1, 0, 0, 0, 0, 0 UNION ALL
   SELECT 'support_staff', 'orders', 1, 0, 1, 0, 0, 0 UNION ALL
   SELECT 'support_staff', 'customers', 1, 0, 1, 0, 0, 0 UNION ALL
+  SELECT 'support_staff', 'contact_enquiries', 1, 0, 1, 0, 0, 0 UNION ALL
   SELECT 'viewer', 'dashboard', 1, 0, 0, 0, 0, 0 UNION ALL
   SELECT 'viewer', 'products', 1, 0, 0, 0, 0, 0 UNION ALL
   SELECT 'viewer', 'categories', 1, 0, 0, 0, 0, 0 UNION ALL
@@ -162,7 +177,9 @@ JOIN (
   SELECT 'viewer', 'variations', 1, 0, 0, 0, 0, 0 UNION ALL
   SELECT 'viewer', 'orders', 1, 0, 0, 0, 0, 0 UNION ALL
   SELECT 'viewer', 'customers', 1, 0, 0, 0, 0, 0 UNION ALL
+  SELECT 'viewer', 'contact_enquiries', 1, 0, 0, 0, 0, 0 UNION ALL
   SELECT 'viewer', 'coupons', 1, 0, 0, 0, 0, 0 UNION ALL
+  SELECT 'viewer', 'credit_points', 1, 0, 0, 0, 0, 0 UNION ALL
   SELECT 'viewer', 'homepage', 1, 0, 0, 0, 0, 0 UNION ALL
   SELECT 'viewer', 'reviews', 1, 0, 0, 0, 0, 0 UNION ALL
   SELECT 'viewer', 'settings', 1, 0, 0, 0, 0, 0
@@ -182,78 +199,38 @@ JOIN roles r ON r.name = 'super_admin'
 WHERE a.email = 'sourab@thedoveberry.com'
 ON DUPLICATE KEY UPDATE admin_id = VALUES(admin_id);
 
-INSERT INTO app_settings (id, settings_json, updated_by)
-VALUES (
-  1,
-  '{
-    "general": {
-      "storeName": "Avyona",
-      "logoUrl": "/images/optimized/avyona-logo.webp",
-      "faviconUrl": "/favicon.ico",
-      "brandTagline": "Style that moves with you",
-      "supportEmail": "support@avyona.com",
-      "supportPhone": "+91 98765 43210",
-      "businessAddress": "Bengaluru, Karnataka, India",
-      "gstNumber": "29ABCDE1234F1Z5"
-    },
-    "store": {
-      "defaultCurrency": "INR",
-      "currencyFormat": "INR 1,999.00",
-      "taxInclusion": "inclusive",
-      "defaultLanguage": "English",
-      "timezone": "Asia/Kolkata",
-      "guestCheckoutEnabled": true,
-      "accountCreationEnabled": true
-    },
-    "payment": {
-      "codEnabled": true,
-      "razorpayEnabled": true,
-      "stripeEnabled": false,
-      "upiWalletEnabled": true,
-      "paymentSuccessRule": "Mark order as confirmed after gateway success",
-      "paymentFailureHandling": "Retry allowed and order kept pending",
-      "refundSettings": "Manual review before refund approval"
-    },
-    "shipping": {
-      "shippingCharges": "INR 79 standard shipping",
-      "freeShippingThreshold": "INR 999",
-      "deliveryZones": "India-wide with metro priority zones",
-      "deliveryTime": "3 to 5 business days",
-      "dispatchTime": "24 to 48 hours",
-      "pincodeServiceability": "Enabled for supported pin codes"
-    },
-    "tracking": {
-      "orderStatusFlow": "Pending to Delivered with return states",
-      "trackingPageEnabled": true,
-      "defaultStatusMessages": "Shown on public tracking timeline",
-      "expectedDeliveryLogic": "Calculated from dispatch and shipping settings",
-      "autoStatusUpdates": false,
-      "orderIdIsTrackingId": true,
-      "orderIdPrefix": "AVY",
-      "orderIdFormatLogic": "Prefix plus numeric sequence, for example AVY12345"
-    },
-    "notifications": {
-      "orderPlacedEmailEnabled": true,
-      "orderShippedEmailEnabled": true,
-      "orderDeliveredEmailEnabled": true,
-      "whatsappNotificationsEnabled": false,
-      "smsNotificationsEnabled": false,
-      "newOrderAlertEnabled": true,
-      "lowStockAlertEnabled": true
-    },
-    "security": {
-      "superAdminEnabled": true,
-      "staffRoleEnabled": true,
-      "productsAccess": "Configurable by role",
-      "ordersAccess": "Configurable by role",
-      "settingsAccess": "Restricted to Super Admin",
-      "passwordRules": "Strong password policy required",
-      "sessionTimeout": "30 minutes of inactivity"
-    }
-  }',
-  NULL
-)
-ON DUPLICATE KEY UPDATE settings_json = VALUES(settings_json);
+INSERT INTO app_settings (setting_key, setting_value, setting_group)
+VALUES
+  ('store_name', 'Avyona', 'general'),
+  ('store_logo_url', '/images/optimized/avyona-logo.webp', 'general'),
+  ('favicon_url', '/favicon.ico', 'general'),
+  ('brand_tagline', 'Style that moves with you', 'general'),
+  ('business_name', 'Avyona', 'general'),
+  ('support_email', 'support@avyona.com', 'general'),
+  ('support_phone', '+91 98765 43210', 'general'),
+  ('business_address', 'Bengaluru, Karnataka, India', 'general'),
+  ('gst_number', '29ABCDE1234F1Z5', 'general'),
+  ('working_hours', 'Monday to Saturday, 10:00 AM to 7:00 PM', 'general'),
+  ('store__defaultCurrency', 'INR', 'store'),
+  ('store__currencyFormat', 'INR 1,999.00', 'store'),
+  ('store__taxInclusion', 'inclusive', 'store'),
+  ('store__defaultLanguage', 'English', 'store'),
+  ('store__timezone', 'Asia/Kolkata', 'store'),
+  ('store__guestCheckoutEnabled', 'true', 'store'),
+  ('store__accountCreationEnabled', 'true', 'store'),
+  ('payment__codEnabled', 'true', 'payment'),
+  ('payment__razorpayEnabled', 'true', 'payment'),
+  ('payment__stripeEnabled', 'false', 'payment'),
+  ('payment__upiWalletEnabled', 'true', 'payment'),
+  ('shipping__shippingCharges', 'INR 79 standard shipping', 'shipping'),
+  ('shipping__freeShippingThreshold', 'INR 999', 'shipping'),
+  ('shipping__deliveryZones', 'India-wide with metro priority zones', 'shipping'),
+  ('shipping__deliveryTime', '3 to 5 business days', 'shipping'),
+  ('shipping__dispatchTime', '24 to 48 hours', 'shipping'),
+  ('shipping__pincodeServiceability', 'Enabled for supported pin codes', 'shipping')
+ON DUPLICATE KEY UPDATE
+  setting_value = VALUES(setting_value),
+  setting_group = VALUES(setting_group);
 
 INSERT INTO categories (
   name,

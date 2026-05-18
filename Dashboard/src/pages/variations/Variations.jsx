@@ -16,6 +16,30 @@ function getCleanGroupName(product) {
   return String(product.name || product.asin || "").trim();
 }
 
+function normalizeSearchValue(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function getProductSearchText(product) {
+  return [
+    product.name,
+    product.asin,
+    product.sku,
+    product.barcode,
+    product.modelNumber,
+    product.brand
+  ].map(normalizeSearchValue).filter(Boolean).join(" ");
+}
+
+function mergeProductsByAsin(currentProducts, incomingProducts) {
+  const byAsin = new Map();
+  [...currentProducts, ...incomingProducts].forEach((product) => {
+    const asin = String(product.asin || "").trim();
+    if (asin) byAsin.set(asin, product);
+  });
+  return [...byAsin.values()];
+}
+
 export default function Variations() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingGroupId, setEditingGroupId] = useState("");
@@ -25,6 +49,7 @@ export default function Variations() {
   const [catalogProducts, setCatalogProducts] = useState(fallbackProducts);
   const [savedGroups, setSavedGroups] = useState([]);
   const [feedback, setFeedback] = useState({ type: "", message: "" });
+  const [isSearchingProducts, setIsSearchingProducts] = useState(false);
   const canCreateVariations = canAccess("variations", "create");
   const canEditVariations = canAccess("variations", "edit");
   const canDeleteVariations = canAccess("variations", "delete");
@@ -32,14 +57,11 @@ export default function Variations() {
   const catalogCount = catalogProducts.length || fallbackProducts.length;
 
   const filteredProducts = useMemo(() => {
-    const normalized = searchTerm.trim().toLowerCase();
+    const normalized = normalizeSearchValue(searchTerm);
 
     return catalogProducts.filter((product) => {
       if (!normalized) return true;
-      return (
-        String(product.name || "").toLowerCase().includes(normalized) ||
-        String(product.asin || "").toLowerCase().includes(normalized)
-      );
+      return getProductSearchText(product).includes(normalized);
     });
   }, [catalogProducts, searchTerm]);
 
@@ -82,7 +104,7 @@ export default function Variations() {
     async function loadDashboardData() {
       try {
         const [productsResponse, groupsResponse] = await Promise.all([
-          fetchProducts(),
+          fetchProducts({ limit: 100 }),
           fetchVariantGroups()
         ]);
         if (!isMounted) return;
@@ -112,6 +134,36 @@ export default function Variations() {
     };
   }, []);
 
+  useEffect(() => {
+    const normalized = searchTerm.trim();
+    if (normalized.length < 2) return undefined;
+
+    let isMounted = true;
+    const timeoutId = window.setTimeout(async () => {
+      setIsSearchingProducts(true);
+      try {
+        const response = await fetchProducts({ search: normalized, limit: 100 });
+        if (!isMounted) return;
+        const productRows = Array.isArray(response.data?.data) ? response.data.data : [];
+        setCatalogProducts((current) => mergeProductsByAsin(current, productRows));
+      } catch {
+        if (isMounted) {
+          setFeedback({
+            type: "error",
+            message: "Product search is temporarily unavailable. Loaded products can still be selected."
+          });
+        }
+      } finally {
+        if (isMounted) setIsSearchingProducts(false);
+      }
+    }, 250);
+
+    return () => {
+      isMounted = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, [searchTerm]);
+
   const handleSave = async (status) => {
     if (selectedProductRecords.length < 2 || !autoGroupName) {
       return;
@@ -134,10 +186,13 @@ export default function Variations() {
           ? "Variant group updated. The linked products will now show together on the frontend."
           : "Variant group saved. The linked products will now show together on the frontend."
       });
-    } catch {
+    } catch (error) {
+      const backendMessage = error.response?.data?.message || error.message;
       setFeedback({
         type: "error",
-        message: "Variant group could not be saved. Check product ASINs, login status, and backend/database availability."
+        message: backendMessage
+          ? `Variant group could not be saved. ${backendMessage}`
+          : "Variant group could not be saved. Check product ASINs, login status, and backend/database availability."
       });
       return;
     }
@@ -192,7 +247,7 @@ export default function Variations() {
           <span style={eyebrowStyle}>Step 2: Group Creation Flow</span>
           <h2 style={{ margin: "8px 0 0", fontSize: "42px", color: "#0f172a" }}>Variations</h2>
           <p style={{ margin: "12px 0 0", color: "#526377", maxWidth: "780px" }}>
-            Create a variant group by choosing multiple products through product name or ASIN search, then assign
+            Create a variant group by choosing multiple products through product name, ASIN, or SKU search, then assign
             one shared variant type such as color, size, or storage.
           </p>
         </div>
@@ -239,7 +294,7 @@ export default function Variations() {
                 {editingGroupId ? "Edit Variant Group" : "Create Variant Group"}
               </h3>
               <p style={{ margin: "10px 0 0", color: "#526377", maxWidth: "760px" }}>
-                Select multiple products by product name or ASIN, then choose the variant type for the group.
+                Select multiple products by product name, ASIN, or SKU, then choose the variant type for the group.
               </p>
             </div>
           </div>
@@ -265,10 +320,12 @@ export default function Variations() {
                 type="text"
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Search by product name or ASIN"
+                placeholder="Search by product name, ASIN, or SKU"
                 style={inputStyle}
               />
-              <small style={helperStyle}>You can search using product name or ASIN.</small>
+              <small style={helperStyle}>
+                {isSearchingProducts ? "Searching backend products..." : "You can search using product name, ASIN, SKU, barcode, or model number."}
+              </small>
             </label>
 
             <label style={fieldStyle}>
@@ -306,6 +363,9 @@ export default function Variations() {
                       <div style={{ display: "grid", gap: "4px", textAlign: "left" }}>
                         <strong style={{ color: "#0f172a" }}>{product.name}</strong>
                         <span style={{ color: "#526377", fontSize: "13px" }}>{`ASIN: ${product.asin}`}</span>
+                        {product.sku ? (
+                          <span style={{ color: "#526377", fontSize: "13px" }}>{`SKU: ${product.sku}`}</span>
+                        ) : null}
                       </div>
                       <span style={isSelected ? selectedBadgeStyle : addBadgeStyle}>
                         {isSelected ? "Selected" : "Add"}
@@ -329,6 +389,9 @@ export default function Variations() {
                       <div style={{ display: "grid", gap: "4px" }}>
                         <strong style={{ color: "#0f172a" }}>{product.name}</strong>
                         <span style={{ color: "#526377", fontSize: "13px" }}>{`ASIN: ${product.asin}`}</span>
+                        {product.sku ? (
+                          <span style={{ color: "#526377", fontSize: "13px" }}>{`SKU: ${product.sku}`}</span>
+                        ) : null}
                         <span style={{ color: "#64748b", fontSize: "13px" }}>{`Variant Type: ${variantType}`}</span>
                         {autoGroupName ? (
                           <span style={{ color: "#0f766e", fontSize: "13px", fontWeight: 700 }}>{`Group Name: ${autoGroupName}`}</span>
@@ -344,7 +407,7 @@ export default function Variations() {
                 <div style={emptyStateStyle}>
                   <h4 style={{ margin: 0, color: "#0f172a" }}>No products selected yet</h4>
                   <p style={{ margin: 0, color: "#526377" }}>
-                    Search by product name or ASIN and choose multiple products for this variant group.
+                    Search by product name, ASIN, or SKU and choose multiple products for this variant group.
                   </p>
                 </div>
               )}

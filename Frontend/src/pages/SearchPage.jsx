@@ -3,7 +3,6 @@ import { Link, useSearchParams } from "react-router-dom";
 import { trackAnalyticsEvent } from "../api/analyticsApi";
 import { fetchStorefrontProducts } from "../api/productApi";
 import ProductCard from "../components/product/ProductCard";
-import { allProducts } from "../data/storefront-content";
 import { formatCurrency, getSearchResults } from "../utils/storefront";
 
 function normalizeBackendProduct(product) {
@@ -42,36 +41,71 @@ function normalizeBackendProduct(product) {
   };
 }
 
+function getListParam(searchParams, key) {
+  return String(searchParams.get(key) || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function getNumberParam(searchParams, key, fallback = 0) {
+  const value = Number(searchParams.get(key));
+  return Number.isFinite(value) ? value : fallback;
+}
+
 export default function SearchPage({ context }) {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const searchParamString = searchParams.toString();
   const query = searchParams.get("q") || "";
-  const productCatalog = context.allProducts && context.allProducts.length ? context.allProducts : allProducts;
+  const brandFilter = useMemo(() => getListParam(searchParams, "brand"), [searchParamString]);
+  const categoryFilter = useMemo(() => getListParam(searchParams, "category"), [searchParamString]);
+  const availability = useMemo(() => {
+    const stockValues = getListParam(searchParams, "stock");
+    return stockValues.length ? stockValues : getListParam(searchParams, "availability");
+  }, [searchParamString]);
+  const rating = getNumberParam(searchParams, "rating", 0);
+  const sortBy = searchParams.get("sort") || "latest";
+  const page = Math.max(1, getNumberParam(searchParams, "page", 1));
+  const productCatalog = Array.isArray(context.allProducts) ? context.allProducts : [];
   const fallbackResults = useMemo(() => getSearchResults(productCatalog, query), [productCatalog, query]);
   const [serverProducts, setServerProducts] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, limit: 24, total: 0, totalPages: 1 });
   const [facets, setFacets] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [serverUnavailable, setServerUnavailable] = useState(false);
-  const [brandFilter, setBrandFilter] = useState([]);
-  const [availability, setAvailability] = useState([]);
-  const [rating, setRating] = useState(0);
   const [filterOpen, setFilterOpen] = useState(false);
-  const [page, setPage] = useState(1);
   const trackedQueryRef = useRef("");
   const trackedFilterRef = useRef("");
   const products = serverUnavailable ? fallbackResults.map((entry) => entry.product) : serverProducts;
-  const prices = products.map((product) => product.price);
-  const minPrice = prices.length ? Math.min(...prices) : 0;
-  const maxPrice = prices.length ? Math.max(...prices) : 0;
-  const [priceRange, setPriceRange] = useState([minPrice, maxPrice]);
+  const facetPrice = facets?.price || null;
+  const fallbackPrices = products.map((product) => product.price).filter((price) => Number.isFinite(Number(price)));
+  const minPrice = Number(facetPrice?.min ?? (fallbackPrices.length ? Math.min(...fallbackPrices) : 0));
+  const maxPrice = Number(facetPrice?.max ?? (fallbackPrices.length ? Math.max(...fallbackPrices) : 0));
+  const priceRange = useMemo(() => [
+    searchParams.has("minPrice") ? getNumberParam(searchParams, "minPrice", minPrice) : minPrice,
+    searchParams.has("maxPrice") ? getNumberParam(searchParams, "maxPrice", maxPrice) : maxPrice
+  ], [maxPrice, minPrice, searchParamString]);
 
-  useEffect(() => {
-    setPriceRange([minPrice, maxPrice]);
-  }, [minPrice, maxPrice, query]);
+  const updateFilters = (updates, { resetPage = true } = {}) => {
+    const next = new URLSearchParams(searchParams);
+    Object.entries(updates).forEach(([key, value]) => {
+      if (Array.isArray(value)) {
+        if (value.length) next.set(key, value.join(","));
+        else next.delete(key);
+        return;
+      }
+      if (value === undefined || value === null || value === "" || value === 0) next.delete(key);
+      else next.set(key, String(value));
+    });
+    if (resetPage) next.delete("page");
+    setSearchParams(next);
+  };
 
-  useEffect(() => {
-    setPage(1);
-  }, [query, brandFilter, availability, rating]);
+  const toggleFilterValue = (key, value, current) => {
+    updateFilters({
+      [key]: current.includes(value) ? current.filter((item) => item !== value) : [...current, value]
+    });
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -82,11 +116,13 @@ export default function SearchPage({ context }) {
         const response = await fetchStorefrontProducts({
           status: "active",
           search: query,
-          brand: brandFilter.length === 1 ? brandFilter[0] : "",
-          availability: availability.length === 1 ? availability[0] : "",
-          minPrice: priceRange[0] || "",
-          maxPrice: priceRange[1] || "",
-          sort: rating ? "rating-high-low" : "newest",
+          brand: brandFilter.join(","),
+          category: categoryFilter.join(","),
+          stock: availability.join(","),
+          minPrice: searchParams.has("minPrice") ? priceRange[0] : "",
+          maxPrice: searchParams.has("maxPrice") ? priceRange[1] : "",
+          rating: rating || "",
+          sort: sortBy,
           page,
           limit: 24
         });
@@ -129,9 +165,10 @@ export default function SearchPage({ context }) {
     return () => {
       isMounted = false;
     };
-  }, [availability, brandFilter, page, priceRange, query, rating]);
+  }, [availability, brandFilter, categoryFilter, page, priceRange, query, rating, searchParamString, sortBy]);
 
   const brands = facets?.brands?.length ? facets.brands.map((brand) => brand.value) : [...new Set(products.map((product) => product.brand))];
+  const categories = facets?.categories?.length ? facets.categories : [];
 
   const trackSearchResultClick = (product) => {
     if (!query.trim()) return;
@@ -159,24 +196,33 @@ export default function SearchPage({ context }) {
     return () => document.body.classList.remove("search-filters-open");
   }, [filterOpen]);
 
-  const filtered = (serverUnavailable ? products : products).filter((product) => {
+  const filtered = serverUnavailable ? products.filter((product) => {
     const brandPass = !brandFilter.length || brandFilter.includes(product.brand);
+    const categoryPass = !categoryFilter.length || categoryFilter.includes(product.collectionSlug);
     const availabilityPass = !availability.length || availability.includes(product.stockTone);
     const ratingPass = Number(product.rating || 0) >= rating;
     const pricePass = Number(product.price || 0) >= priceRange[0] && Number(product.price || 0) <= priceRange[1];
-    return brandPass && availabilityPass && ratingPass && pricePass;
-  });
+    return brandPass && categoryPass && availabilityPass && ratingPass && pricePass;
+  }).sort((left, right) => {
+    if (["price", "price-low-high", "price-asc"].includes(sortBy)) return Number(left.price || 0) - Number(right.price || 0);
+    if (["price-high-low", "price-desc"].includes(sortBy)) return Number(right.price || 0) - Number(left.price || 0);
+    if (sortBy === "rating-high-low") return Number(right.rating || 0) - Number(left.rating || 0);
+    if (["popularity", "popular"].includes(sortBy)) return Number(right.reviewCount || 0) - Number(left.reviewCount || 0);
+    return 0;
+  }) : products;
 
   useEffect(() => {
-    const hasFilter = brandFilter.length || availability.length || rating || priceRange[0] !== minPrice || priceRange[1] !== maxPrice;
+    const hasFilter = brandFilter.length || categoryFilter.length || availability.length || rating || sortBy !== "latest" || priceRange[0] !== minPrice || priceRange[1] !== maxPrice;
     if (!hasFilter) return;
 
     const filterKey = JSON.stringify({
       query: query.trim(),
       brandFilter,
+      categoryFilter,
       availability,
       rating,
-      priceRange
+      priceRange,
+      sortBy
     });
     if (trackedFilterRef.current === filterKey) return;
     trackedFilterRef.current = filterKey;
@@ -188,15 +234,17 @@ export default function SearchPage({ context }) {
         surface: "search",
         filters: {
           brands: brandFilter,
+          categories: categoryFilter,
           availability,
           minPrice: priceRange[0],
           maxPrice: priceRange[1],
-          rating
+          rating,
+          sortBy
         },
-        resultCount: filtered.length
+        resultCount: serverUnavailable ? filtered.length : pagination.total
       }
     });
-  }, [availability, brandFilter, filtered.length, maxPrice, minPrice, priceRange, query, rating]);
+  }, [availability, brandFilter, categoryFilter, filtered.length, maxPrice, minPrice, pagination.total, priceRange, query, rating, serverUnavailable, sortBy]);
 
   return (
     <main className="container search-page">
@@ -204,7 +252,7 @@ export default function SearchPage({ context }) {
       <section className="search-hero">
         <div className="search-hero-copy">
           <h1>{query ? `Results for "${query}"` : "Search Products"}</h1>
-          <p className="search-summary">{filtered.length} products matched your search.</p>
+          <p className="search-summary">{serverUnavailable ? filtered.length : pagination.total} products matched your search.</p>
           <p className="search-helper-note">You can search by product name, brand, category, SKU, or ASIN.</p>
         </div>
       </section>
@@ -217,12 +265,35 @@ export default function SearchPage({ context }) {
               <h2>Filters</h2>
               <button className="search-filter-close" type="button" onClick={() => setFilterOpen(false)}>Close</button>
             </div>
+            {categories.length ? (
+              <div className="filter-group">
+                <h3>Categories</h3>
+                <div className="filter-options">
+                  {categories.map((category) => (
+                    <label key={category.value} className="filter-option">
+                      <input type="checkbox" checked={categoryFilter.includes(category.value)} onChange={() => toggleFilterValue("category", category.value, categoryFilter)} />
+                      <span>{category.label || category.value}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <div className="filter-group">
+              <h3>Sort By</h3>
+              <select value={sortBy} onChange={(event) => updateFilters({ sort: event.target.value })}>
+                <option value="latest">Latest</option>
+                <option value="price-low-high">Price: Low to High</option>
+                <option value="price-high-low">Price: High to Low</option>
+                <option value="popularity">Popularity</option>
+                <option value="rating-high-low">Top Rated</option>
+              </select>
+            </div>
             <div className="filter-group">
               <h3>Brands</h3>
               <div className="filter-options">
                 {brands.map((brand) => (
                   <label key={brand} className="filter-option">
-                    <input type="checkbox" checked={brandFilter.includes(brand)} onChange={() => setBrandFilter((current) => current.includes(brand) ? current.filter((item) => item !== brand) : [...current, brand])} />
+                    <input type="checkbox" checked={brandFilter.includes(brand)} onChange={() => toggleFilterValue("brand", brand, brandFilter)} />
                     <span>{brand}</span>
                   </label>
                 ))}
@@ -233,7 +304,7 @@ export default function SearchPage({ context }) {
               <div className="filter-options">
                 {["in-stock", "out-of-stock"].map((value) => (
                   <label key={value} className="filter-option">
-                    <input type="checkbox" checked={availability.includes(value)} onChange={() => setAvailability((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value])} />
+                    <input type="checkbox" checked={availability.includes(value)} onChange={() => toggleFilterValue("stock", value, availability)} />
                     <span>{value === "in-stock" ? "In Stock" : "Out of Stock"}</span>
                   </label>
                 ))}
@@ -246,13 +317,13 @@ export default function SearchPage({ context }) {
               </div>
               <div className="range-slider-group">
                 <div className="range-track"></div>
-                <input type="range" min={minPrice} max={maxPrice} value={priceRange[0]} onChange={(event) => setPriceRange(([_, currentMax]) => [Math.min(Number(event.target.value), currentMax), currentMax])} disabled={!products.length} />
-                <input type="range" min={minPrice} max={maxPrice} value={priceRange[1]} onChange={(event) => setPriceRange(([currentMin]) => [currentMin, Math.max(Number(event.target.value), currentMin)])} disabled={!products.length} />
+                <input type="range" min={minPrice} max={maxPrice} value={priceRange[0]} onChange={(event) => updateFilters({ minPrice: Math.min(Number(event.target.value), priceRange[1]) })} disabled={!products.length || minPrice === maxPrice} />
+                <input type="range" min={minPrice} max={maxPrice} value={priceRange[1]} onChange={(event) => updateFilters({ maxPrice: Math.max(Number(event.target.value), priceRange[0]) })} disabled={!products.length || minPrice === maxPrice} />
               </div>
             </div>
             <div className="filter-group">
               <h3>Minimum Rating</h3>
-              <select value={rating} onChange={(event) => setRating(Number(event.target.value))}>
+              <select value={rating} onChange={(event) => updateFilters({ rating: Number(event.target.value) })}>
                 <option value="0">All Ratings</option>
                 <option value="4.5">4.5 and up</option>
                 <option value="4">4.0 and up</option>
@@ -263,10 +334,9 @@ export default function SearchPage({ context }) {
               className="text-link filter-reset"
               type="button"
               onClick={() => {
-                setBrandFilter([]);
-                setAvailability([]);
-                setRating(0);
-                setPriceRange([minPrice, maxPrice]);
+                const next = new URLSearchParams(searchParams);
+                ["brand", "category", "stock", "availability", "rating", "minPrice", "maxPrice", "sort", "page"].forEach((key) => next.delete(key));
+                setSearchParams(next);
                 setFilterOpen(false);
               }}
             >
@@ -280,9 +350,9 @@ export default function SearchPage({ context }) {
             </div>
             {!serverUnavailable && pagination.totalPages > 1 ? (
               <div className="dashboard-toolbar-actions" style={{ justifyContent: "center", marginTop: "24px" }}>
-                <button className="collection-reset-button" type="button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
+                <button className="collection-reset-button" type="button" disabled={page <= 1} onClick={() => updateFilters({ page: Math.max(1, page - 1) }, { resetPage: false })}>Previous</button>
                 <span>{`Page ${pagination.page} of ${pagination.totalPages}`}</span>
-                <button className="collection-reset-button" type="button" disabled={!pagination.hasNextPage} onClick={() => setPage((current) => current + 1)}>Next</button>
+                <button className="collection-reset-button" type="button" disabled={!pagination.hasNextPage} onClick={() => updateFilters({ page: page + 1 }, { resetPage: false })}>Next</button>
               </div>
             ) : null}
           </div>

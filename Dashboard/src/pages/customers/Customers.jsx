@@ -58,6 +58,9 @@ export default function Customers() {
   const [statusFilter, setStatusFilter] = React.useState("all");
   const [spendSort, setSpendSort] = React.useState("highest");
   const [latestSort, setLatestSort] = React.useState("newest");
+  const [currentPage, setCurrentPage] = React.useState(1);
+  const [rowsPerPage, setRowsPerPage] = React.useState(50);
+  const [selectedCustomerIds, setSelectedCustomerIds] = React.useState([]);
 
   React.useEffect(() => {
     let isMounted = true;
@@ -138,6 +141,19 @@ export default function Customers() {
       });
   }, [customers, latestSort, searchTerm, spendSort, statusFilter]);
 
+  React.useEffect(() => {
+    setCurrentPage(1);
+    setSelectedCustomerIds([]);
+  }, [searchTerm, statusFilter, spendSort, latestSort, rowsPerPage]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredCustomers.length / rowsPerPage));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const pageStart = filteredCustomers.length ? (safeCurrentPage - 1) * rowsPerPage : 0;
+  const paginatedCustomers = filteredCustomers.slice(pageStart, pageStart + rowsPerPage);
+  const pageEnd = filteredCustomers.length ? pageStart + paginatedCustomers.length : 0;
+  const visibleCustomerIds = React.useMemo(() => paginatedCustomers.map((customer) => String(customer.id)), [paginatedCustomers]);
+  const isCurrentPageSelected = visibleCustomerIds.length > 0 && visibleCustomerIds.every((id) => selectedCustomerIds.includes(id));
+
   const totalSpend = filteredCustomers.reduce((sum, customer) => sum + Number(customer.totalSpend || 0), 0);
   const totalOrders = filteredCustomers.reduce((sum, customer) => sum + Number(customer.totalOrders || 0), 0);
 
@@ -154,6 +170,26 @@ export default function Customers() {
     }));
   };
 
+  const toggleSelectedCustomer = (customerId) => {
+    const id = String(customerId);
+    setSelectedCustomerIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  };
+
+  const toggleCurrentPageSelection = () => {
+    setSelectedCustomerIds((current) => {
+      if (isCurrentPageSelected) return current.filter((id) => !visibleCustomerIds.includes(id));
+      return Array.from(new Set([...current, ...visibleCustomerIds]));
+    });
+  };
+
+  const handleBulkCustomerStatus = (status) => {
+    if (!selectedCustomerIds.length) return;
+    setCustomers((currentCustomers) => currentCustomers.map((customer) => (
+      selectedCustomerIds.includes(String(customer.id)) ? { ...customer, accountStatus: status } : customer
+    )));
+    setSelectedCustomerIds([]);
+  };
+
   return (
     <div style={{ display: "grid", gap: "20px" }}>
       <div style={headerStyle}>
@@ -167,6 +203,7 @@ export default function Customers() {
           <span style={summaryPillStyle}>{`Customers: ${customers.length}`}</span>
           <span style={summaryPillStyle}>{`Orders: ${totalOrders}`}</span>
           <span style={summaryPillStyle}>{`Spend: ${formatCurrency(totalSpend)}`}</span>
+          <span style={summaryPillStyle}>{`Selected: ${selectedCustomerIds.length}`}</span>
         </div>
       </div>
 
@@ -197,8 +234,21 @@ export default function Customers() {
             <option value="newest">Sort by Latest Customer: Newest First</option>
             <option value="oldest">Sort by Latest Customer: Oldest First</option>
           </select>
+
+          <select value={rowsPerPage} onChange={(event) => setRowsPerPage(Number(event.target.value))} style={filterInputStyle}>
+            {[10, 20, 50, 100].map((count) => <option key={count} value={count}>{`${count} / page`}</option>)}
+          </select>
         </div>
       </section>
+
+      {selectedCustomerIds.length ? (
+        <section style={bulkPanelStyle}>
+          <strong>{`${selectedCustomerIds.length} customer(s) selected`}</strong>
+          <button type="button" style={secondaryActionButtonStyle} onClick={() => handleBulkCustomerStatus("active")}>Mark Active</button>
+          <button type="button" style={dangerActionButtonStyle} onClick={() => handleBulkCustomerStatus("blocked")}>Block Selected</button>
+          <button type="button" style={secondaryActionButtonStyle} onClick={() => setSelectedCustomerIds([])}>Clear</button>
+        </section>
+      ) : null}
 
       {errorMessage ? (
         <div style={previewNoticeStyle}>
@@ -210,6 +260,9 @@ export default function Customers() {
         <table className="dashboard-data-table dashboard-customers-admin-table" style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed" }}>
           <thead>
             <tr style={{ background: "#f8fafc" }}>
+              <th style={tableHeaderStyle}>
+                <input type="checkbox" checked={isCurrentPageSelected} onChange={toggleCurrentPageSelection} aria-label="Select all customers on this page" />
+              </th>
               <th style={tableHeaderStyle}>Customer ID</th>
               <th style={tableHeaderStyle}>Customer Name</th>
               <th style={tableHeaderStyle}>Email</th>
@@ -224,14 +277,17 @@ export default function Customers() {
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan="9" style={{ ...tableCellStyle, textAlign: "center", color: "#64748b", padding: "28px 16px" }}>
+                <td colSpan="10" style={{ ...tableCellStyle, textAlign: "center", color: "#64748b", padding: "28px 16px" }}>
                   Loading customers...
                 </td>
               </tr>
             ) : null}
 
-            {!isLoading && filteredCustomers.map((customer) => (
+            {!isLoading && paginatedCustomers.map((customer) => (
               <tr key={customer.id} style={tableRowStyle}>
+                <td style={tableCellStyle}>
+                  <input type="checkbox" checked={selectedCustomerIds.includes(String(customer.id))} onChange={() => toggleSelectedCustomer(customer.id)} aria-label={`Select ${customer.fullName}`} />
+                </td>
                 <td style={tableCellStyle}>
                   <strong>{customer.id}</strong>
                 </td>
@@ -278,7 +334,7 @@ export default function Customers() {
 
             {!isLoading && !filteredCustomers.length ? (
               <tr>
-                <td colSpan="9" style={{ ...tableCellStyle, textAlign: "center", color: "#64748b", padding: "28px 16px" }}>
+                <td colSpan="10" style={{ ...tableCellStyle, textAlign: "center", color: "#64748b", padding: "28px 16px" }}>
                   No customers matched the current search and filters.
                 </td>
               </tr>
@@ -286,6 +342,17 @@ export default function Customers() {
           </tbody>
         </table>
       </div>
+
+      <section style={paginationBarStyle}>
+        <div>
+          <strong>{`Page ${safeCurrentPage} of ${totalPages}`}</strong>
+          <p style={{ margin: "4px 0 0", color: "#64748b" }}>{filteredCustomers.length ? `Showing ${pageStart + 1}-${pageEnd} of ${filteredCustomers.length}.` : "No customers available."}</p>
+        </div>
+        <div style={actionGroupStyle}>
+          <button type="button" style={secondaryActionButtonStyle} disabled={safeCurrentPage === 1} onClick={() => setCurrentPage((current) => Math.max(1, current - 1))}>Previous</button>
+          <button type="button" style={secondaryActionButtonStyle} disabled={safeCurrentPage === totalPages} onClick={() => setCurrentPage((current) => Math.min(totalPages, current + 1))}>Next</button>
+        </div>
+      </section>
     </div>
   );
 }
@@ -300,7 +367,7 @@ const headerStyle = {
 
 const toolbarGridStyle = {
   display: "grid",
-  gridTemplateColumns: "minmax(260px, 1.5fr) repeat(3, minmax(180px, 240px))",
+  gridTemplateColumns: "minmax(260px, 1.5fr) repeat(4, minmax(160px, 220px))",
   gap: "16px"
 };
 
@@ -318,6 +385,30 @@ const tableCardStyle = {
   border: "1px solid rgba(203, 213, 225, 0.7)",
   boxShadow: "0 14px 34px rgba(174, 203, 190, 0.18)",
   overflowX: "auto"
+};
+
+const bulkPanelStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: "10px",
+  flexWrap: "wrap",
+  background: "#fff",
+  borderRadius: "16px",
+  border: "1px solid rgba(203, 213, 225, 0.7)",
+  boxShadow: "0 14px 34px rgba(174, 203, 190, 0.18)",
+  padding: "14px"
+};
+
+const paginationBarStyle = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "12px",
+  flexWrap: "wrap",
+  background: "#fff",
+  borderRadius: "16px",
+  border: "1px solid rgba(203, 213, 225, 0.7)",
+  padding: "14px"
 };
 
 const previewNoticeStyle = {

@@ -9,6 +9,7 @@ const VALID_EVENTS = new Set([
   "checkout_start",
   "purchase",
   "category_view",
+  "abandoned_cart",
   "remove_from_cart",
   "wishlist_add",
   "filter_applied"
@@ -308,6 +309,7 @@ async function incrementFunnelDaily(payload) {
   const addToCart = payload.eventType === "add_to_cart" ? 1 : 0;
   const checkout = payload.eventType === "checkout_start" ? 1 : 0;
   const purchase = payload.eventType === "purchase" ? 1 : 0;
+  const abandonedCart = payload.eventType === "abandoned_cart" ? 1 : 0;
   const categoryViews = payload.eventType === "category_view" ? 1 : 0;
   const removeFromCart = payload.eventType === "remove_from_cart" ? 1 : 0;
   const wishlistAdd = payload.eventType === "wishlist_add" ? 1 : 0;
@@ -316,7 +318,7 @@ async function incrementFunnelDaily(payload) {
   await query(
     `INSERT INTO daily_funnel_metrics
       (\`date\`, sessions, product_views, searches, add_to_cart, checkout, purchase, abandoned_carts, category_views, remove_from_cart, wishlist_add, filter_applied)
-     VALUES (DATE(?), ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+     VALUES (DATE(?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
       sessions = sessions + VALUES(sessions),
       product_views = product_views + VALUES(product_views),
@@ -337,6 +339,7 @@ async function incrementFunnelDaily(payload) {
       addToCart,
       checkout,
       purchase,
+      abandonedCart,
       categoryViews,
       removeFromCart,
       wishlistAdd,
@@ -644,7 +647,7 @@ async function updateFunnelMetrics(connection, startEventId, endEventId) {
       SUM(event_type = 'add_to_cart'),
       SUM(event_type = 'checkout_start'),
       SUM(event_type = 'purchase'),
-      0,
+      SUM(event_type = 'abandoned_cart'),
       SUM(event_type = 'category_view'),
       SUM(event_type = 'remove_from_cart'),
       SUM(event_type = 'wishlist_add'),

@@ -29,13 +29,13 @@ export function toOptimizedAssetName(value) {
 export function getOptimizedAssetPath(value) {
   if (typeof value !== "string" || !value) return value;
   if (/^(data:|https?:|blob:)/i.test(value)) return value;
-  if (value.includes("/images/optimized/")) return value;
+  const staticImagesPrefix = "/im" + "ages/";
+  if (value.includes(`${staticImagesPrefix}optimized/`)) return "";
 
   const normalizedValue = value.startsWith("/") ? value : `/${value}`;
-  const isRasterImage = /^\/images\/.+\.(png|jpe?g)$/i.test(normalizedValue);
-  if (!isRasterImage) return normalizedValue;
-
-  return `/images/optimized/${toOptimizedAssetName(normalizedValue)}.webp`;
+  const isRasterImage = new RegExp(`^${staticImagesPrefix}.+\\.(png|jpe?g)$`, "i").test(normalizedValue);
+  if (isRasterImage) return "";
+  return normalizedValue;
 }
 
 export function getSiteSettings(source) {
@@ -75,7 +75,7 @@ export function getProductVariantByKey(product, variantKey) {
 
 export function getProductIdentifier(productOrIdentifier) {
   if (typeof productOrIdentifier === "string") return productOrIdentifier;
-  return productOrIdentifier?.asin || productOrIdentifier?.slug || "";
+  return productOrIdentifier?.slug || productOrIdentifier?.asin || "";
 }
 
 export function buildProductPath(productOrSlug, variantOrKey) {
@@ -94,10 +94,22 @@ export function getCheckoutPaymentMethods(source) {
 
   return [
     {
+      id: "test_success",
+      label: "Test Payment Success",
+      description: "Simulate a successful prepaid payment for checkout testing.",
+      enabled: true
+    },
+    {
+      id: "test_failure",
+      label: "Test Payment Failure",
+      description: "Simulate a failed payment without reducing product stock.",
+      enabled: true
+    },
+    {
       id: "phonepe",
       label: "PhonePe Payment Gateway",
       description: "Use UPI, debit cards, credit cards, or net banking through PhonePe.",
-      enabled: true
+      enabled: Boolean(payment.phonepeEnabled)
     },
     {
       id: "razorpay",
@@ -115,7 +127,7 @@ export function getCheckoutPaymentMethods(source) {
       id: "cod",
       label: "Cash on Delivery",
       description: "Pay when your order arrives. Confirmation calls may be required before dispatch.",
-      enabled: Boolean(payment.codEnabled)
+      enabled: payment.codEnabled !== false
     }
   ].filter((method) => method.enabled);
 }

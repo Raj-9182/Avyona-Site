@@ -2,25 +2,51 @@
   "/images/AKG.png": {
     "altText": "",
     "sectionPath": "frontend/public/images",
-    "status": "active",
-    "isDeleted": false,
-    "updatedAt": "2026-04-28T11:28:54.688Z"
+    "status": "inactive",
+    "isDeleted": true,
+    "updatedAt": "2026-05-15T05:06:37.066Z"
   },
   "/uploads/1777374998267-testing-product-name-2-.jpg": {
     "altText": "",
     "sectionPath": "Uploaded asset",
-    "status": "active",
-    "isDeleted": false,
-    "updatedAt": "2026-04-28T11:34:52.518Z"
+    "status": "inactive",
+    "isDeleted": true,
+    "updatedAt": "2026-05-15T05:06:37.066Z"
   },
   "/uploads/1777452151103-hero-upload-check.webp": {
     "status": "inactive",
     "isDeleted": true,
-    "updatedAt": "2026-04-29T08:42:43.589Z"
+    "updatedAt": "2026-05-15T05:06:37.066Z"
   },
   "/uploads/1777452578636-hero-modal-check.webp": {
     "status": "inactive",
     "isDeleted": true,
-    "updatedAt": "2026-04-29T08:49:38.669Z"
+    "updatedAt": "2026-05-15T05:06:37.066Z"
+  },
+  "/images/WYZE.png": {
+    "status": "inactive",
+    "isDeleted": true,
+    "updatedAt": "2026-05-15T05:06:37.066Z"
+  },
+  "/uploads/1777452640377-chatgpt-image-apr-29-2026-02-04-00-pm.png": {
+    "altText": "",
+    "sectionPath": "",
+    "status": "inactive",
+    "isDeleted": true,
+    "updatedAt": "2026-05-15T05:06:37.066Z"
+  },
+  "/uploads/1778906554070-9.jpg": {
+    "altText": "",
+    "sectionPath": "",
+    "status": "active",
+    "isDeleted": false,
+    "updatedAt": "2026-05-16T04:42:49.397Z"
+  },
+  "/uploads/1778905690894-2.jpg": {
+    "altText": "",
+    "sectionPath": "",
+    "status": "active",
+    "isDeleted": false,
+    "updatedAt": "2026-05-16T05:45:04.919Z"
   }
 }

@@ -4,6 +4,11 @@ import { query } from "../config/db.js";
 import { ApiError } from "../utils/apiError.js";
 
 const localCategoriesPath = path.resolve(process.cwd(), "data", "local-categories.json");
+const SYSTEM_FALLBACK_CATEGORY_SLUGS = new Set([
+  "uncategorized",
+  "uncategorized-products",
+  "archived-category-products"
+]);
 
 const DEFAULT_LOCAL_CATEGORIES = [
   {
@@ -280,6 +285,10 @@ function normalizeDynamicRuleJson(value) {
   return null;
 }
 
+function isSystemFallbackCategory(category) {
+  return SYSTEM_FALLBACK_CATEGORY_SLUGS.has(String(category?.slug || "").toLowerCase());
+}
+
 function normalizeCategoryPayload(payload = {}) {
   const name = String(payload.name || "").trim();
   const slug = toSlug(payload.slug || payload.name || "");
@@ -362,6 +371,40 @@ async function ensureUniqueSlug(slug, excludedCategoryId = null) {
   if (rows[0]) {
     throw new ApiError(409, "Category slug already exists");
   }
+}
+
+async function ensureFallbackCategory(excludedCategoryId) {
+  const fallbackNames = ["Uncategorized", "Uncategorized Products", "Archived Category Products"];
+
+  for (const name of fallbackNames) {
+    const slug = toSlug(name);
+    const rows = await query("SELECT id FROM categories WHERE slug = ? LIMIT 1", [slug]);
+    if (rows[0] && Number(rows[0].id) !== Number(excludedCategoryId)) return Number(rows[0].id);
+  }
+
+  for (const name of fallbackNames) {
+    const slug = toSlug(name);
+    const duplicateRows = await query("SELECT id FROM categories WHERE slug = ? LIMIT 1", [slug]);
+    if (duplicateRows[0]) continue;
+
+    const result = await query(
+      `INSERT INTO categories
+        (name, slug, parent_id, description, status, show_in_menu, featured_category, sort_order, meta_title, meta_description, meta_keywords, is_active)
+       VALUES (?, ?, NULL, ?, 'inactive', 0, 0, 9999, ?, ?, ?, 0)`,
+      [
+        name,
+        slug,
+        "System category used to preserve products when an admin deletes their original category.",
+        name,
+        "Products moved here after their original category was deleted.",
+        "uncategorized, archived category"
+      ]
+    );
+
+    return Number(result.insertId);
+  }
+
+  throw new ApiError(409, "Unable to create a fallback category for linked products");
 }
 
 function buildCategoryTree(rows) {
@@ -478,6 +521,7 @@ export async function listCategories(_request, response) {
   try {
     const rows = await query(
       `${CATEGORY_SELECT}
+       WHERE c.slug NOT IN ('uncategorized', 'uncategorized-products', 'archived-category-products')
        ORDER BY COALESCE(parent.sort_order, c.sort_order) ASC, c.parent_id IS NOT NULL ASC, c.sort_order ASC, c.name ASC`
     );
 
@@ -488,7 +532,7 @@ export async function listCategories(_request, response) {
     });
   } catch (error) {
     if (!isDatabaseUnavailable(error)) throw error;
-    const rows = hydrateLocalCategories(await readLocalCategories());
+    const rows = hydrateLocalCategories(await readLocalCategories()).filter((category) => !isSystemFallbackCategory(category));
     response.json({
       success: true,
       count: rows.length,
@@ -666,12 +710,13 @@ export async function deleteCategory(request, response) {
       [categoryId]
     );
 
-    if (Number(childRows[0]?.totalChildren || 0) > 0) {
-      throw new ApiError(400, "Cannot delete a category that still has subcategories");
+    if (Number(productRows[0]?.totalProducts || 0) > 0) {
+      const fallbackCategoryId = await ensureFallbackCategory(categoryId);
+      await query("UPDATE products SET category_id = ? WHERE category_id = ?", [fallbackCategoryId, categoryId]);
     }
 
-    if (Number(productRows[0]?.totalProducts || 0) > 0) {
-      throw new ApiError(400, "Cannot delete a category that still has linked products");
+    if (Number(childRows[0]?.totalChildren || 0) > 0) {
+      await query("UPDATE categories SET parent_id = NULL WHERE parent_id = ?", [categoryId]);
     }
 
     await query("DELETE FROM categories WHERE id = ? LIMIT 1", [categoryId]);
@@ -686,11 +731,9 @@ export async function deleteCategory(request, response) {
     const categories = hydrateLocalCategories(await readLocalCategories());
     const target = categories.find((category) => String(category.id) === String(request.params.id) || category.slug === request.params.id);
     if (!target) throw new ApiError(404, "Category not found");
-    if (categories.some((category) => Number(category.parentId || 0) === Number(target.id))) {
-      throw new ApiError(400, "Cannot delete a category that still has subcategories");
-    }
-
-    const nextCategories = categories.filter((category) => Number(category.id) !== Number(target.id));
+    const nextCategories = categories
+      .filter((category) => Number(category.id) !== Number(target.id))
+      .map((category) => Number(category.parentId || 0) === Number(target.id) ? { ...category, parentId: null } : category);
     await writeLocalCategories(hydrateLocalCategories(nextCategories));
 
     response.json({

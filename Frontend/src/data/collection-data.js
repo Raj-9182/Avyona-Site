@@ -3,7 +3,7 @@ const collectionData = {
     title: "Personal Audio",
     eyebrow: "4 Products",
     description: "Explore premium earbuds, headphones, and neckbands designed for music, travel, workouts, and everyday listening.",
-    bannerImage: "images/optimized/personal-audio.webp",
+    bannerImage: "",
     products: [
       {
         slug: "sony-pulsefit-anc-earbuds",
@@ -13,7 +13,7 @@ const collectionData = {
         mrp: 8999,
         rating: 4.8,
         feature: "Active noise cancellation and compact daily comfort",
-        image: "images/headphone 1.png"
+        image: ""
       },
       {
         slug: "jbl-flexsound-neckband",
@@ -23,7 +23,7 @@ const collectionData = {
         mrp: 4299,
         rating: 4.6,
         feature: "Lightweight fit for calls, travel, and workouts",
-        image: "images/headphone 2.png"
+        image: ""
       },
       {
         slug: "avyona-airbeat-pods",
@@ -33,7 +33,7 @@ const collectionData = {
         mrp: 5599,
         rating: 4.5,
         feature: "Balanced sound with fast pairing and portable charging case",
-        image: "images/headphone 3.png"
+        image: ""
       },
       {
         slug: "sony-quietwave-headphones",
@@ -43,7 +43,7 @@ const collectionData = {
         mrp: 12999,
         rating: 4.7,
         feature: "Rich bass and long battery life for uninterrupted listening",
-        image: "images/headphone 1.png"
+        image: ""
       }
     ]
   },
@@ -51,7 +51,7 @@ const collectionData = {
     title: "Professional Audio",
     eyebrow: "3 Products",
     description: "Creator-ready headphones, microphones, and reference gear for studio setups, podcasting, and professional-grade sound clarity.",
-    bannerImage: "images/optimized/professional-audio.webp",
+    bannerImage: "",
     products: [
       {
         slug: "akg-studio-reference-headphones",
@@ -61,7 +61,7 @@ const collectionData = {
         mrp: 15499,
         rating: 4.7,
         feature: "Detailed sound tuning for editing, mixing, and mastering",
-        image: "images/p. audio 1.png"
+        image: ""
       },
       {
         slug: "sony-streammic-audio-kit",
@@ -71,7 +71,7 @@ const collectionData = {
         mrp: 11299,
         rating: 4.6,
         feature: "Clean vocal pickup for creators, calls, and streaming setups",
-        image: "images/p. audio 2.png"
+        image: ""
       },
       {
         slug: "avyona-deskaudio-monitor",
@@ -81,7 +81,7 @@ const collectionData = {
         mrp: 17699,
         rating: 4.5,
         feature: "Compact desktop monitoring for content creation workspaces",
-        image: "images/p. audio 3.png"
+        image: ""
       }
     ]
   },
@@ -89,7 +89,7 @@ const collectionData = {
     title: "Digital Camera",
     eyebrow: "3 Products",
     description: "Capture travel, family, and creator moments with trusted digital cameras built for sharp imaging and simple operation.",
-    bannerImage: "images/optimized/digital-cameras.webp",
+    bannerImage: "",
     products: [
       {
         slug: "kodak-zoomlite-camera",
@@ -99,7 +99,7 @@ const collectionData = {
         mrp: 20999,
         rating: 4.6,
         feature: "Compact camera with simple controls and dependable image quality",
-        image: "images/Camera 1.png"
+        image: ""
       },
       {
         slug: "kodak-pocket-snap-camera",
@@ -109,7 +109,7 @@ const collectionData = {
         mrp: 12999,
         rating: 4.5,
         feature: "Portable form factor for travel, gifts, and everyday use",
-        image: "images/Camera 2.png"
+        image: ""
       },
       {
         slug: "avyona-capturepro-x",
@@ -119,7 +119,7 @@ const collectionData = {
         mrp: 25999,
         rating: 4.7,
         feature: "Versatile camera setup with sharp results for creators and families",
-        image: "images/Camera 3.png"
+        image: ""
       }
     ]
   },
@@ -127,7 +127,7 @@ const collectionData = {
     title: "Security Camera",
     eyebrow: "3 Products",
     description: "Reliable indoor and outdoor monitoring products with app access, alerts, and smarter home visibility.",
-    bannerImage: "images/optimized/security-cameras.webp",
+    bannerImage: "",
     products: [
       {
         slug: "wyze-secure-view-cam",
@@ -137,7 +137,7 @@ const collectionData = {
         mrp: 5299,
         rating: 4.5,
         feature: "App-connected home monitoring with alerts and night vision",
-        image: "images/S. Camera 1.png"
+        image: ""
       },
       {
         slug: "avyona-guardcam-mini",
@@ -147,7 +147,7 @@ const collectionData = {
         mrp: 4599,
         rating: 4.4,
         feature: "Compact indoor security with two-way communication support",
-        image: "images/S. Camera 2.png"
+        image: ""
       },
       {
         slug: "wyze-outdoor-shield-pro",
@@ -157,7 +157,7 @@ const collectionData = {
         mrp: 7999,
         rating: 4.6,
         feature: "Weather-ready camera for home entrances and perimeter coverage",
-        image: "images/S. Camera 3.png"
+        image: ""
       }
     ]
   },
@@ -165,7 +165,7 @@ const collectionData = {
     title: "Avyona Digital Photo Frames",
     eyebrow: "5 Products",
     description: "Premium digital photo frames for sharing memories, gifting loved ones, and turning every room into a living gallery.",
-    bannerImage: "images/optimized/digital-photo-frames.webp",
+    bannerImage: "",
     products: [
       {
         slug: "avyona-aura-8-frame",
@@ -175,7 +175,7 @@ const collectionData = {
         mrp: 7999,
         rating: 4.6,
         feature: "Compact frame ideal for desks, gifting, and small spaces",
-        image: "images/Frame 1.png"
+        image: ""
       },
       {
         slug: "avyona-aura-10-frame",
@@ -185,7 +185,7 @@ const collectionData = {
         mrp: 9999,
         rating: 4.9,
         feature: "Balanced everyday display for family photos and shared moments",
-        image: "images/Frame 2.png"
+        image: ""
       },
       {
         slug: "avyona-aura-12-frame",
@@ -195,7 +195,7 @@ const collectionData = {
         mrp: 11999,
         rating: 4.7,
         feature: "Larger viewing area for living rooms and shared family spaces",
-        image: "images/Frame 3.png"
+        image: ""
       },
       {
         slug: "avyona-aura-15-frame",
@@ -205,7 +205,7 @@ const collectionData = {
         mrp: 14999,
         rating: 4.8,
         feature: "Statement display frame for premium home decor placements",
-        image: "images/Frame 4.png"
+        image: ""
       },
       {
         slug: "avyona-aura-gift-edition",
@@ -215,7 +215,7 @@ const collectionData = {
         mrp: 15999,
         rating: 4.8,
         feature: "Gift-ready presentation for birthdays, anniversaries, and family events",
-        image: "images/Frame 5.png"
+        image: ""
       }
     ]
   },
@@ -223,7 +223,7 @@ const collectionData = {
     title: "Reading Light",
     eyebrow: "3 Products",
     description: "Comfort-focused reading lights for study corners, bedside use, travel, and long hours of relaxed reading.",
-    bannerImage: "images/optimized/reading-lights.webp",
+    bannerImage: "",
     products: [
       {
         slug: "glocusent-focus-reading-light",
@@ -233,7 +233,7 @@ const collectionData = {
         mrp: 2999,
         rating: 4.7,
         feature: "Comfort lighting with adjustable brightness and portable design",
-        image: "images/R. Light 1.png"
+        image: ""
       },
       {
         slug: "glocusent-night-reader-pro",
@@ -243,7 +243,7 @@ const collectionData = {
         mrp: 3499,
         rating: 4.6,
         feature: "Bedside-friendly reading light for quieter late-night sessions",
-        image: "images/R. Light 2.png"
+        image: ""
       },
       {
         slug: "avyona-glowclip-light",
@@ -253,7 +253,7 @@ const collectionData = {
         mrp: 2499,
         rating: 4.4,
         feature: "Clip-on convenience for study tables, books, and travel",
-        image: "images/R. Light 1.png"
+        image: ""
       }
     ]
   }

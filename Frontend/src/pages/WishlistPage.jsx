@@ -1,13 +1,15 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { allProducts, getProductByIdentifier } from "../data/storefront-content";
 import { buildProductPath, formatCurrency, getProductVariantByKey } from "../utils/storefront";
 
-function resolveWishlistProduct(item) {
-  return getProductByIdentifier(item.slug) || allProducts.find((product) => product.slug === item.slug) || null;
+function resolveWishlistProduct(item, productCatalog = []) {
+  return productCatalog.find((product) => product.slug === item.slug || String(product.asin || "") === String(item.asin || "")) || null;
 }
 
 export default function WishlistPage({ context }) {
+  const productCatalog = Array.isArray(context.allProducts) ? context.allProducts : [];
+  const visibleWishlist = context.wishlist.filter((item) => resolveWishlistProduct(item, productCatalog));
+
   const removeItem = (item) => {
     context.setWishlist((current) =>
       current.filter((entry) => !(entry.slug === item.slug && String(entry.variantLabel || "") === String(item.variantLabel || "")))
@@ -16,7 +18,7 @@ export default function WishlistPage({ context }) {
   };
 
   const moveToCart = (item, triggerElement) => {
-    const product = resolveWishlistProduct(item);
+    const product = resolveWishlistProduct(item, productCatalog);
     if (!product) return;
     const variant = (product.variants || []).find((entry) => entry.label === item.variantLabel) || getProductVariantByKey(product);
     context.addToCart(product, variant, 1, triggerElement);
@@ -33,10 +35,10 @@ export default function WishlistPage({ context }) {
         <Link className="secondary-button" to="/collections">Continue Shopping</Link>
       </section>
 
-      {context.wishlist.length ? (
+      {visibleWishlist.length ? (
         <section className="wishlist-grid">
-          {context.wishlist.map((item) => {
-            const product = resolveWishlistProduct(item);
+          {visibleWishlist.map((item) => {
+            const product = resolveWishlistProduct(item, productCatalog);
             const variant = product?.variants?.find((entry) => entry.label === item.variantLabel) || product?.variants?.[0];
             const productPath = product ? buildProductPath(product, variant) : "/collections";
 
