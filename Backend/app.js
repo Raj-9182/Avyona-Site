@@ -8,9 +8,11 @@ import { errorHandler, notFoundHandler } from "./middlewares/errorHandler.js";
 import { rateLimit } from "./middlewares/rateLimit.js";
 import { asyncHandler } from "./utils/asyncHandler.js";
 import v1Routes from "./routes/v1/index.js";
+import { createLegacyImageStatic } from "./middlewares/legacyImageStatic.js";
 
 const app = express();
 const uploadDirectory = path.resolve(process.cwd(), "uploads");
+const legacyImageStatic = createLegacyImageStatic(uploadDirectory);
 const allowedOrigins = new Set(
   env.nodeEnv === "production"
     ? [env.frontendOrigin, env.siteUrl, ...env.corsOrigins].filter(Boolean)
@@ -43,6 +45,7 @@ app.use("/uploads", express.static(uploadDirectory, {
   maxAge: env.nodeEnv === "production" ? "30d" : 0,
   immutable: env.nodeEnv === "production"
 }));
+app.use(legacyImageStatic);
 app.use("/api", apiRateLimit);
 app.use("/api", (_request, response, next) => {
   response.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");

@@ -11,6 +11,7 @@ import { fetchStorefrontProducts } from "./api/productApi";
 import { clearCustomerToken, fetchCurrentCustomer, fetchCustomerCart, fetchCustomerOrders, fetchCustomerWishlist, getCustomerToken, syncCustomerCart, syncCustomerWishlist } from "./api/customerApi";
 import { couponRules } from "../../shared/coupons";
 import { DEFAULT_APP_SETTINGS, getPublicSettings, mergeSettings } from "../../shared/appSettings";
+import { resolveStorefrontMediaUrl, resolveStorefrontMediaUrlList } from "./utils/mediaUrl";
 import ProtectedRoute from "./components/common/ProtectedRoute";
 import { usePersistentState } from "./hooks/usePersistentState";
 
@@ -38,24 +39,12 @@ const AUTH_STORAGE_KEY = "avyonaAuthUser";
 const ACCOUNT_STORAGE_KEY = "avyonaAccounts";
 const CUSTOMER_PROFILE_KEY = "avyonaCustomerProfile";
 const ORDER_STORAGE_KEY = "avyonaOrders";
-const API_MEDIA_ORIGIN = (import.meta.env.VITE_API_BASE_URL || "http://localhost:4000/api/v1")
-  .replace(/\/api\/v\d+\/?$/i, "")
-  .replace(/\/$/, "");
 const GENERAL_SETTINGS_FALLBACK = {
   ...DEFAULT_APP_SETTINGS.general,
   storeName: "Avyona",
   supportEmail: "support@avyona.com",
-  supportPhone: "",
-  logoUrl: "/images/optimized/avyona-logo.webp"
+  supportPhone: ""
 };
-
-function resolveSettingsMediaUrl(value) {
-  const url = String(value || "").trim();
-  if (!url) return "";
-  if (/^(data|blob|https?):/i.test(url)) return url;
-  if (url.startsWith("/uploads/")) return `${API_MEDIA_ORIGIN}${url}`;
-  return url.startsWith("/") ? url : `/${url}`;
-}
 
 function normalizePublicSettingsPayload(payload = {}) {
   const settings = getPublicSettings(mergeSettings(DEFAULT_APP_SETTINGS, payload || {}));
@@ -63,12 +52,12 @@ function normalizePublicSettingsPayload(payload = {}) {
     ...settings,
     general: {
       ...(settings.general || {}),
-      logoUrl: resolveSettingsMediaUrl(settings.general?.logoUrl),
-      faviconUrl: resolveSettingsMediaUrl(settings.general?.faviconUrl)
+      logoUrl: resolveStorefrontMediaUrl(settings.general?.logoUrl),
+      faviconUrl: resolveStorefrontMediaUrl(settings.general?.faviconUrl)
     },
     thankYouPage: {
       ...(settings.thankYouPage || {}),
-      customIconUrl: resolveSettingsMediaUrl(settings.thankYouPage?.customIconUrl)
+      customIconUrl: resolveStorefrontMediaUrl(settings.thankYouPage?.customIconUrl)
     }
   };
 }
@@ -77,8 +66,8 @@ function normalizeGeneralSettingsPayload(payload = {}) {
   return {
     ...GENERAL_SETTINGS_FALLBACK,
     ...(payload || {}),
-    logoUrl: resolveSettingsMediaUrl(payload?.logoUrl || GENERAL_SETTINGS_FALLBACK.logoUrl),
-    faviconUrl: resolveSettingsMediaUrl(payload?.faviconUrl || "")
+    logoUrl: resolveStorefrontMediaUrl(payload?.logoUrl || GENERAL_SETTINGS_FALLBACK.logoUrl),
+    faviconUrl: resolveStorefrontMediaUrl(payload?.faviconUrl || "")
   };
 }
 
@@ -96,10 +85,12 @@ function normalizeBackendProduct(product) {
   const stockQuantity = Number(product.stockQuantity || 0);
   const discount = mrp > price && price > 0 ? Math.round(((mrp - price) / mrp) * 100) : 0;
   const collectionSlug = product.categorySlug || String(product.categoryName || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  const gallery = Array.isArray(product.galleryUrls) && product.galleryUrls.length
-    ? product.galleryUrls.filter(Boolean)
-    : [];
-  const primaryImage = gallery[0] || product.imageUrl || "";
+  const gallery = resolveStorefrontMediaUrlList(
+    Array.isArray(product.galleryUrls) && product.galleryUrls.length
+      ? product.galleryUrls.filter(Boolean)
+      : []
+  );
+  const primaryImage = resolveStorefrontMediaUrl(gallery[0] || product.imageUrl || "");
 
   return {
     id: product.id,

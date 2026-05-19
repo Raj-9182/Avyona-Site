@@ -4,6 +4,7 @@ import { trackAnalyticsEvent } from "../api/analyticsApi";
 import { fetchStorefrontProducts } from "../api/productApi";
 import ProductCard from "../components/product/ProductCard";
 import { formatCurrency, getSearchResults } from "../utils/storefront";
+import { resolveStorefrontMediaUrl, resolveStorefrontMediaUrlList } from "../utils/mediaUrl";
 
 function normalizeBackendProduct(product) {
   const price = Number(product.price || 0);
@@ -11,8 +12,10 @@ function normalizeBackendProduct(product) {
   const stockQuantity = Number(product.stockQuantity || 0);
   const discount = mrp > price && price > 0 ? Math.round(((mrp - price) / mrp) * 100) : 0;
   const collectionSlug = product.categorySlug || String(product.categoryName || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  const gallery = Array.isArray(product.galleryUrls) && product.galleryUrls.length ? product.galleryUrls.filter(Boolean) : [];
-  const primaryImage = gallery[0] || product.imageUrl || "";
+  const gallery = resolveStorefrontMediaUrlList(
+    Array.isArray(product.galleryUrls) && product.galleryUrls.length ? product.galleryUrls.filter(Boolean) : []
+  );
+  const primaryImage = resolveStorefrontMediaUrl(gallery[0] || product.imageUrl || "");
 
   return {
     id: product.id,

@@ -6,6 +6,8 @@ COPY Backend/package.json Backend/package-lock.json* ./Backend/
 RUN cd Backend && npm install --omit=dev
 
 COPY Backend ./Backend
+# Baked-in images for /uploads/* when no volume is mounted (see Backend/seed-uploads)
+COPY Backend/seed-uploads ./Backend/seed-uploads
 
 WORKDIR /app/Backend
 ENV NODE_ENV=production

@@ -11,6 +11,7 @@ import {
   offerConfigs
 } from "../data/storefront-content";
 import { copyText } from "../utils/storefront";
+import { resolveStorefrontMediaUrl } from "../utils/mediaUrl";
 
 function getCategoryHomepageRule(category) {
   const value = category.dynamicRuleJson;
@@ -24,19 +25,6 @@ function getCategoryHomepageRule(category) {
     }
   }
   return typeof value === "object" && !Array.isArray(value) ? value : {};
-}
-
-const API_MEDIA_ORIGIN = (import.meta.env.VITE_API_BASE_URL || "http://localhost:4000/api/v1")
-  .replace(/\/api\/v\d+\/?$/i, "")
-  .replace(/\/$/, "");
-
-function resolveStorefrontMediaUrl(value, fallback = "") {
-  const url = String(value || "").trim();
-  if (!url) return fallback;
-  if (/^(data|blob):/i.test(url)) return url;
-  if (/^https?:\/\//i.test(url)) return url;
-  if (url.startsWith("/uploads/")) return `${API_MEDIA_ORIGIN}${url}`;
-  return url.startsWith("/") ? url : `/${url}`;
 }
 
 function handleCategoryImageError(event) {

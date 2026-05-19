@@ -7,6 +7,7 @@ import { allProducts } from "../../data/storefront-content";
 import { useAutoRefresh } from "../../hooks/useAutoRefresh";
 import { cloneSettings, DEFAULT_APP_SETTINGS, mergeSettings } from "../../../../shared/appSettings";
 import { REVIEW_TYPE_OPTIONS, REVIEW_VISIBILITY_STATUS_OPTIONS } from "../../../../shared/reviewTypes";
+import { getDashboardMediaPreviewUrl, getStoredMediaPath } from "../../utils/mediaUrl";
 
 export const homepageConfigureSections = {
   "hero-banner": {
@@ -679,7 +680,7 @@ function BrowseCategoriesConfigure({ section, refreshToken = 0 }) {
       const response = await uploadAdminImage(file);
       const uploadedUrl = response.data?.data?.url || "";
       const imageUrl = uploadedUrl.startsWith("/uploads/")
-        ? `http://localhost:4000${uploadedUrl}`
+        ? getStoredMediaPath(uploadedUrl)
         : uploadedUrl;
 
       if (!imageUrl) throw new Error("Image upload did not return a URL");
@@ -2030,7 +2031,7 @@ function FeaturedBrandsConfigure({ section, refreshToken = 0 }) {
     try {
       const response = await uploadAdminImage(file);
       const uploadedUrl = response.data?.data?.url || "";
-      const imageUrl = uploadedUrl.startsWith("/uploads/") ? `http://localhost:4000${uploadedUrl}` : uploadedUrl;
+      const imageUrl = getStoredMediaPath(uploadedUrl);
       if (!imageUrl) throw new Error("Image upload did not return a URL");
       updateBrand(brandId, { logoUrl: imageUrl });
       setMessage("Brand logo uploaded successfully.");
@@ -2356,11 +2357,7 @@ function getFontStyleParts(value) {
 }
 
 function getAdminMediaPreviewUrl(value) {
-  const url = String(value || "").trim();
-  if (!url || /^(data:|https?:|blob:)/i.test(url)) return url;
-  if (url.startsWith("/im" + "ages/")) return "";
-  if (url.startsWith("/uploads/")) return `http://localhost:4000${url}`;
-  return url;
+  return getDashboardMediaPreviewUrl(value);
 }
 
 function AdminPreviewImage({ src, alt, style }) {
@@ -2519,7 +2516,7 @@ function HeroBannerConfigure({ section, refreshToken = 0 }) {
       const response = isVideo ? await uploadAdminMedia(file) : await uploadAdminImage(file);
       const uploadedUrl = response.data?.data?.url || "";
       const mediaUrl = uploadedUrl.startsWith("/uploads/")
-        ? `http://localhost:4000${uploadedUrl}`
+        ? getStoredMediaPath(uploadedUrl)
         : uploadedUrl;
 
       if (!mediaUrl) throw new Error("Media upload did not return a URL");
@@ -2589,7 +2586,7 @@ function HeroBannerConfigure({ section, refreshToken = 0 }) {
       const response = isVideo ? await uploadAdminMedia(file) : await uploadAdminImage(file);
       const uploadedUrl = response.data?.data?.url || "";
       const mediaUrl = uploadedUrl.startsWith("/uploads/")
-        ? `http://localhost:4000${uploadedUrl}`
+        ? getStoredMediaPath(uploadedUrl)
         : uploadedUrl;
 
       if (!mediaUrl) throw new Error("Media upload did not return a URL");

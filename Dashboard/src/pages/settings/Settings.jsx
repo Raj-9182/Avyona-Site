@@ -9,6 +9,7 @@ import {
   setSettingValue
 } from "../../../../shared/appSettings";
 import { ManageAccessPanel } from "./ManageAccess";
+import { getDashboardMediaPreviewUrl, getStoredMediaPath } from "../../utils/mediaUrl";
 
 const MANAGE_ACCESS_SECTION = {
   id: "manage-access",
@@ -75,30 +76,12 @@ function renderFieldControl(field, value, onChange) {
   );
 }
 
-const API_MEDIA_ORIGIN = (import.meta.env?.VITE_API_BASE_URL || "http://localhost:4000/api/v1")
-  .replace(/\/api\/v\d+\/?$/i, "")
-  .replace(/\/$/, "");
 const allowedBrandAssetExtensions = new Set(["png", "jpg", "jpeg", "webp", "svg"]);
 const logoMaxSizeBytes = 2 * 1024 * 1024;
 const faviconMaxSizeBytes = 1 * 1024 * 1024;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const phonePattern = /^[+]?[\d\s().-]{7,20}$/;
 const gstPattern = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/i;
-
-function getMediaPreviewUrl(value) {
-  const url = String(value || "").trim();
-  if (!url) return "";
-  if (/^(data|blob|https?):/i.test(url)) return url;
-  if (url.startsWith("/uploads/")) return `${API_MEDIA_ORIGIN}${url}`;
-  return url.startsWith("/") ? url : `/${url}`;
-}
-
-function getStoredMediaUrl(value) {
-  const url = String(value || "").trim();
-  if (!url) return "";
-  if (url.startsWith("/uploads/")) return `${API_MEDIA_ORIGIN}${url}`;
-  return url;
-}
 
 function validateBrandAssetFile(file, maxSizeBytes) {
   const extension = String(file?.name || "").split(".").pop()?.toLowerCase() || "";
@@ -226,8 +209,8 @@ function GeneralSettingsPanel({ settings, isSaving, isLoading, uploadStates, onF
 }
 
 function GeneralSettingsPreview({ general = {} }) {
-  const logoPreviewUrl = getMediaPreviewUrl(general.logoUrl);
-  const faviconPreviewUrl = getMediaPreviewUrl(general.faviconUrl);
+  const logoPreviewUrl = getDashboardMediaPreviewUrl(general.logoUrl);
+  const faviconPreviewUrl = getDashboardMediaPreviewUrl(general.faviconUrl);
   const details = [
     ["Store Name", general.storeName],
     ["Brand Tagline", general.brandTagline],
@@ -282,7 +265,7 @@ function GeneralSettingsPreview({ general = {} }) {
 function ImageUploadSetting({ label, value, onChange, onUpload, onRemove, uploadState, onClearError, maxSizeBytes, helper, compact = false }) {
   const inputRef = React.useRef(null);
   const [isDragging, setIsDragging] = React.useState(false);
-  const previewUrl = getMediaPreviewUrl(value);
+  const previewUrl = getDashboardMediaPreviewUrl(value);
   const isUploading = uploadState?.status === "uploading";
   const error = uploadState?.error || "";
   const hasSuccess = Boolean(value) && !error && !isUploading;
@@ -446,7 +429,7 @@ export default function Settings() {
     try {
       setUploadState(fieldKey, { status: "uploading", error: "" });
       const response = await uploadSettingsAsset(file, fieldKey.endsWith("faviconUrl") ? "favicon" : "logo");
-      const uploadedUrl = getStoredMediaUrl(response.data?.data?.url || "");
+      const uploadedUrl = getStoredMediaPath(response.data?.data?.url || "");
       setSettings((current) => setSettingValue(current, fieldKey, uploadedUrl));
       setUploadState(fieldKey, { status: "success", error: "" });
       setUsingFallback(false);

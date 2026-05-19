@@ -8,6 +8,8 @@
     "start": "node server.js",
     "mysql:start": "powershell -ExecutionPolicy Bypass -File scripts/start-mysql-local.ps1",
     "db:setup": "node scripts/setup-database.mjs",
+    "media:bootstrap": "node scripts/bootstrap-media-from-uploads.mjs",
+    "seed-uploads:prepare": "node scripts/prepare-seed-uploads.mjs",
     "analytics:process": "node scripts/process-analytics-events.mjs",
     "analytics:aggregate": "node scripts/aggregate-analytics-events.mjs",
     "analytics:aggregate:watch": "node scripts/aggregate-analytics-events.mjs --watch",

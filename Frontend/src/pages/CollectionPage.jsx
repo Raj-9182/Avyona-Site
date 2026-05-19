@@ -5,14 +5,17 @@ import { fetchStorefrontProducts } from "../api/productApi";
 import ProductCard from "../components/product/ProductCard";
 import { flattenCategoryTree, fallbackCategoryTree } from "../data/category-data";
 import { formatCurrency } from "../utils/storefront";
+import { resolveStorefrontMediaUrl, resolveStorefrontMediaUrlList } from "../utils/mediaUrl";
 
 function normalizeBackendProduct(product) {
   const price = Number(product.price || 0);
   const mrp = Number(product.mrp || price || 0);
   const stockQuantity = Number(product.stockQuantity || 0);
   const discount = mrp > price && price > 0 ? Math.round(((mrp - price) / mrp) * 100) : 0;
-  const gallery = Array.isArray(product.galleryUrls) && product.galleryUrls.length ? product.galleryUrls.filter(Boolean) : [];
-  const primaryImage = gallery[0] || product.imageUrl || "";
+  const gallery = resolveStorefrontMediaUrlList(
+    Array.isArray(product.galleryUrls) && product.galleryUrls.length ? product.galleryUrls.filter(Boolean) : []
+  );
+  const primaryImage = resolveStorefrontMediaUrl(gallery[0] || product.imageUrl || "");
 
   return {
     asin: product.asin,

@@ -11,5 +11,8 @@ test-results/
 /package-lock.json
 Backend/uploads/*
 !Backend/uploads/.gitkeep
+# Tracked copy for Railway Docker deploy (run: cd Backend && node scripts/prepare-seed-uploads.mjs)
+!Backend/seed-uploads/
+!Backend/seed-uploads/**
 backend/uploads/inventory-test/
 backend/uploads/inventory-exports/

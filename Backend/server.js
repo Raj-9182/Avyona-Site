@@ -1,6 +1,7 @@
 import app from "./app.js";
 import { pingDatabase } from "./config/db.js";
 import { env } from "./config/env.js";
+import { ensureUploadAssets } from "./lib/ensureUploadAssets.js";
 import { runExpiryJob } from "./services/creditPointsExpiry.js";
 
 const EXPIRY_INTERVAL_MS = 24 * 60 * 60 * 1000; // run daily
@@ -20,6 +21,12 @@ async function runExpiry() {
 }
 
 async function startServer() {
+  try {
+    ensureUploadAssets();
+  } catch (error) {
+    console.warn(`[uploads] Seed sync skipped: ${error.message}`);
+  }
+
   try {
     await pingDatabase();
     console.log("MySQL connection established");

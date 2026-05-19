@@ -9,7 +9,8 @@ dist/
 .env
 .env.*
 Backend/uploads/
-**/uploads/
+# Keep seed-uploads in deploy (API copies them into uploads/ on startup)
+!Backend/seed-uploads/
 .run-logs/
 test-results/
 coverage/
