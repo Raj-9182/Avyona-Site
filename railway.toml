@@ -1,13 +1,10 @@
-# Avyona Site — API service (deploy from repository root)
-# CLI: railway service link api && railway up . --service api
+# API service — build from repo root (GitHub: Raj-9182/Avyona-Site, root directory empty)
 
 [build]
-builder = "nixpacks"
-buildCommand = "cd Backend && npm install"
-watchPatterns = ["Backend/**", "shared/**"]
+builder = "DOCKERFILE"
+dockerfilePath = "deploy/docker/api.Dockerfile"
 
 [deploy]
-startCommand = "cd Backend && node server.js"
 healthcheckPath = "/api/v1/health"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"

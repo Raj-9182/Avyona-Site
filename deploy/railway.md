@@ -1,5 +1,7 @@
 # Deploy Avyona on Railway (project: **Avyona Site**)
 
+**GitHub repo:** https://github.com/Raj-9182/Avyona-Site
+
 ## Current Railway URLs (production)
 
 | Service | URL |
@@ -9,6 +11,22 @@
 | **admin** | https://admin-production-9513.up.railway.app |
 
 Open dashboard: `railway open` (or https://railway.com)
+
+## Connect GitHub repo to each service
+
+Repo: **Raj-9182/Avyona-Site** → https://github.com/Raj-9182/Avyona-Site
+
+In Railway → **Avyona Site** → for each service → **Settings** → **Source** → **Connect Repo** → choose **Avyona-Site**:
+
+| Service | Root directory | Build command | Start command |
+|---------|----------------|---------------|---------------|
+| **api** | *(empty / repo root)* | `cd Backend && npm install` | `cd Backend && node server.js` |
+| **storefront** | `Frontend` | `npm install && npm run build` | `npx vite preview --host 0.0.0.0 --port $PORT` |
+| **admin** | `Dashboard` | `npm install && npm run build` | `npx vite preview --host 0.0.0.0 --port $PORT` |
+
+**analytics-cron:** root empty, start `cd Backend && node scripts/aggregate-analytics-events.mjs`, cron `*/5 * * * *`
+
+After connecting, click **Deploy**. Push code first: `git push -u origin main`.
 
 ## Services
 
