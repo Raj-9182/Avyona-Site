@@ -1,6 +1,5 @@
-# Default file at repo root — used only by the "api" service.
-# storefront → Frontend/Dockerfile
-# admin → Dashboard/Dockerfile
+# Railway config for the "api" service only.
+# In Railway: storefront → Settings → set Config file to this path (see deploy/RAILWAY-CONFIG.md)
 
 [build]
 builder = "DOCKERFILE"
