@@ -17,8 +17,8 @@ GitHub: Raj-9182/Avyona-Site (branch: main)
         │
         ├── MySQL          (Railway plugin, no Git)
         ├── api            (repo root → deploy/docker/api.Dockerfile)
-        ├── storefront     (root: Frontend)
-        └── admin          (root: Dashboard)
+        ├── storefront     (repo root + deploy/docker/frontend.Dockerfile)
+        └── admin          (repo root + deploy/docker/admin.Dockerfile)
 ```
 
 ---
@@ -41,15 +41,17 @@ Open: https://railway.com/project/13087c76-8f9c-4c39-84cc-50f28adb5e6b
 
 1. **+ New** → **GitHub Repo** → same repo
 2. **Service name:** `storefront`
-3. **Root directory:** `Frontend` ← **required** (uses `Frontend/railway.toml`)
-4. **Generate domain**
+3. **Root directory:** *(empty — repo root)*
+4. **Dockerfile path:** `deploy/docker/frontend.Dockerfile`
+5. **Generate domain**
 
 ### Service: `admin`
 
 1. **+ New** → **GitHub Repo** → same repo
 2. **Service name:** `admin`
-3. **Root directory:** `Dashboard`
-4. **Generate domain**
+3. **Root directory:** *(empty — repo root)*
+4. **Dockerfile path:** `deploy/docker/admin.Dockerfile`
+5. **Generate domain**
 
 Delete duplicate/extra services if Railway created empty ones.
 
