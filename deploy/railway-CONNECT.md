@@ -19,15 +19,29 @@ For **each** of `api`, `storefront`, and `admin`:
 3. **Connect GitHub** → pick **`Raj-9182/Avyona-Site`**.
 4. Branch: **`main`**.
 
-### Step B — Build settings (use Docker)
+### Step B — Build settings (critical)
 
-| Service | Root directory | Builder | Dockerfile path |
-|---------|----------------|---------|-----------------|
-| **api** | *(empty — repo root)* | Dockerfile | `deploy/docker/api.Dockerfile` |
-| **storefront** | *(empty — repo root)* | Dockerfile | `deploy/docker/frontend.Dockerfile` |
-| **admin** | *(empty — repo root)* | Dockerfile | `deploy/docker/admin.Dockerfile` |
+If **storefront** shows the same JSON as the API, all services are building the API image. Fix each service separately:
 
-Do **not** set root to `Frontend` or `Dashboard` when using these Dockerfiles.
+**Option 1 — Root directory (easiest)**
+
+| Service | Root directory | Config file |
+|---------|----------------|-------------|
+| **api** | *(empty)* | `railway.toml` (repo root) |
+| **storefront** | `Frontend` | `Frontend/railway.toml` (auto) |
+| **admin** | `Dashboard` | `Dashboard/railway.toml` (auto) |
+
+**Option 2 — Docker from repo root**
+
+| Service | Root directory | Config file path |
+|---------|----------------|------------------|
+| **api** | empty | `railway.toml` |
+| **storefront** | empty | `deploy/railway-storefront.toml` |
+| **admin** | empty | `deploy/railway-admin.toml` |
+
+In **Settings → Build**, set **Config file path** if Railway shows that field.
+
+Redeploy **storefront** and **admin** after changing — wait for **Success**.
 
 ### Step C — Deploy
 

@@ -1,4 +1,5 @@
-# API service — build from repo root (GitHub: Raj-9182/Avyona-Site, root directory empty)
+# API service ONLY — root directory must stay empty on Railway "api" service.
+# storefront/admin must NOT use this file (see deploy/railway-CONNECT.md).
 
 [build]
 builder = "DOCKERFILE"
