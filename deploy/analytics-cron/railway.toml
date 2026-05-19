@@ -1,0 +1,11 @@
+# Deploy from repo root:
+# railway up . --service analytics-cron
+# Then set Cron Schedule in Railway UI: */5 * * * *
+
+[build]
+builder = "nixpacks"
+buildCommand = "cd Backend && npm install"
+
+[deploy]
+startCommand = "cd Backend && node scripts/aggregate-analytics-events.mjs"
+restartPolicyType = "NEVER"

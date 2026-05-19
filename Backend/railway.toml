@@ -1,0 +1,11 @@
+# Deploy from repo root: railway up . --service api --path-as-root
+# (path-as-root uses this folder as archive root — use repo-root deploy instead; see deploy/railway.md)
+
+[build]
+builder = "nixpacks"
+buildCommand = "npm install"
+
+[deploy]
+startCommand = "node server.js"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10

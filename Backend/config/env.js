@@ -2,11 +2,21 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+function parseCorsOrigins() {
+  const fromList = String(process.env.CORS_ORIGINS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const dashboardOrigin = String(process.env.DASHBOARD_ORIGIN || "").trim();
+  return [...fromList, dashboardOrigin].filter(Boolean);
+}
+
 export const env = {
   nodeEnv: process.env.NODE_ENV || "development",
   port: Number(process.env.PORT || 4000),
   frontendOrigin: process.env.FRONTEND_ORIGIN || "http://localhost:5173",
   siteUrl: process.env.SITE_URL || process.env.FRONTEND_PUBLIC_URL || "http://localhost:5173",
+  corsOrigins: parseCorsOrigins(),
   sitemapUrl: process.env.SITEMAP_URL || `${(process.env.SITE_URL || process.env.FRONTEND_PUBLIC_URL || "http://localhost:5173").replace(/\/+$/, "")}/sitemap.xml`,
   dbHost: process.env.DB_HOST || "localhost",
   dbPort: Number(process.env.DB_PORT || 3306),

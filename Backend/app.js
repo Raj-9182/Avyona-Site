@@ -13,9 +13,10 @@ const app = express();
 const uploadDirectory = path.resolve(process.cwd(), "uploads");
 const allowedOrigins = new Set(
   env.nodeEnv === "production"
-    ? [env.frontendOrigin, env.siteUrl].filter(Boolean)
+    ? [env.frontendOrigin, env.siteUrl, ...env.corsOrigins].filter(Boolean)
     : [
       env.frontendOrigin,
+      ...env.corsOrigins,
       "http://localhost:5173",
       "http://localhost:5174",
       "http://127.0.0.1:5173",
