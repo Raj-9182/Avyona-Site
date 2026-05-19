@@ -11,7 +11,11 @@ import { fetchStorefrontProducts } from "./api/productApi";
 import { clearCustomerToken, fetchCurrentCustomer, fetchCustomerCart, fetchCustomerOrders, fetchCustomerWishlist, getCustomerToken, syncCustomerCart, syncCustomerWishlist } from "./api/customerApi";
 import { couponRules } from "../../shared/coupons";
 import { DEFAULT_APP_SETTINGS, getPublicSettings, mergeSettings } from "../../shared/appSettings";
-import { resolveStorefrontMediaUrl, resolveStorefrontMediaUrlList } from "./utils/mediaUrl";
+import {
+  resolveStorefrontHeroBanner,
+  resolveStorefrontMediaUrl,
+  resolveStorefrontMediaUrlList
+} from "./utils/mediaUrl";
 import ProtectedRoute from "./components/common/ProtectedRoute";
 import { usePersistentState } from "./hooks/usePersistentState";
 
@@ -48,6 +52,7 @@ const GENERAL_SETTINGS_FALLBACK = {
 
 function normalizePublicSettingsPayload(payload = {}) {
   const settings = getPublicSettings(mergeSettings(DEFAULT_APP_SETTINGS, payload || {}));
+  const homepage = settings.homepage || {};
   return {
     ...settings,
     general: {
@@ -58,6 +63,24 @@ function normalizePublicSettingsPayload(payload = {}) {
     thankYouPage: {
       ...(settings.thankYouPage || {}),
       customIconUrl: resolveStorefrontMediaUrl(settings.thankYouPage?.customIconUrl)
+    },
+    homepage: {
+      ...homepage,
+      heroBanners: Array.isArray(homepage.heroBanners)
+        ? homepage.heroBanners.map(resolveStorefrontHeroBanner)
+        : [],
+      featuredBrands: Array.isArray(homepage.featuredBrands)
+        ? homepage.featuredBrands.map((brand) => ({
+            ...brand,
+            logoUrl: resolveStorefrontMediaUrl(brand.logoUrl)
+          }))
+        : [],
+      browseCategories: Array.isArray(homepage.browseCategories)
+        ? homepage.browseCategories.map((entry) => ({
+            ...entry,
+            imageUrl: resolveStorefrontMediaUrl(entry.imageUrl)
+          }))
+        : []
     }
   };
 }

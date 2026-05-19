@@ -11,7 +11,7 @@ import {
   offerConfigs
 } from "../data/storefront-content";
 import { copyText } from "../utils/storefront";
-import { resolveStorefrontMediaUrl } from "../utils/mediaUrl";
+import { resolveStorefrontHeroBanner, resolveStorefrontMediaUrl } from "../utils/mediaUrl";
 
 function getCategoryHomepageRule(category) {
   const value = category.dynamicRuleJson;
@@ -211,6 +211,7 @@ export default function Home({ context }) {
     .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
   const globalHeroCta = homepageSettings.globalHeroCta || {};
   const heroBanners = (homepageSettings.heroBanners || [])
+    .map(resolveStorefrontHeroBanner)
     .filter((banner) =>
       banner.status === "active" &&
       isBannerInDisplayWindow(banner) &&

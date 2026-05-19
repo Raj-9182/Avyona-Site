@@ -1,5 +1,6 @@
 import {
   getApiMediaOrigin,
+  normalizeHeroBannerMedia,
   resolveMediaUrl,
   resolveMediaUrlList
 } from "../../../shared/mediaUrl.js";
@@ -14,4 +15,8 @@ export function resolveStorefrontMediaUrl(value, fallback = "") {
 
 export function resolveStorefrontMediaUrlList(values) {
   return resolveMediaUrlList(values, API_MEDIA_ORIGIN);
+}
+
+export function resolveStorefrontHeroBanner(banner) {
+  return normalizeHeroBannerMedia(banner, API_MEDIA_ORIGIN);
 }
