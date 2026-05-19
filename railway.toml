@@ -1,5 +1,6 @@
-# API service ONLY — root directory must stay empty on Railway "api" service.
-# storefront/admin must NOT use this file (see deploy/railway-CONNECT.md).
+# Default file at repo root — used only by the "api" service.
+# storefront → Frontend/Dockerfile
+# admin → Dashboard/Dockerfile
 
 [build]
 builder = "DOCKERFILE"
