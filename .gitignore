@@ -9,5 +9,7 @@ build/
 .run-logs/
 test-results/
 /package-lock.json
+Backend/uploads/*
+!Backend/uploads/.gitkeep
 backend/uploads/inventory-test/
 backend/uploads/inventory-exports/

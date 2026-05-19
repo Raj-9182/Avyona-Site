@@ -1,0 +1,18 @@
+# Keep Railway deploy snapshots small (avoids "snapshot operation was canceled")
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.git/
+.vscode/
+*.log
+.env
+.env.*
+Backend/uploads/
+**/uploads/
+.run-logs/
+test-results/
+coverage/
+*.mp4
+*.mov
+*.webm
